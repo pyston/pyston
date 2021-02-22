@@ -2922,6 +2922,24 @@ error:
     return NULL;
 }
 
+/*static*/ PyObject *
+type_vectorcall(PyObject *metatype, PyObject *const *args,
+                 size_t nargsf, PyObject *kwnames)
+{
+    Py_ssize_t nargs = PyVectorcall_NARGS(nargsf);
+    if (nargs == 1 && metatype == (PyObject *)&PyType_Type){
+        if (!_PyArg_NoKwnames("type", kwnames)) {
+            return NULL;
+        }
+        PyTypeObject* type = Py_TYPE(args[0]);
+        Py_INCREF(type);
+        return type;
+    }
+    /* In other (much less common) cases, fall back to
+       more flexible calling conventions. */
+    return _PyObject_MakeTpCall(metatype, args, nargs, kwnames);
+}
+
 /* static */ const short slotoffsets[] = {
     -1, /* invalid slot */
 #include "typeslots.inc"
@@ -3775,6 +3793,7 @@ PyTypeObject PyType_Type = {
     type_new,                                   /* tp_new */
     PyObject_GC_Del,                            /* tp_free */
     (inquiry)type_is_gc,                        /* tp_is_gc */
+    .tp_vectorcall = type_vectorcall,
 };
 
 
