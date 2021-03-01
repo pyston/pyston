@@ -248,4 +248,44 @@ object___dir__(PyObject *self, PyObject *Py_UNUSED(ignored))
 {
     return object___dir___impl(self);
 }
-/*[clinic end generated code: output=7a6d272d282308f3 input=a9049054013a1b77]*/
+
+#if (PYSTON_SPEEDUPS)
+
+static int
+super_init_impl(superobject *su, PyTypeObject *type, PyObject *obj);
+
+static int
+super_init(PyObject *su, PyObject *args, PyObject *kwargs)
+{
+    int return_value = -1;
+    PyTypeObject *type = NULL;
+    PyObject *obj = NULL;
+
+    if ((Py_TYPE(su) == &PySuper_Type) &&
+        !_PyArg_NoKeywords("super", kwargs)) {
+        goto exit;
+    }
+    if (!_PyArg_CheckPositional("super", PyTuple_GET_SIZE(args), 0, 2)) {
+        goto exit;
+    }
+    if (PyTuple_GET_SIZE(args) < 1) {
+        goto skip_optional;
+    }
+    if (!PyObject_TypeCheck(PyTuple_GET_ITEM(args, 0), &PyType_Type)) {
+        _PyArg_BadArgument("super", "argument 1", (&PyType_Type)->tp_name, PyTuple_GET_ITEM(args, 0));
+        goto exit;
+    }
+    type = (PyTypeObject *)PyTuple_GET_ITEM(args, 0);
+    if (PyTuple_GET_SIZE(args) < 2) {
+        goto skip_optional;
+    }
+    obj = PyTuple_GET_ITEM(args, 1);
+skip_optional:
+    return_value = super_init_impl((superobject *)su, type, obj);
+
+exit:
+    return return_value;
+}
+
+#endif /* (PYSTON_SPEEDUPS) */
+/*[clinic end generated code: output=55914a264b28f881 input=a9049054013a1b77]*/

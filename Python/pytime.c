@@ -28,6 +28,8 @@
 #define NS_TO_MS (1000 * 1000)
 #define NS_TO_US (1000)
 
+PyObject* avoid_clang_bug_pytime() { return NULL; }
+
 static void
 error_time_t_overflow(void)
 {

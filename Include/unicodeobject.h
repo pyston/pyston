@@ -265,6 +265,9 @@ PyAPI_FUNC(void) PyUnicode_InternImmortal(PyObject **);
 PyAPI_FUNC(PyObject *) PyUnicode_InternFromString(
     const char *u              /* UTF-8 encoded string */
     );
+PyAPI_FUNC(PyObject *) PyUnicode_InternFromStringImmortal(
+    const char *u              /* UTF-8 encoded string */
+    );
 
 /* Use only if you know it's a string */
 #define PyUnicode_CHECK_INTERNED(op) \
@@ -811,6 +814,16 @@ PyAPI_FUNC(PyObject*) PyUnicode_Concat(
     PyObject *left,             /* Left string */
     PyObject *right             /* Right string */
     );
+
+#ifndef PYSTON_CLEANUP
+#if PYSTON_SPEEDUPS
+PyAPI_FUNC(PyObject*) PyUnicode_Concat3(
+    PyObject *s1,
+    PyObject *s2,
+    PyObject *s3
+    );
+#endif
+#endif
 
 /* Concat two strings and put the result in *pleft
    (sets *pleft to NULL on error) */

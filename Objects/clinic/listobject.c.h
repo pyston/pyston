@@ -172,7 +172,7 @@ PyDoc_STRVAR(list_sort__doc__,
 static PyObject *
 list_sort_impl(PyListObject *self, PyObject *keyfunc, int reverse);
 
-static PyObject *
+/* static */ PyObject *
 list_sort(PyListObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject *kwnames)
 {
     PyObject *return_value = NULL;

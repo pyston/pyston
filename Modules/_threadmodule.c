@@ -89,20 +89,69 @@ acquire_timed(PyThread_type_lock lock, _PyTime_t timeout)
     return r;
 }
 
+#if PYSTON_SPEEDUPS
+static int
+lock_acquire_parse_args_parsetuple(PyObject *args, PyObject *kwargs, int *blocking, PyObject **timeout_obj)
+{
+    static const char * const _keywords[] = {"blocking", "timeout", NULL};
+    static _PyArg_Parser _parser = {NULL, _keywords, "acquire", 0};
+    PyObject *argsbuf[2];
+    PyObject * const *fastargs;
+    Py_ssize_t nargs = PyTuple_GET_SIZE(args);
+    Py_ssize_t noptargs = nargs + (kwargs ? PyDict_GET_SIZE(kwargs) : 0) - 0;
+    int return_value = 0;
+
+    fastargs = _PyArg_UnpackKeywords(_PyTuple_CAST(args)->ob_item, nargs, kwargs, NULL, &_parser, 0, 2, 0, argsbuf);
+    if (!fastargs) {
+        goto exit;
+    }
+    if (!noptargs) {
+        goto skip_optional_pos;
+    }
+    if (fastargs[0]) {
+        if (PyFloat_Check(fastargs[0])) {
+            PyErr_SetString(PyExc_TypeError,
+                            "integer argument expected, got float" );
+            goto exit;
+        }
+        *blocking = _PyLong_AsInt(fastargs[0]);
+        if (*blocking == -1 && PyErr_Occurred()) {
+            goto exit;
+        }
+        if (!--noptargs) {
+            goto skip_optional_pos;
+        }
+    }
+    *timeout_obj = fastargs[1];
+
+skip_optional_pos:
+    return_value = 1;
+
+exit:
+    return return_value;
+}
+#endif
+
 static int
 lock_acquire_parse_args(PyObject *args, PyObject *kwds,
                         _PyTime_t *timeout)
 {
-    char *kwlist[] = {"blocking", "timeout", NULL};
     int blocking = 1;
     PyObject *timeout_obj = NULL;
     const _PyTime_t unset_timeout = _PyTime_FromSeconds(-1);
 
     *timeout = unset_timeout ;
 
+#if PYSTON_SPEEDUPS
+    if (!lock_acquire_parse_args_parsetuple(args, kwds, &blocking, &timeout_obj))
+        return -1;
+#else
+    char *kwlist[] = {"blocking", "timeout", NULL};
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "|iO:acquire", kwlist,
                                      &blocking, &timeout_obj))
         return -1;
+#endif
+
 
     if (timeout_obj
         && _PyTime_FromSecondsObject(timeout,

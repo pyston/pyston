@@ -560,8 +560,25 @@ Don't forget to apply Py_INCREF() when returning this value!!!
 PyAPI_DATA(PyObject) _Py_NoneStruct; /* Don't use this directly */
 #define Py_None (&_Py_NoneStruct)
 
+#ifdef PYSTON_SPEEDUPS
+#define Py_INCREF_IMMORTAL(obj) ((void)obj)
+#define Py_XINCREF_IMMORTAL(obj) ((void)obj)
+#define Py_DECREF_IMMORTAL(obj) ((void)obj)
+#define Py_XDECREF_IMMORTAL(obj) ((void)obj)
+// This number needs to be a positive signed number when shifted left by two bits,
+// as is done by the gc module
+#define IMMORTAL_REFCOUNT (1L<<60)
+#define MAKE_IMMORTAL(obj) (((PyObject*)obj)->ob_refcnt = IMMORTAL_REFCOUNT)
+#else
+#define Py_INCREF_IMMORTAL(obj) Py_INCREF(obj)
+#define Py_XINCREF_IMMORTAL(obj) Py_XINCREF(obj)
+#define Py_DECREF_IMMORTAL(obj) Py_DECREF(obj)
+#define Py_XDECREF_IMMORTAL(obj) Py_XDECREF(obj)
+#define MAKE_IMMORTAL(obj) ((void)obj)
+#endif
+
 /* Macro for returning Py_None from a function */
-#define Py_RETURN_NONE return Py_INCREF(Py_None), Py_None
+#define Py_RETURN_NONE return Py_INCREF_IMMORTAL(Py_None), Py_None
 
 /*
 Py_NotImplemented is a singleton used to signal that an operation is
@@ -572,7 +589,7 @@ PyAPI_DATA(PyObject) _Py_NotImplementedStruct; /* Don't use this directly */
 
 /* Macro for returning Py_NotImplemented from a function */
 #define Py_RETURN_NOTIMPLEMENTED \
-    return Py_INCREF(Py_NotImplemented), Py_NotImplemented
+    return Py_INCREF_IMMORTAL(Py_NotImplemented), Py_NotImplemented
 
 /* Rich comparison opcodes */
 #define Py_LT 0
@@ -745,6 +762,16 @@ PyAPI_FUNC(void) _PyTrash_thread_destroy_chain(void);
 #  define Py_CPYTHON_OBJECT_H
 #  include  "cpython/object.h"
 #  undef Py_CPYTHON_OBJECT_H
+#endif
+
+#ifndef PYSTON_CLEANUP
+#if PYSTON_SPEEDUPS
+// A struct for caching results of dict lookups.
+typedef struct {
+    uint64_t tag;
+    PyObject* obj;
+} DictCache;
+#endif
 #endif
 
 #ifdef __cplusplus

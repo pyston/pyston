@@ -9,6 +9,8 @@
 #include "code.h"
 #include "structmember.h"
 
+PyObject* avoid_clang_bug_funcobject() { return NULL; }
+
 PyObject *
 PyFunction_NewWithQualName(PyObject *code, PyObject *globals, PyObject *qualname)
 {
@@ -17,7 +19,7 @@ PyFunction_NewWithQualName(PyObject *code, PyObject *globals, PyObject *qualname
     static PyObject *__name__ = NULL;
 
     if (__name__ == NULL) {
-        __name__ = PyUnicode_InternFromString("__name__");
+        __name__ = PyUnicode_InternFromStringImmortal("__name__");
         if (__name__ == NULL)
             return NULL;
     }
@@ -766,7 +768,7 @@ cm_init(PyObject *self, PyObject *args, PyObject *kwds)
 
     if (!_PyArg_NoKeywords("classmethod", kwds))
         return -1;
-    if (!PyArg_UnpackTuple(args, "classmethod", 1, 1, &callable))
+    if (!PyArg_UnpackTuple1(args, "classmethod", 1, 1, &callable))
         return -1;
     Py_INCREF(callable);
     Py_XSETREF(cm->cm_callable, callable);
@@ -948,7 +950,7 @@ sm_init(PyObject *self, PyObject *args, PyObject *kwds)
 
     if (!_PyArg_NoKeywords("staticmethod", kwds))
         return -1;
-    if (!PyArg_UnpackTuple(args, "staticmethod", 1, 1, &callable))
+    if (!PyArg_UnpackTuple1(args, "staticmethod", 1, 1, &callable))
         return -1;
     Py_INCREF(callable);
     Py_XSETREF(sm->sm_callable, callable);

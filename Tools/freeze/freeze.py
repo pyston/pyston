@@ -237,13 +237,13 @@ def main():
             frozendllmain_c = os.path.join(exec_prefix, 'Pc\\frozen_dllmain.c')
     else:
         configdir = sysconfig.get_config_var('LIBPL')
-        incldir = os.path.join(prefix, 'include', 'python%s' % flagged_version)
+        incldir = os.path.join(prefix, 'include', 'pyston%s' % flagged_version)
         config_h_dir = os.path.join(exec_prefix, 'include',
-                                    'python%s' % flagged_version)
-        config_c_in = os.path.join(configdir, 'config.c.in')
-        frozenmain_c = os.path.join(configdir, 'frozenmain.c')
-        makefile_in = os.path.join(configdir, 'Makefile')
-        frozendllmain_c = os.path.join(configdir, 'frozen_dllmain.c')
+                                    'pyston%s' % flagged_version)
+        config_c_in = os.path.join(binlib, 'config.c.in')
+        frozenmain_c = os.path.join(binlib, 'frozenmain.c')
+        makefile_in = os.path.join(binlib, 'Makefile')
+        frozendllmain_c = os.path.join(binlib, 'frozen_dllmain.c')
     libdir = sysconfig.get_config_var('LIBDIR')
     supp_sources = []
     defines = []

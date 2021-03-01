@@ -4,6 +4,8 @@
 #include "Python.h"
 #include <stddef.h>
 
+PyObject* avoid_clang_bug_picklebufobject() { return NULL; }
+
 typedef struct {
     PyObject_HEAD
     /* The view exported by the original object */

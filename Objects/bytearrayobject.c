@@ -15,6 +15,8 @@ class bytearray "PyByteArrayObject *" "&PyByteArray_Type"
 [clinic start generated code]*/
 /*[clinic end generated code: output=da39a3ee5e6b4b0d input=5535b77c37a119e0]*/
 
+PyObject* avoid_clang_bug_bytearray() { return NULL; }
+
 char _PyByteArray_empty_string[] = "";
 
 /* end nullbytes support */
@@ -750,13 +752,20 @@ bytearray_ass_subscript(PyByteArrayObject *self, PyObject *index, PyObject *valu
     }
 }
 
+/*[clinic input]
+bytearray.__init__
+
+    source as arg: object = NULL
+    encoding: str = NULL
+    errors: str = NULL
+
+[clinic start generated code]*/
+
 static int
-bytearray_init(PyByteArrayObject *self, PyObject *args, PyObject *kwds)
+bytearray___init___impl(PyByteArrayObject *self, PyObject *arg,
+                        const char *encoding, const char *errors)
+/*[clinic end generated code: output=4ce1304649c2f8b3 input=1141a7122eefd7b9]*/
 {
-    static char *kwlist[] = {"source", "encoding", "errors", 0};
-    PyObject *arg = NULL;
-    const char *encoding = NULL;
-    const char *errors = NULL;
     Py_ssize_t count;
     PyObject *it;
     PyObject *(*iternext)(PyObject *);
@@ -766,11 +775,6 @@ bytearray_init(PyByteArrayObject *self, PyObject *args, PyObject *kwds)
         if (PyByteArray_Resize((PyObject *)self, 0) < 0)
             return -1;
     }
-
-    /* Parse arguments */
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|Oss:bytearray", kwlist,
-                                     &arg, &encoding, &errors))
-        return -1;
 
     /* Make a quick exit if no first argument */
     if (arg == NULL) {
@@ -2070,7 +2074,7 @@ _common_reduce(PyByteArrayObject *self, int proto)
     }
     if (dict == NULL) {
         dict = Py_None;
-        Py_INCREF(dict);
+        Py_INCREF_IMMORTAL(dict);
     }
 
     buf = PyByteArray_AS_STRING(self);
@@ -2302,7 +2306,7 @@ PyTypeObject PyByteArray_Type = {
     0,                                  /* tp_descr_get */
     0,                                  /* tp_descr_set */
     0,                                  /* tp_dictoffset */
-    (initproc)bytearray_init,           /* tp_init */
+    (initproc)bytearray___init__,       /* tp_init */
     PyType_GenericAlloc,                /* tp_alloc */
     PyType_GenericNew,                  /* tp_new */
     PyObject_Del,                       /* tp_free */

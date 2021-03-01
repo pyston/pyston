@@ -3,11 +3,13 @@ dnl * Please run autoreconf to test your changes! *
 dnl ***********************************************
 
 # Set VERSION so we only need to edit in one place (i.e., here)
+# If you change these, update patchlevel.h as well
 m4_define(PYTHON_VERSION, 3.8)
+m4_define(PYSTON_VERSION, 2.1)
 
 AC_PREREQ([2.69])
 
-AC_INIT([python],[PYTHON_VERSION],[https://bugs.python.org/])
+AC_INIT([pyston],[PYSTON_VERSION],[https://github.com/pyston/pyston])
 
 AC_CONFIG_MACRO_DIR(m4)
 
@@ -39,9 +41,9 @@ HAS_GIT=no-repository
 fi
 if test $HAS_GIT = found
 then
-    GITVERSION="git --git-dir \$(srcdir)/.git rev-parse --short HEAD"
-    GITTAG="git --git-dir \$(srcdir)/.git describe --all --always --dirty"
-    GITBRANCH="git --git-dir \$(srcdir)/.git name-rev --name-only HEAD"
+    GITVERSION="git --git-dir \$(srcdir)/../../.git rev-parse --short HEAD"
+    GITTAG="git --git-dir \$(srcdir)/../../.git describe --all --always"
+    GITBRANCH="git --git-dir \$(srcdir)/../../.git name-rev --name-only HEAD"
 else
     GITVERSION=""
     GITTAG=""
@@ -58,13 +60,13 @@ AC_SUBST(host)
 # pybuilddir.txt will be created by --generate-posix-vars in the Makefile
 rm -f pybuilddir.txt
 
-AC_CHECK_PROGS(PYTHON_FOR_REGEN, python$PACKAGE_VERSION python3 python, python3)
+AC_CHECK_PROGS(PYTHON_FOR_REGEN, pyston$PACKAGE_VERSION pyston3 pyston python$PACKAGE_VERSION python3 python, python3)
 AC_SUBST(PYTHON_FOR_REGEN)
 
 if test "$cross_compiling" = yes; then
     AC_MSG_CHECKING([for python interpreter for cross build])
     if test -z "$PYTHON_FOR_BUILD"; then
-        for interp in python$PACKAGE_VERSION python3 python; do
+        for interp in pyston$PACKAGE_VERSION pyston3 pyston python$PACKAGE_VERSION python3 python; do
 	    which $interp >/dev/null 2>&1 || continue
 	    if $interp -c "import sys;sys.exit(not '.'.join(str(n) for n in sys.version_info@<:@:2@:>@) == '$PACKAGE_VERSION')"; then
 	        break
@@ -72,7 +74,7 @@ if test "$cross_compiling" = yes; then
             interp=
 	done
         if test x$interp = x; then
-	    AC_MSG_ERROR([python$PACKAGE_VERSION interpreter not found])
+	    AC_MSG_ERROR([pyston$PACKAGE_VERSION interpreter not found])
 	fi
         AC_MSG_RESULT($interp)
 	PYTHON_FOR_BUILD='_PYTHON_PROJECT_BASE=$(abs_builddir) _PYTHON_HOST_PLATFORM=$(_PYTHON_HOST_PLATFORM) PYTHONPATH=$(shell test -f pybuilddir.txt && echo $(abs_builddir)/`cat pybuilddir.txt`:)$(srcdir)/Lib _PYTHON_SYSCONFIGDATA_NAME=_sysconfigdata_$(ABIFLAGS)_$(MACHDEP)_$(MULTIARCH) '$interp
@@ -972,7 +974,7 @@ AC_SUBST(LIBRARY)
 AC_MSG_CHECKING(LIBRARY)
 if test -z "$LIBRARY"
 then
-	LIBRARY='libpython$(VERSION)$(ABIFLAGS).a'
+	LIBRARY='libpyston$(VERSION)$(ABIFLAGS).a'
 fi
 AC_MSG_RESULT($LIBRARY)
 
@@ -1112,12 +1114,12 @@ if test $enable_shared = "yes"; then
   AC_DEFINE(Py_ENABLE_SHARED, 1, [Defined if Python is built as a shared library.])
   case $ac_sys_system in
     CYGWIN*)
-          LDLIBRARY='libpython$(LDVERSION).dll.a'
-          DLLLIBRARY='libpython$(LDVERSION).dll'
+          LDLIBRARY='libpyston$(LDVERSION).dll.a'
+          DLLLIBRARY='libpyston$(LDVERSION).dll'
           ;;
     SunOS*)
-	  LDLIBRARY='libpython$(LDVERSION).so'
-	  BLDLIBRARY='-Wl,-R,$(LIBDIR) -L. -lpython$(LDVERSION)'
+	  LDLIBRARY='libpyston$(LDVERSION).so'
+	  BLDLIBRARY='-Wl,-R,$(LIBDIR) -L. -lpyston$(LDVERSION)'
 	  RUNSHARED=LD_LIBRARY_PATH=`pwd`${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
 	  INSTSONAME="$LDLIBRARY".$SOVERSION
 	  if test "$with_pydebug" != yes
@@ -1126,8 +1128,8 @@ if test $enable_shared = "yes"; then
 	  fi
           ;;
     Linux*|GNU*|NetBSD*|FreeBSD*|DragonFly*|OpenBSD*)
-	  LDLIBRARY='libpython$(LDVERSION).so'
-	  BLDLIBRARY='-L. -lpython$(LDVERSION)'
+	  LDLIBRARY='libpyston$(LDVERSION).so'
+	  BLDLIBRARY='-L. -lpyston$(LDVERSION)'
 	  RUNSHARED=LD_LIBRARY_PATH=`pwd`${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
 	  INSTSONAME="$LDLIBRARY".$SOVERSION
 	  if test "$with_pydebug" != yes
@@ -1138,22 +1140,22 @@ if test $enable_shared = "yes"; then
     hp*|HP*)
 	  case `uname -m` in
 		ia64)
-			LDLIBRARY='libpython$(LDVERSION).so'
+			LDLIBRARY='libpyston$(LDVERSION).so'
 			;;
 		*)
-			LDLIBRARY='libpython$(LDVERSION).sl'
+			LDLIBRARY='libpyston$(LDVERSION).sl'
 			;;
 	  esac
-	  BLDLIBRARY='-Wl,+b,$(LIBDIR) -L. -lpython$(LDVERSION)'
+	  BLDLIBRARY='-Wl,+b,$(LIBDIR) -L. -lpyston$(LDVERSION)'
 	  RUNSHARED=SHLIB_PATH=`pwd`${SHLIB_PATH:+:${SHLIB_PATH}}
 	  ;;
     Darwin*)
-    	LDLIBRARY='libpython$(LDVERSION).dylib'
-	BLDLIBRARY='-L. -lpython$(LDVERSION)'
+    	LDLIBRARY='libpyston$(LDVERSION).dylib'
+	BLDLIBRARY='-L. -lpyston$(LDVERSION)'
 	RUNSHARED=DYLD_LIBRARY_PATH=`pwd`${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}
 	;;
     AIX*)
-	LDLIBRARY='libpython$(LDVERSION).so'
+	LDLIBRARY='libpyston$(LDVERSION).so'
 	RUNSHARED=LIBPATH=`pwd`${LIBPATH:+:${LIBPATH}}
 	;;
 
@@ -1163,7 +1165,7 @@ else # shared is disabled
   case $ac_sys_system in
     CYGWIN*)
           BLDLIBRARY='$(LIBRARY)'
-          LDLIBRARY='libpython$(LDVERSION).dll.a'
+          LDLIBRARY='libpyston$(LDVERSION).dll.a'
           ;;
   esac
 fi
@@ -1297,6 +1299,51 @@ else
   DEF_MAKE_ALL_RULE="build_all"
   REQUIRE_PGO="no"
   DEF_MAKE_RULE="all"
+fi
+
+AC_MSG_CHECKING(for --disable-pyston)
+AC_ARG_ENABLE(pyston, AS_HELP_STRING([--disable-pyston], [Disable non-jit Pyston speedups.]),
+[
+if test "$enableval" != no
+then
+  PYSTON="yes"
+  AC_DEFINE(PYSTON_SPEEDUPS, 1, [])
+  AC_MSG_RESULT(no)
+else
+  PYSTON="no"
+  AC_DEFINE(PYSTON_SPEEDUPS, 0, [])
+  # AOT depends on PYSTON_SPEEDUPS
+  AC_MSG_RESULT(yes, also disabling aot)
+  USE_AOT='false'
+fi],
+[
+  PYSTON="yes"
+  AC_DEFINE(PYSTON_SPEEDUPS, 1, [])
+  AC_MSG_RESULT(no)
+])
+
+if test $PYSTON != no
+then
+  AC_MSG_CHECKING(for --disable-aot)
+  AC_ARG_ENABLE(aot, AS_HELP_STRING([--disable-aot], [Disable AOT traces and the JIT.]),
+  [
+  if test "$enableval" != no
+  then
+    AC_MSG_RESULT(no)
+    USE_AOT='true'
+  else
+    AC_MSG_RESULT(yes)
+    USE_AOT='false'
+  fi],
+  [
+    AC_MSG_RESULT(no)
+    USE_AOT='true'
+  ])
+fi
+AC_SUBST(USE_AOT)
+if test "$USE_AOT" != "false"
+then
+    CFLAGS="$CFLAGS -DENABLE_AOT"
 fi
 
 AC_ARG_VAR(PROFILE_TASK, Python args for PGO generation task)
@@ -2569,8 +2616,8 @@ then
 		else
 			# No framework, use the Python app as bundle-loader
 			BLDSHARED="$LDSHARED "'-bundle_loader $(BUILDPYTHON)'
-			LDSHARED="$LDSHARED "'-bundle_loader $(BINDIR)/python$(VERSION)$(EXE)'
-			LDCXXSHARED="$LDCXXSHARED "'-bundle_loader $(BINDIR)/python$(VERSION)$(EXE)'
+			LDSHARED="$LDSHARED "'-bundle_loader $(BINDIR)/pyston$(VERSION)$(EXE)'
+			LDCXXSHARED="$LDCXXSHARED "'-bundle_loader $(BINDIR)/pyston$(VERSION)$(EXE)'
 		fi ;;
 	Darwin/*)
 		# Use -undefined dynamic_lookup whenever possible (10.3 and later).
@@ -2594,8 +2641,8 @@ then
 			else
 				# No framework, use the Python app as bundle-loader
 				BLDSHARED="$LDSHARED "'-bundle_loader $(BUILDPYTHON)'
-				LDSHARED="$LDSHARED "'-bundle_loader $(BINDIR)/python$(VERSION)$(EXE)'
-				LDCXXSHARED="$LDCXXSHARED "'-bundle_loader $(BINDIR)/python$(VERSION)$(EXE)'
+				LDSHARED="$LDSHARED "'-bundle_loader $(BINDIR)/pyston$(VERSION)$(EXE)'
+				LDCXXSHARED="$LDCXXSHARED "'-bundle_loader $(BINDIR)/pyston$(VERSION)$(EXE)'
 			fi
 		else
 			# building for OS X 10.3 and later
@@ -2605,8 +2652,8 @@ then
 		fi
 		;;
 	Linux*|GNU*|QNX*|VxWorks*)
-		LDSHARED='$(CC) -shared'
-		LDCXXSHARED='$(CXX) -shared';;
+        LDSHARED='$(CC) -shared -Wl,-O1 -Wl,-Bsymbolic-functions'
+        LDCXXSHARED='$(CXX) -shared -Wl,-O1 -Wl,-Bsymbolic-functions';;
 	FreeBSD*)
 		if [[ "`$CC -dM -E - </dev/null | grep __ELF__`" != "" ]]
 		then
@@ -2699,7 +2746,7 @@ then
 	    LINKFORSHARED="-Wl,-E -Wl,+s";;
 #	    LINKFORSHARED="-Wl,-E -Wl,+s -Wl,+b\$(BINLIBDEST)/lib-dynload";;
 	Linux-android*) LINKFORSHARED="-pie -Xlinker -export-dynamic";;
-	Linux*|GNU*) LINKFORSHARED="-Xlinker -export-dynamic";;
+    Linux*|GNU*) LINKFORSHARED="-Xlinker -export-dynamic -Wl,-O1 -Wl,-Bsymbolic-functions";;
 	# -u libsys_s pulls in all symbols in libsys
 	Darwin/*)
 		LINKFORSHARED="$extra_undefs -framework CoreFoundation"
@@ -4661,14 +4708,33 @@ AC_SUBST(SOABI)
 AC_MSG_CHECKING(ABIFLAGS)
 AC_MSG_RESULT($ABIFLAGS)
 AC_MSG_CHECKING(SOABI)
-SOABI='cpython-'`echo $VERSION | tr -d .`${ABIFLAGS}${PLATFORM_TRIPLET:+-$PLATFORM_TRIPLET}
+
+if test $PYSTON != no; then
+    IMPLEMENTATION_NAME="pyston"
+    SOABI_VERSION=PYSTON_VERSION
+    LIBS="$LIBS -ljemalloc"
+else
+    IMPLEMENTATION_NAME="cpython"
+    SOABI_VERSION=PYTHON_VERSION
+fi
+AC_DEFINE_UNQUOTED(IMPLEMENTATION_NAME, "${IMPLEMENTATION_NAME}")
+
+SOABI=${IMPLEMENTATION_NAME}-`echo ${SOABI_VERSION} | tr -d .`${ABIFLAGS}${PLATFORM_TRIPLET:+-$PLATFORM_TRIPLET}
 AC_MSG_RESULT($SOABI)
+if test $PYSTON != no; then
+    AC_SUBST(UNSAFE_SOABI)
+    UNSAFE_SOABI=cpython-`echo ${VERSION} | tr -d .`${ABIFLAGS}${PLATFORM_TRIPLET:+-$PLATFORM_TRIPLET}
+fi
 
 # Release and debug (Py_DEBUG) ABI are compatible, but not Py_TRACE_REFS ABI
 if test "$Py_DEBUG" = 'true' -a "$with_trace_refs" != "yes"; then
   # Similar to SOABI but remove "d" flag from ABIFLAGS
   AC_SUBST(ALT_SOABI)
-  ALT_SOABI='cpython-'`echo $VERSION | tr -d .``echo $ABIFLAGS | tr -d d`${PLATFORM_TRIPLET:+-$PLATFORM_TRIPLET}
+  ALT_SOABI=${IMPLEMENTATION_NAME}-`echo ${SOABI_VERSION} | tr -d .``echo $ABIFLAGS | tr -d d`${PLATFORM_TRIPLET:+-$PLATFORM_TRIPLET}
+  if test $PYSTON != no; then
+      AC_SUBST(UNSAFE_ALT_SOABI)
+      UNSAFE_ALT_SOABI=cpython-`echo ${VERSION} | tr -d .``echo $ABIFLAGS | tr -d d`${PLATFORM_TRIPLET:+-$PLATFORM_TRIPLET}
+  fi
   AC_DEFINE_UNQUOTED(ALT_SOABI, "${ALT_SOABI}",
             [Alternative SOABI used in debug build to load C extensions built in release mode])
 fi
@@ -4683,7 +4749,7 @@ AC_MSG_RESULT($LDVERSION)
 # On Android and Cygwin the shared libraries must be linked with libpython.
 AC_SUBST(LIBPYTHON)
 if test -n "$ANDROID_API_LEVEL" -o "$MACHDEP" = "cygwin"; then
-  LIBPYTHON="-lpython${VERSION}${ABIFLAGS}"
+  LIBPYTHON="-lpyston${VERSION}${ABIFLAGS}"
 else
   LIBPYTHON=''
 fi
@@ -4691,9 +4757,9 @@ fi
 dnl define LIBPL after ABIFLAGS and LDVERSION is defined.
 AC_SUBST(PY_ENABLE_SHARED)
 if test x$PLATFORM_TRIPLET = x; then
-  LIBPL='$(prefix)'"/lib/python${VERSION}/config-${LDVERSION}"
+  LIBPL='$(prefix)'"/lib/pyston${VERSION}/config-${LDVERSION}"
 else
-  LIBPL='$(prefix)'"/lib/python${VERSION}/config-${LDVERSION}-${PLATFORM_TRIPLET}"
+  LIBPL='$(prefix)'"/lib/pyston${VERSION}/config-${LDVERSION}-${PLATFORM_TRIPLET}"
 fi
 AC_SUBST(LIBPL)
 

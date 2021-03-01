@@ -15,12 +15,17 @@
                                         /* Higher for patch releases */
 
 /* Version parsed out into numeric values */
+// If you change the major/minor versions, make sure to change configure.ac as well
 /*--start constants--*/
 #define PY_MAJOR_VERSION        3
 #define PY_MINOR_VERSION        8
 #define PY_MICRO_VERSION        8
 #define PY_RELEASE_LEVEL        PY_RELEASE_LEVEL_FINAL
 #define PY_RELEASE_SERIAL       0
+
+#define PYSTON_MAJOR_VERSION        2
+#define PYSTON_MINOR_VERSION        1
+#define PYSTON_MICRO_VERSION        0
 
 /* Version as a string */
 #define PY_VERSION              "3.8.8"

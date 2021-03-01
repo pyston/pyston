@@ -36,6 +36,10 @@ typedef struct _Py_Identifier {
 #define _Py_static_string(varname, value)  static _Py_Identifier varname = _Py_static_string_init(value)
 #define _Py_IDENTIFIER(varname) _Py_static_string(PyId_##varname, #varname)
 
+#define _Py_string_init(value) { .next = NULL, .string = value, .object = NULL }
+#define _Py_string(varname, value)  _Py_Identifier varname = _Py_string_init(value)
+#define _Py_NONSTATIC_IDENTIFIER(varname) _Py_string(PyId_##varname, #varname)
+
 /* buffer interface */
 typedef struct bufferinfo {
     void *buf;
@@ -251,7 +255,12 @@ typedef struct _typeobject {
     destructor tp_del;
 
     /* Type attribute cache version tag. Added in version 2.6 */
+#if PYSTON_SPEEDUPS
+    // NITROUS change from int to long
+    unsigned long tp_version_tag;
+#else
     unsigned int tp_version_tag;
+#endif
 
     destructor tp_finalize;
     vectorcallfunc tp_vectorcall;
@@ -285,6 +294,18 @@ typedef struct _heaptypeobject {
     PyBufferProcs as_buffer;
     PyObject *ht_name, *ht_slots, *ht_qualname;
     struct _dictkeysobject *ht_cached_keys;
+#if PYSTON_SPEEDUPS
+#ifndef PYSTON_CLEANUP
+    struct {
+        PyObject* init_cache;
+        PyObject* subscript_cache;
+        PyObject* str_cache;
+        PyObject* contains_cache;
+    } ht_slot_cache;
+#else
+    void* _data[4];
+#endif
+#endif
     /* here are optional user slots, followed by the members. */
 } PyHeapTypeObject;
 

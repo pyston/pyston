@@ -203,7 +203,7 @@ PyThread_GetInfo(void)
         return NULL;
     }
 #else
-    Py_INCREF(Py_None);
+    Py_INCREF_IMMORTAL(Py_None);
     value = Py_None;
 #endif
     PyStructSequence_SET_ITEM(threadinfo, pos++, value);
@@ -220,7 +220,7 @@ PyThread_GetInfo(void)
     if (value == NULL)
 #endif
     {
-        Py_INCREF(Py_None);
+        Py_INCREF_IMMORTAL(Py_None);
         value = Py_None;
     }
     PyStructSequence_SET_ITEM(threadinfo, pos++, value);

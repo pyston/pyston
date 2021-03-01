@@ -989,7 +989,7 @@ r_object(RFILE *p)
         break;
 
     case TYPE_NONE:
-        Py_INCREF(Py_None);
+        Py_INCREF_IMMORTAL(Py_None);
         retval = Py_None;
         break;
 
@@ -999,17 +999,17 @@ r_object(RFILE *p)
         break;
 
     case TYPE_ELLIPSIS:
-        Py_INCREF(Py_Ellipsis);
+        Py_INCREF_IMMORTAL(Py_Ellipsis);
         retval = Py_Ellipsis;
         break;
 
     case TYPE_FALSE:
-        Py_INCREF(Py_False);
+        Py_INCREF_IMMORTAL(Py_False);
         retval = Py_False;
         break;
 
     case TYPE_TRUE:
-        Py_INCREF(Py_True);
+        Py_INCREF_IMMORTAL(Py_True);
         retval = Py_True;
         break;
 

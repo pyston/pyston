@@ -12,7 +12,7 @@ from distutils import log
 import tokenize
 
 # check if Python is called on the first line with this expression
-first_line_re = re.compile(b'^#!.*python[0-9.]*([ \t].*)?$')
+first_line_re = re.compile(b'^#!.*(?:python|pyston)[0-9.]*([ \t].*)?$')
 
 class build_scripts(Command):
 
@@ -101,7 +101,7 @@ class build_scripts(Command):
                     else:
                         executable = os.path.join(
                             sysconfig.get_config_var("BINDIR"),
-                           "python%s%s" % (sysconfig.get_config_var("VERSION"),
+                           "pyston%s%s" % (sysconfig.get_config_var("VERSION"),
                                            sysconfig.get_config_var("EXE")))
                     executable = os.fsencode(executable)
                     shebang = b"#!" + executable + post_interp + b"\n"

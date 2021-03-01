@@ -11,7 +11,7 @@
 
 #define OFF(x) offsetof(PyFrameObject, x)
 
-static PyMemberDef frame_memberlist[] = {
+/* static */ PyMemberDef frame_memberlist[] = {
     {"f_back",          T_OBJECT,       OFF(f_back),      READONLY},
     {"f_code",          T_OBJECT,       OFF(f_code),      READONLY},
     {"f_builtins",      T_OBJECT,       OFF(f_builtins),  READONLY},
@@ -22,7 +22,7 @@ static PyMemberDef frame_memberlist[] = {
     {NULL}      /* Sentinel */
 };
 
-static PyObject *
+/* static */ PyObject *
 frame_getlocals(PyFrameObject *f, void *closure)
 {
     if (PyFrame_FastToLocalsWithError(f) < 0)
@@ -40,7 +40,7 @@ PyFrame_GetLineNumber(PyFrameObject *f)
         return PyCode_Addr2Line(f->f_code, f->f_lasti);
 }
 
-static PyObject *
+/* static */ PyObject *
 frame_getlineno(PyFrameObject *f, void *closure)
 {
     return PyLong_FromLong(PyFrame_GetLineNumber(f));
@@ -49,7 +49,7 @@ frame_getlineno(PyFrameObject *f, void *closure)
 
 /* Given the index of the effective opcode,
    scan back to construct the oparg with EXTENDED_ARG */
-static unsigned int
+/* static */ unsigned int
 get_arg(const _Py_CODEUNIT *codestr, Py_ssize_t i)
 {
     _Py_CODEUNIT word;
@@ -86,7 +86,7 @@ get_arg(const _Py_CODEUNIT *codestr, Py_ssize_t i)
  *    'return' or 'exception' event since the eval loop has been exited at
  *    that time.
  */
-static int
+/* static */ int
 frame_setlineno(PyFrameObject *f, PyObject* p_new_lineno, void *Py_UNUSED(ignored))
 {
     int new_lineno = 0;                 /* The new value of f_lineno */
@@ -331,20 +331,22 @@ frame_setlineno(PyFrameObject *f, PyObject* p_new_lineno, void *Py_UNUSED(ignore
     return 0;
 }
 
-static PyObject *
+/* static */ PyObject *
 frame_gettrace(PyFrameObject *f, void *closure)
 {
     PyObject* trace = f->f_trace;
 
-    if (trace == NULL)
+    if (trace == NULL) {
         trace = Py_None;
-
-    Py_INCREF(trace);
+        Py_INCREF_IMMORTAL(trace);
+    } else {
+        Py_INCREF(trace);
+    }
 
     return trace;
 }
 
-static int
+/* static */ int
 frame_settrace(PyFrameObject *f, PyObject* v, void *closure)
 {
     /* We rely on f_lineno being accurate when f_trace is set. */
@@ -359,7 +361,7 @@ frame_settrace(PyFrameObject *f, PyObject* v, void *closure)
 }
 
 
-static PyGetSetDef frame_getsetlist[] = {
+/* static */ PyGetSetDef frame_getsetlist[] = {
     {"f_locals",        (getter)frame_getlocals, NULL, NULL},
     {"f_lineno",        (getter)frame_getlineno,
                     (setter)frame_setlineno, NULL},
@@ -409,12 +411,15 @@ static PyGetSetDef frame_getsetlist[] = {
    frames could provoke free_list into growing without bound.
 */
 
-static PyFrameObject *free_list = NULL;
-static int numfree = 0;         /* number of frames currently in free_list */
+#define numfree frame_numfree
+#define free_list frame_free_list
+
+/* static */ PyFrameObject *free_list = NULL;
+/* static */ int numfree = 0;         /* number of frames currently in free_list */
 /* max value for numfree */
 #define PyFrame_MAXFREELIST 200
 
-static void _Py_HOT_FUNCTION
+/* static */ void _Py_HOT_FUNCTION
 frame_dealloc(PyFrameObject *f)
 {
     PyObject **p, **valuestack;
@@ -456,7 +461,7 @@ frame_dealloc(PyFrameObject *f)
     Py_TRASHCAN_SAFE_END(f)
 }
 
-static int
+/* static */ int
 frame_traverse(PyFrameObject *f, visitproc visit, void *arg)
 {
     PyObject **fastlocals, **p;
@@ -483,7 +488,7 @@ frame_traverse(PyFrameObject *f, visitproc visit, void *arg)
     return 0;
 }
 
-static int
+/* static */ int
 frame_tp_clear(PyFrameObject *f)
 {
     PyObject **fastlocals, **p, **oldtop;
@@ -514,7 +519,7 @@ frame_tp_clear(PyFrameObject *f)
     return 0;
 }
 
-static PyObject *
+/* static */ PyObject *
 frame_clear(PyFrameObject *f, PyObject *Py_UNUSED(ignored))
 {
     if (f->f_executing) {
@@ -533,7 +538,7 @@ frame_clear(PyFrameObject *f, PyObject *Py_UNUSED(ignored))
 PyDoc_STRVAR(clear__doc__,
 "F.clear(): clear most references held by the frame");
 
-static PyObject *
+/* static */ PyObject *
 frame_sizeof(PyFrameObject *f, PyObject *Py_UNUSED(ignored))
 {
     Py_ssize_t res, extras, ncells, nfrees;
@@ -551,7 +556,7 @@ frame_sizeof(PyFrameObject *f, PyObject *Py_UNUSED(ignored))
 PyDoc_STRVAR(sizeof__doc__,
 "F.__sizeof__() -> size of F in memory, in bytes");
 
-static PyObject *
+/* static */ PyObject *
 frame_repr(PyFrameObject *f)
 {
     int lineno = PyFrame_GetLineNumber(f);
@@ -560,7 +565,7 @@ frame_repr(PyFrameObject *f)
         f, f->f_code->co_filename, lineno, f->f_code->co_name);
 }
 
-static PyMethodDef frame_methods[] = {
+/* static */ PyMethodDef frame_methods[] = {
     {"clear",           (PyCFunction)frame_clear,       METH_NOARGS,
      clear__doc__},
     {"__sizeof__",      (PyCFunction)frame_sizeof,      METH_NOARGS,
@@ -622,9 +627,25 @@ _PyFrame_New_NoTrack(PyThreadState *tstate, PyCodeObject *code,
     }
 #endif
     if (back == NULL || back->f_globals != globals) {
+#if PYSTON_SPEEDUPS
+        if (((PyDictObject*)globals)->ma_version_tag == code->co_builtins_cache_ver) {
+            builtins = code->co_builtins_cache_obj;
+        } else {
+            builtins = _PyDict_GetItemIdWithError(globals, &PyId___builtins__);
+
+            code->co_builtins_cache_ver = ((PyDictObject*)globals)->ma_version_tag;
+            code->co_builtins_cache_obj = builtins;
+        }
+#else
         builtins = _PyDict_GetItemIdWithError(globals, &PyId___builtins__);
+#endif
+
         if (builtins) {
-            if (PyModule_Check(builtins)) {
+            if (
+#if PYSTON_SPEEDUPS
+                    Py_TYPE(builtins) != &PyDict_Type &&
+#endif
+                    PyModule_Check(builtins)) {
                 builtins = PyModule_GetDict(builtins);
                 assert(builtins != NULL);
             }
@@ -782,7 +803,7 @@ PyFrame_BlockPop(PyFrameObject *f)
    in dict.
  */
 
-static int
+/* static */ int
 map_to_dict(PyObject *map, Py_ssize_t nmap, PyObject *dict, PyObject **values,
             int deref)
 {
@@ -835,7 +856,7 @@ map_to_dict(PyObject *map, Py_ssize_t nmap, PyObject *dict, PyObject **values,
    because there is no good way to report them.
 */
 
-static void
+/* static */ void
 dict_to_map(PyObject *map, Py_ssize_t nmap, PyObject *dict, PyObject **values,
             int deref, int clear)
 {

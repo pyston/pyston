@@ -248,6 +248,16 @@ class CAPITest(unittest.TestCase):
     def test_buildvalue_N(self):
         _testcapi.test_buildvalue_N()
 
+    # Pyston change: This test is a bit brittle since *any* extra allocations
+    # will change the result.
+    # In particular, the allocation of an opcache will cause this to fail,
+    # so skip this test if we've lowered the jit threshold to the point that
+    # we might allocate one during this test.
+    if "OPCACHE_MIN_RUNS" in os.environ:
+        _opcache_thresh = int(os.environ["OPCACHE_MIN_RUNS"])
+    else:
+        _opcache_thresh = int(os.environ.get("JIT_MIN_RUNS", "2000")) / 2
+    @unittest.skipIf(_opcache_thresh < 200, "We might allocate an opcache in the middle of this test")
     def test_set_nomemory(self):
         code = """if 1:
             import _testcapi

@@ -14,6 +14,11 @@ typedef struct {
     void *md_state;
     PyObject *md_weaklist;
     PyObject *md_name;  /* for logging purposes after md_dict is cleared */
+#if PYSTON_SPEEDUPS
+    DictCache getattr_cache;
+    DictCache path_cache;
+    DictCache spec_cache;
+#endif
 } PyModuleObject;
 
 static PyMemberDef module_members[] = {
@@ -724,17 +729,36 @@ _PyModuleSpec_IsInitializing(PyObject *spec)
 }
 
 static PyObject*
-module_getattro(PyModuleObject *m, PyObject *name)
+module_getgetattr(PyModuleObject* mod) {
+    _Py_IDENTIFIER(__getattr__);
+#if PYSTON_SPEEDUPS
+    PyObject* getattr;
+    if (((PyDictObject*)mod->md_dict)->ma_version_tag == mod->getattr_cache.tag)
+        return mod->getattr_cache.obj;
+
+    getattr = _PyDict_GetItemId(mod->md_dict, &PyId___getattr__);
+    mod->getattr_cache.obj = getattr;
+    mod->getattr_cache.tag = ((PyDictObject*)mod->md_dict)->ma_version_tag;
+    return getattr;
+#else
+    return _PyDict_GetItemId(mod->md_dict, &PyId___getattr__);
+#endif
+}
+
+#if PYSTON_SPEEDUPS
+PyObject* module_getattro_not_found(PyObject *_m, PyObject *name)
 {
-    PyObject *attr, *mod_name, *getattr;
-    attr = PyObject_GenericGetAttr((PyObject *)m, name);
-    if (attr || !PyErr_ExceptionMatches(PyExc_AttributeError)) {
-        return attr;
+    PyModuleObject *m = (PyModuleObject*)_m;
+    PyObject *mod_name, *getattr;
+    PyObject* err = PyErr_Occurred();
+    if (err) {
+        if (!PyErr_GivenExceptionMatches(err, PyExc_AttributeError))
+            return NULL;
+        PyErr_Clear();
     }
-    PyErr_Clear();
+
     if (m->md_dict) {
-        _Py_IDENTIFIER(__getattr__);
-        getattr = _PyDict_GetItemId(m->md_dict, &PyId___getattr__);
+        getattr = module_getgetattr(m);
         if (getattr) {
             PyObject* stack[1] = {name};
             return _PyObject_FastCall(getattr, stack, 1);
@@ -766,6 +790,143 @@ module_getattro(PyModuleObject *m, PyObject *name)
     PyErr_Format(PyExc_AttributeError,
                 "module has no attribute '%U'", name);
     return NULL;
+}
+#endif
+
+#if PYSTON_SPEEDUPS
+PyObject* module_getattro(PyModuleObject *m, PyObject *name)
+{
+    PyObject *attr = _PyObject_GenericGetAttrWithDict((PyObject *)m, name, NULL, 1 /* suppress */);
+    if (attr)
+        return attr;
+    return module_getattro_not_found((PyObject*)m, name);
+}
+#else
+
+static PyObject*
+module_getattro(PyModuleObject *m, PyObject *name)
+{
+    PyObject *attr, *mod_name, *getattr;
+    attr = PyObject_GenericGetAttr((PyObject *)m, name);
+    if (attr || !PyErr_ExceptionMatches(PyExc_AttributeError)) {
+        return attr;
+    }
+    PyErr_Clear();
+
+    if (m->md_dict) {
+        getattr = module_getgetattr(m);
+        if (getattr) {
+            PyObject* stack[1] = {name};
+            return _PyObject_FastCall(getattr, stack, 1);
+        }
+        _Py_IDENTIFIER(__name__);
+        mod_name = _PyDict_GetItemId(m->md_dict, &PyId___name__);
+        if (mod_name && PyUnicode_Check(mod_name)) {
+            _Py_IDENTIFIER(__spec__);
+            Py_INCREF(mod_name);
+            PyObject *spec = _PyDict_GetItemId(m->md_dict, &PyId___spec__);
+            Py_XINCREF(spec);
+            if (_PyModuleSpec_IsInitializing(spec)) {
+                PyErr_Format(PyExc_AttributeError,
+                             "partially initialized "
+                             "module '%U' has no attribute '%U' "
+                             "(most likely due to a circular import)",
+                             mod_name, name);
+            }
+            else {
+                PyErr_Format(PyExc_AttributeError,
+                             "module '%U' has no attribute '%U'",
+                             mod_name, name);
+            }
+            Py_XDECREF(spec);
+            Py_DECREF(mod_name);
+            return NULL;
+        }
+    }
+    PyErr_Format(PyExc_AttributeError,
+                "module has no attribute '%U'", name);
+    return NULL;
+}
+#endif
+
+#if PYSTON_SPEEDUPS
+/*
+ * Tries to use a cache to get an instance attribute of a module object.
+ * Returns the special CANT_CACHE object if we hit a path that cannot be
+ * cached, in which case you should fall back to the generic lookup routine.
+ *
+ * Logic copied from module_getattro
+ */
+#define CANT_CACHE ((PyObject*)1)
+static PyObject*
+module_cached_get_instance_attribute(PyModuleObject* mod, _Py_Identifier *id, DictCache* cache_entry) {
+    if (mod->md_dict && ((PyDictObject*)mod->md_dict)->ma_version_tag == cache_entry->tag)
+        return cache_entry->obj;
+
+    PyObject *name = _PyUnicode_FromId(id); /* borrowed */
+    PyObject *attr = _PyObject_GenericGetAttrWithDict((PyObject *)mod, name, NULL, 1 /* suppress */);
+    if (attr) {
+        cache_entry->obj = attr;
+        cache_entry->tag = ((PyDictObject*)mod->md_dict)->ma_version_tag;
+        return attr;
+    }
+    PyObject* err = PyErr_Occurred();
+    if (err) {
+        if (!PyErr_GivenExceptionMatches(err, PyExc_AttributeError)) {
+            return CANT_CACHE;
+        }
+        PyErr_Clear();
+    }
+
+    if (mod->md_dict) {
+        PyObject* getattr = module_getgetattr(mod);
+        if (getattr) {
+            cache_entry->obj = CANT_CACHE;
+            cache_entry->tag = ((PyDictObject*)mod->md_dict)->ma_version_tag;
+            return CANT_CACHE;
+        }
+
+        cache_entry->obj = NULL;
+        cache_entry->tag = ((PyDictObject*)mod->md_dict)->ma_version_tag;
+    }
+    return NULL;
+}
+#endif
+
+PyObject* _PyModule_GetPath(PyObject* mod) {
+    _Py_IDENTIFIER(__path__);
+#if PYSTON_SPEEDUPS
+    if (Py_TYPE(mod) == &PyModule_Type) {
+        // PyModuleType doesn't have a __path__ attribute, so just look it up on the instance:
+        PyObject* r = module_cached_get_instance_attribute(
+                (PyModuleObject*)mod, &PyId___path__, &((PyModuleObject*)mod)->path_cache);
+        if (r != CANT_CACHE) {
+            Py_XINCREF(r);
+            return r;
+        }
+    }
+#endif
+
+    PyObject* path;
+    _PyObject_LookupAttrId(mod, &PyId___path__, &path);
+    return path;
+}
+
+PyObject* _PyModule_GetSpec(PyObject* mod) {
+    _Py_IDENTIFIER(__spec__);
+#if PYSTON_SPEEDUPS
+    if (Py_TYPE(mod) == &PyModule_Type) {
+        // PyModuleType doesn't have a __spec__ attribute, so just look it up on the instance:
+        PyObject* r = module_cached_get_instance_attribute(
+                (PyModuleObject*)mod, &PyId___spec__, &((PyModuleObject*)mod)->spec_cache);
+        if (r != CANT_CACHE) {
+            Py_XINCREF(r);
+            return r;
+        }
+    }
+#endif
+
+    return _PyObject_GetAttrId(mod, &PyId___spec__);
 }
 
 static int

@@ -55,8 +55,8 @@
  * pybuilddir.txt.  If the landmark is found, we're done.
  *
  * For the remaining steps, the prefix landmark will always be
- * lib/python$VERSION/os.py and the exec_prefix will always be
- * lib/python$VERSION/lib-dynload, where $VERSION is Python's version
+ * lib/pyston$VERSION/os.py and the exec_prefix will always be
+ * lib/pyston$VERSION/lib-dynload, where $VERSION is Python's version
  * number as supplied by the Makefile.  Note that this means that no more
  * build directory checking is performed; if the first step did not find
  * the landmarks, the assumption is that python is running from an
@@ -86,7 +86,7 @@
  * containing the shared library modules is appended.  The environment
  * variable $PYTHONPATH is inserted in front of it all.  Finally, the
  * prefix and exec_prefix globals are tweaked so they reflect the values
- * expected by other code, by stripping the "lib/python$VERSION/..." stuff
+ * expected by other code, by stripping the "lib/pyston$VERSION/..." stuff
  * off.  If either points to the build directory, the globals are reset to
  * the corresponding preprocessor variables (so sys.prefix will reflect the
  * installation location, even though sys.path points into the build
@@ -1067,7 +1067,7 @@ calculate_zip_path(PyCalculatePath *calculate, const wchar_t *prefix,
             return PATHLEN_ERR();
         }
     }
-    status = joinpath(zip_path, L"lib/python00.zip", zip_path_len);
+    status = joinpath(zip_path, L"lib/pyston00.zip", zip_path_len);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
@@ -1197,7 +1197,7 @@ calculate_init(PyCalculatePath *calculate, const PyConfig *config)
     if (!calculate->exec_prefix) {
         return DECODE_LOCALE_ERR("EXEC_PREFIX define", len);
     }
-    calculate->lib_python = Py_DecodeLocale("lib/python" VERSION, &len);
+    calculate->lib_python = Py_DecodeLocale("lib/pyston" VERSION, &len);
     if (!calculate->lib_python) {
         return DECODE_LOCALE_ERR("EXEC_PREFIX define", len);
     }

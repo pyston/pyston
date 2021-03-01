@@ -118,7 +118,7 @@ class EnvBuilder:
             binname = 'bin'
             incpath = 'include'
             libpath = os.path.join(env_dir, 'lib',
-                                   'python%d.%d' % sys.version_info[:2],
+                                   'pyston%d.%d' % sys.version_info[:2],
                                    'site-packages')
         context.inc_path = path = os.path.join(env_dir, incpath)
         create_if_needed(path)

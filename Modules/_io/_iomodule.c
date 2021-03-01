@@ -504,6 +504,8 @@ _io_open_impl(PyObject *module, PyObject *file, const char *mode,
     return NULL;
 }
 
+#include "clinic/_iomodule.c.h"
+
 /*[clinic input]
 _io.open_code
 
@@ -520,7 +522,14 @@ static PyObject *
 _io_open_code_impl(PyObject *module, PyObject *path)
 /*[clinic end generated code: output=2fe4ecbd6f3d6844 input=f5c18e23f4b2ed9f]*/
 {
+#if PYSTON_SPEEDUPS
+    _Py_IDENTIFIER(rb);
+    PyObject *mode = _PyUnicode_FromId(&PyId_rb); /* borrowed */
+    PyObject* args[2] = {path, mode};
+    return _io_open(module, args, 2, NULL);
+#else
     return PyFile_OpenCodeObject(path);
+#endif
 }
 
 /*
@@ -644,8 +653,6 @@ iomodule_free(PyObject *mod) {
 /*
  * Module definition
  */
-
-#include "clinic/_iomodule.c.h"
 
 static PyMethodDef module_methods[] = {
     _IO_OPEN_METHODDEF

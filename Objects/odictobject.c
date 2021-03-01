@@ -916,7 +916,7 @@ odict_reduce(register PyODictObject *od, PyObject *Py_UNUSED(ignored))
     }
 
     /* build the result */
-    args = PyTuple_New(0);
+    args = PyTuple_New_Nonzeroed(0);
     if (args == NULL)
         goto Done;
 
@@ -1126,7 +1126,7 @@ OrderedDict_popitem_impl(PyODictObject *self, int last)
     value = _odict_popkey_hash((PyObject *)self, key, NULL, _odictnode_HASH(node));
     if (value == NULL)
         return NULL;
-    item = PyTuple_Pack(2, key, value);
+    item = PyTuple_Pack2(key, value);
     Py_DECREF(key);
     Py_DECREF(value);
     return item;
@@ -1402,7 +1402,7 @@ odict_repr(PyODictObject *self)
                     PyErr_SetObject(PyExc_KeyError, key);
                 goto Done;
             }
-            pair = PyTuple_Pack(2, key, value);
+            pair = PyTuple_Pack2(key, value);
             if (pair == NULL)
                 goto Done;
 
@@ -1500,7 +1500,7 @@ odict_richcompare(PyObject *v, PyObject *w, int op)
             return NULL;
 
         res = (eq == (op == Py_EQ)) ? Py_True : Py_False;
-        Py_INCREF(res);
+        Py_INCREF_IMMORTAL(res);
         return res;
     } else {
         Py_RETURN_NOTIMPLEMENTED;
@@ -1773,7 +1773,7 @@ odictiter_iternext(odictiterobject *di)
         }
     }
     else {
-        result = PyTuple_New(2);
+        result = PyTuple_New_Nonzeroed(2);
         if (result == NULL) {
             Py_DECREF(key);
             Py_DECREF(value);
@@ -1864,7 +1864,7 @@ odictiter_new(PyODictObject *od, int kind)
         return NULL;
 
     if (kind & (_odict_ITER_KEYS | _odict_ITER_VALUES)){
-        di->di_result = PyTuple_Pack(2, Py_None, Py_None);
+        di->di_result = PyTuple_Pack2(Py_None, Py_None);
         if (di->di_result == NULL) {
             Py_DECREF(di);
             return NULL;

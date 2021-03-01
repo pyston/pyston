@@ -29,9 +29,9 @@ WINDOWS_SCHEME = {
 
 INSTALL_SCHEMES = {
     'unix_prefix': {
-        'purelib': '$base/lib/python$py_version_short/site-packages',
-        'platlib': '$platbase/lib/python$py_version_short/site-packages',
-        'headers': '$base/include/python$py_version_short$abiflags/$dist_name',
+        'purelib': '$base/lib/pyston$py_version_short/site-packages',
+        'platlib': '$platbase/lib/pyston$py_version_short/site-packages',
+        'headers': '$base/include/pyston$py_version_short$abiflags/$dist_name',
         'scripts': '$base/bin',
         'data'   : '$base',
         },
@@ -59,7 +59,7 @@ if HAS_USER_SITE:
         'purelib': '$usersite',
         'platlib': '$usersite',
         'headers':
-            '$userbase/include/python$py_version_short$abiflags/$dist_name',
+            '$userbase/include/pyston$py_version_short$abiflags/$dist_name',
         'scripts': '$userbase/bin',
         'data'   : '$userbase',
         }

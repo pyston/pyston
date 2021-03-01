@@ -266,7 +266,7 @@ static PyTypeObject Str_Type = {
 static PyObject *
 null_richcompare(PyObject *self, PyObject *other, int op)
 {
-    Py_INCREF(Py_NotImplemented);
+    Py_INCREF_IMMORTAL(Py_NotImplemented);
     return Py_NotImplemented;
 }
 

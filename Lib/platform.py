@@ -967,6 +967,13 @@ _pypy_sys_version_parser = re.compile(
     r'\(#?([^,]+),\s*([\w ]+),\s*([\w :]+)\)\s*'
     r'\[PyPy [^\]]+\]?')
 
+_pyston_sys_version_parser = re.compile(
+    r'([\w.+]+)\s*'  # "version<space>"
+    r'\(#?([^,]+)'  # "(#buildno"
+    r'(?:,\s*([\w ]*)'  # ", builddate"
+    r'(?:,\s*([\w :]*))?)?\)\s*'  # ", buildtime)<space>"
+    r'\[Pyston ([\d\.]+), ([^\]]+)\]?', re.ASCII)  # "[compiler]"
+
 _sys_version_cache = {}
 
 def _sys_version(sys_version=None):

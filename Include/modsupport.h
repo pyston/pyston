@@ -46,6 +46,17 @@ PyAPI_FUNC(int) PyArg_VaParseTupleAndKeywords(PyObject *, PyObject *,
 #endif
 PyAPI_FUNC(int) PyArg_ValidateKeywordArguments(PyObject *);
 PyAPI_FUNC(int) PyArg_UnpackTuple(PyObject *, const char *, Py_ssize_t, Py_ssize_t, ...);
+#ifndef PYSTON_CLEANUP
+#if PYSTON_SPEEDUPS
+PyAPI_FUNC(int) PyArg_UnpackTuple1(PyObject *, const char *, Py_ssize_t, Py_ssize_t, PyObject **);
+PyAPI_FUNC(int) PyArg_UnpackTuple2(PyObject *, const char *, Py_ssize_t, Py_ssize_t, PyObject **, PyObject **);
+PyAPI_FUNC(int) PyArg_UnpackTuple3(PyObject *, const char *, Py_ssize_t, Py_ssize_t, PyObject **, PyObject **, PyObject **);
+#else
+#define PyArg_UnpackTuple1 PyArg_UnpackTuple
+#define PyArg_UnpackTuple2 PyArg_UnpackTuple
+#define PyArg_UnpackTuple3 PyArg_UnpackTuple
+#endif
+#endif
 PyAPI_FUNC(PyObject *) Py_BuildValue(const char *, ...);
 PyAPI_FUNC(PyObject *) _Py_BuildValue_SizeT(const char *, ...);
 

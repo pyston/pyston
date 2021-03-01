@@ -177,11 +177,12 @@ structseq_new_impl(PyTypeObject *type, PyObject *arg, PyObject *dict)
     for (; i < max_len; ++i) {
         if (dict && (ob = PyDict_GetItemString(
             dict, type->tp_members[i-n_unnamed_fields].name))) {
+            Py_INCREF(ob);
         }
         else {
             ob = Py_None;
+            Py_INCREF_IMMORTAL(ob);
         }
-        Py_INCREF(ob);
         res->ob_item[i] = ob;
     }
 
@@ -480,7 +481,7 @@ PyStructSequence_NewType(PyStructSequence_Desc *desc)
     spec.flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC;
     spec.slots = slots;
 
-    bases = PyTuple_Pack(1, &PyTuple_Type);
+    bases = PyTuple_Pack1(&PyTuple_Type);
     if (bases == NULL) {
         PyMem_FREE(members);
         return NULL;

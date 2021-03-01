@@ -656,7 +656,7 @@ signaldict_richcompare(PyObject *v, PyObject *w, int op)
         }
     }
 
-    Py_INCREF(res);
+    Py_INCREF_IMMORTAL(res);
     return res;
 }
 
@@ -2848,7 +2848,7 @@ convert_op(int type_err, PyObject **conv, PyObject *v, PyObject *context)
             v->ob_type->tp_name);
     }
     else {
-        Py_INCREF(Py_NotImplemented);
+        Py_INCREF_IMMORTAL(Py_NotImplemented);
         *conv = Py_NotImplemented;
     }
     return 0;
@@ -3041,7 +3041,7 @@ convert_op_cmp(PyObject **vcmp, PyObject **wcmp, PyObject *v, PyObject *w,
             }
         }
         else {
-            Py_INCREF(Py_NotImplemented);
+            Py_INCREF_IMMORTAL(Py_NotImplemented);
             *wcmp = Py_NotImplemented;
         }
     }
@@ -3060,7 +3060,7 @@ convert_op_cmp(PyObject **vcmp, PyObject **wcmp, PyObject *v, PyObject *w,
             }
         }
         else {
-            Py_INCREF(Py_NotImplemented);
+            Py_INCREF_IMMORTAL(Py_NotImplemented);
             *wcmp = Py_NotImplemented;
         }
     }

@@ -225,6 +225,8 @@ static PyObject *__doc__, *__annotations__;
 
 #define CAPSULE_NAME "compile.c compiler unit"
 
+PyObject* avoid_clang_bug_compile() { return NULL; }
+
 PyObject *
 _Py_Mangle(PyObject *privateobj, PyObject *ident)
 {
@@ -1212,7 +1214,7 @@ merge_consts_recursive(struct compiler *c, PyObject *o)
     // None and Ellipsis are singleton, and key is the singleton.
     // No need to merge object and key.
     if (o == Py_None || o == Py_Ellipsis) {
-        Py_INCREF(o);
+        Py_INCREF_IMMORTAL(o);
         return o;
     }
 

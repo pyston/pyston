@@ -5,7 +5,7 @@
 #include "frameobject.h"
 
 
-static PyObject *
+/* static */ PyObject *
 cfunction_call_varargs(PyObject *func, PyObject *args, PyObject *kwargs);
 
 
@@ -130,7 +130,7 @@ _PyObject_MakeTpCall(PyObject *callable, PyObject *const *args, Py_ssize_t nargs
     assert(nargs >= 0);
     assert(nargs == 0 || args != NULL);
     assert(keywords == NULL || PyTuple_Check(keywords) || PyDict_Check(keywords));
-    PyObject *argstuple = _PyTuple_FromArray(args, nargs);
+    PyObject *argstuple = _PyTuple_FromArray_Borrowed(args, nargs);
     if (argstuple == NULL) {
         return NULL;
     }
@@ -144,7 +144,7 @@ _PyObject_MakeTpCall(PyObject *callable, PyObject *const *args, Py_ssize_t nargs
             assert(args != NULL);
             kwdict = _PyStack_AsDict(args + nargs, keywords);
             if (kwdict == NULL) {
-                Py_DECREF(argstuple);
+                _PyTuple_Decref_Borrowed(argstuple);
                 return NULL;
             }
         }
@@ -160,7 +160,7 @@ _PyObject_MakeTpCall(PyObject *callable, PyObject *const *args, Py_ssize_t nargs
         Py_LeaveRecursiveCall();
     }
 
-    Py_DECREF(argstuple);
+    _PyTuple_Decref_Borrowed(argstuple);
     if (kwdict != keywords) {
         Py_DECREF(kwdict);
     }
@@ -254,7 +254,7 @@ PyObject_Call(PyObject *callable, PyObject *args, PyObject *kwargs)
 
 /* --- PyFunction call functions ---------------------------------- */
 
-static PyObject* _Py_HOT_FUNCTION
+/* static */ PyObject* _Py_HOT_FUNCTION
 function_code_fastcall(PyCodeObject *co, PyObject *const *args, Py_ssize_t nargs,
                        PyObject *globals)
 {
@@ -338,7 +338,7 @@ _PyFunction_FastCallDict(PyObject *func, PyObject *const *args, Py_ssize_t nargs
 
         /* bpo-29318, bpo-27840: Caller and callee functions must not share
            the dictionary: kwargs must be copied. */
-        kwtuple = PyTuple_New(2 * nk);
+        kwtuple = PyTuple_New_Nonzeroed(2 * nk);
         if (kwtuple == NULL) {
             return NULL;
         }
@@ -509,7 +509,7 @@ _PyMethodDef_RawFastCallDict(PyMethodDef *method, PyObject *self,
     case METH_VARARGS | METH_KEYWORDS:
     {
         /* Slow-path: create a temporary tuple for positional arguments */
-        PyObject *argstuple = _PyTuple_FromArray(args, nargs);
+        PyObject *argstuple = _PyTuple_FromArray_Borrowed(args, nargs);
         if (argstuple == NULL) {
             goto exit;
         }
@@ -520,7 +520,7 @@ _PyMethodDef_RawFastCallDict(PyMethodDef *method, PyObject *self,
         else {
             result = (*meth) (self, argstuple);
         }
-        Py_DECREF(argstuple);
+        _PyTuple_Decref_Borrowed(argstuple);
         break;
     }
 
@@ -675,7 +675,7 @@ _PyMethodDef_RawFastCallKeywords(PyMethodDef *method, PyObject *self,
            and a temporary dict for keyword arguments */
         PyObject *argtuple;
 
-        argtuple = _PyTuple_FromArray(args, nargs);
+        argtuple = _PyTuple_FromArray_Borrowed(args, nargs);
         if (argtuple == NULL) {
             goto exit;
         }
@@ -686,7 +686,7 @@ _PyMethodDef_RawFastCallKeywords(PyMethodDef *method, PyObject *self,
             if (nkwargs > 0) {
                 kwdict = _PyStack_AsDict(args + nargs, kwnames);
                 if (kwdict == NULL) {
-                    Py_DECREF(argtuple);
+                    _PyTuple_Decref_Borrowed(argtuple);
                     goto exit;
                 }
             }
@@ -700,7 +700,7 @@ _PyMethodDef_RawFastCallKeywords(PyMethodDef *method, PyObject *self,
         else {
             result = (*meth) (self, argtuple);
         }
-        Py_DECREF(argtuple);
+        _PyTuple_Decref_Borrowed(argtuple);
         break;
     }
 
@@ -724,7 +724,7 @@ exit:
 }
 
 
-static PyObject *
+/* static */ PyObject *
 cfunction_call_varargs(PyObject *func, PyObject *args, PyObject *kwargs)
 {
     assert(!PyErr_Occurred());
@@ -897,7 +897,7 @@ _PyObject_Call_Prepend(PyObject *callable,
 
 /* --- Call with a format string ---------------------------------- */
 
-static PyObject *
+/* static */ PyObject *
 _PyObject_CallFunctionVa(PyObject *callable, const char *format,
                          va_list va, int is_size_t)
 {
@@ -996,7 +996,7 @@ _PyObject_CallFunction_SizeT(PyObject *callable, const char *format, ...)
 }
 
 
-static PyObject*
+/* static */ PyObject*
 callmethod(PyObject* callable, const char *format, va_list va, int is_size_t)
 {
     assert(callable != NULL);
@@ -1136,7 +1136,7 @@ _PyObject_CallMethodId_SizeT(PyObject *obj, _Py_Identifier *name,
 
 /* --- Call with "..." arguments ---------------------------------- */
 
-static PyObject *
+/* static */ PyObject *
 object_vacall(PyObject *base, PyObject *callable, va_list vargs)
 {
     PyObject *small_stack[_PY_FASTCALL_SMALL_STACK];
@@ -1323,7 +1323,7 @@ _PyStack_UnpackDict(PyObject *const *args, Py_ssize_t nargs, PyObject *kwargs,
         return -1;
     }
 
-    kwnames = PyTuple_New(nkwargs);
+    kwnames = PyTuple_New_Nonzeroed(nkwargs);
     if (kwnames == NULL) {
         PyMem_Free(stack);
         return -1;

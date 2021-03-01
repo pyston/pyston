@@ -45,6 +45,8 @@ def get_gdb_version():
         raise Exception("unable to parse GDB version: %r" % version)
     return (version, int(match.group(1)), int(match.group(2)))
 
+raise unittest.SkipTest("Pyston has changed the gdb print output")
+
 gdb_version, gdb_major_version, gdb_minor_version = get_gdb_version()
 if gdb_major_version < 7:
     raise unittest.SkipTest("gdb versions before 7.0 didn't support python "

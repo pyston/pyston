@@ -239,6 +239,9 @@ PyCode_NewWithPosOnlyArgs(int argcount, int posonlyargcount, int kwonlyargcount,
     co->co_opcache = NULL;
     co->co_opcache_flag = 0;
     co->co_opcache_size = 0;
+#if PYSTON_SPEEDUPS
+    co->co_builtins_cache_ver = 0;
+#endif
     return co;
 }
 
@@ -272,8 +275,11 @@ _PyCode_InitOpcache(PyCodeObject *co)
         unsigned char opcode = _Py_OPCODE(opcodes[i]);
         i++;  // 'i' is now aligned to (next_instr - first_instr)
 
-        // TODO: LOAD_METHOD, LOAD_ATTR
-        if (opcode == LOAD_GLOBAL) {
+        if (opcode == LOAD_GLOBAL
+#if PYSTON_SPEEDUPS
+                || opcode == LOAD_METHOD || opcode == LOAD_ATTR || opcode == STORE_ATTR
+#endif
+                ) {
             opts++;
             co->co_opcache_map[i] = (unsigned char)opts;
             if (opts > 254) {
@@ -311,11 +317,13 @@ PyCode_NewEmpty(const char *filename, const char *funcname, int firstlineno)
         emptystring = PyBytes_FromString("");
         if (emptystring == NULL)
             goto failed;
+        MAKE_IMMORTAL(emptystring);
     }
     if (nulltuple == NULL) {
-        nulltuple = PyTuple_New(0);
+        nulltuple = PyTuple_New_Nonzeroed(0);
         if (nulltuple == NULL)
             goto failed;
+        MAKE_IMMORTAL(nulltuple);
     }
     funcname_ob = PyUnicode_FromString(funcname);
     if (funcname_ob == NULL)
@@ -496,13 +504,13 @@ code_new(PyTypeObject *type, PyObject *args, PyObject *kw)
     if (freevars)
         ourfreevars = validate_and_copy_tuple(freevars);
     else
-        ourfreevars = PyTuple_New(0);
+        ourfreevars = PyTuple_New_Nonzeroed(0);
     if (ourfreevars == NULL)
         goto cleanup;
     if (cellvars)
         ourcellvars = validate_and_copy_tuple(cellvars);
     else
-        ourcellvars = PyTuple_New(0);
+        ourcellvars = PyTuple_New_Nonzeroed(0);
     if (ourcellvars == NULL)
         goto cleanup;
 
@@ -513,7 +521,7 @@ code_new(PyTypeObject *type, PyObject *args, PyObject *kw)
                                                ourvarnames, ourfreevars,
                                                ourcellvars, filename,
                                                name, firstlineno, lnotab);
-  cleanup: 
+  cleanup:
     Py_XDECREF(ournames);
     Py_XDECREF(ourvarnames);
     Py_XDECREF(ourfreevars);
@@ -694,7 +702,7 @@ _PyCode_ConstantKey(PyObject *op)
     else if (PyBool_Check(op) || PyBytes_CheckExact(op)) {
         /* Make booleans different from integers 0 and 1.
          * Avoid BytesWarning from comparing bytes with strings. */
-        key = PyTuple_Pack(2, Py_TYPE(op), op);
+        key = PyTuple_Pack2(Py_TYPE(op), op);
     }
     else if (PyFloat_CheckExact(op)) {
         double d = PyFloat_AS_DOUBLE(op);
@@ -702,9 +710,9 @@ _PyCode_ConstantKey(PyObject *op)
          * or -0.0 case from all others, just to avoid the "coercion".
          */
         if (d == 0.0 && copysign(1.0, d) < 0.0)
-            key = PyTuple_Pack(3, Py_TYPE(op), op, Py_None);
+            key = PyTuple_Pack3(Py_TYPE(op), op, Py_None);
         else
-            key = PyTuple_Pack(2, Py_TYPE(op), op);
+            key = PyTuple_Pack2(Py_TYPE(op), op);
     }
     else if (PyComplex_CheckExact(op)) {
         Py_complex z;
@@ -719,16 +727,16 @@ _PyCode_ConstantKey(PyObject *op)
         /* use True, False and None singleton as tags for the real and imag
          * sign, to make tuples different */
         if (real_negzero && imag_negzero) {
-            key = PyTuple_Pack(3, Py_TYPE(op), op, Py_True);
+            key = PyTuple_Pack3(Py_TYPE(op), op, Py_True);
         }
         else if (imag_negzero) {
-            key = PyTuple_Pack(3, Py_TYPE(op), op, Py_False);
+            key = PyTuple_Pack3(Py_TYPE(op), op, Py_False);
         }
         else if (real_negzero) {
-            key = PyTuple_Pack(3, Py_TYPE(op), op, Py_None);
+            key = PyTuple_Pack3(Py_TYPE(op), op, Py_None);
         }
         else {
-            key = PyTuple_Pack(2, Py_TYPE(op), op);
+            key = PyTuple_Pack2(Py_TYPE(op), op);
         }
     }
     else if (PyTuple_CheckExact(op)) {
@@ -753,7 +761,7 @@ _PyCode_ConstantKey(PyObject *op)
             PyTuple_SET_ITEM(tuple, i, item_key);
         }
 
-        key = PyTuple_Pack(2, tuple, op);
+        key = PyTuple_Pack2(tuple, op);
         Py_DECREF(tuple);
     }
     else if (PyFrozenSet_CheckExact(op)) {
@@ -787,7 +795,7 @@ _PyCode_ConstantKey(PyObject *op)
         if (set == NULL)
             return NULL;
 
-        key = PyTuple_Pack(2, set, op);
+        key = PyTuple_Pack2(set, op);
         Py_DECREF(set);
         return key;
     }
@@ -798,7 +806,7 @@ _PyCode_ConstantKey(PyObject *op)
         if (obj_id == NULL)
             return NULL;
 
-        key = PyTuple_Pack(2, obj_id, op);
+        key = PyTuple_Pack2(obj_id, op);
         Py_DECREF(obj_id);
     }
     return key;
@@ -876,7 +884,7 @@ code_richcompare(PyObject *self, PyObject *other, int op)
         res = Py_False;
 
   done:
-    Py_INCREF(res);
+    Py_INCREF_IMMORTAL(res);
     return res;
 }
 

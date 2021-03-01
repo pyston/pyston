@@ -350,6 +350,10 @@ if check_impl_detail(cpython=True) and ctypes is not None:
     RequestCodeExtraIndex.argtypes = (freefunc,)
     RequestCodeExtraIndex.restype = ctypes.c_ssize_t
 
+    ClearCodeExtraFreeFunc = py._PyEval_ClearCodeExtraFreeFunc
+    ClearCodeExtraFreeFunc.argtypes = (ctypes.c_ssize_t,)
+    ClearCodeExtraFreeFunc.restype = None
+
     SetExtra = py._PyCode_SetExtra
     SetExtra.argtypes = (ctypes.py_object, ctypes.c_ssize_t, ctypes.c_voidp)
     SetExtra.restype = ctypes.c_int
@@ -366,6 +370,11 @@ if check_impl_detail(cpython=True) and ctypes is not None:
 
     FREE_FUNC = freefunc(myfree)
     FREE_INDEX = RequestCodeExtraIndex(FREE_FUNC)
+
+    class Clearer:
+        def __del__(self):
+            ClearCodeExtraFreeFunc(FREE_INDEX)
+    c = Clearer()
 
     class CoExtra(unittest.TestCase):
         def get_func(self):
