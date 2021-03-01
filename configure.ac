@@ -27,6 +27,7 @@ if test "$srcdir" != . -a "$srcdir" != "$(pwd)"; then
     BASECPPFLAGS="-IObjects -IInclude -IPython"
 else
     BASECPPFLAGS=""
+    AC_MSG_ERROR([pyston does not support in-source builds, please run configure from a separate directory])
 fi
 
 AC_SUBST(GITVERSION)

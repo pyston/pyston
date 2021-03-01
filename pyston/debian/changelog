@@ -1,0 +1,11 @@
+pyston (2.1) unstable; urgency=medium
+
+  * packaging improvements and minor changes
+
+ -- Marius Wachtler <undingen@gmail.com>  Thu, 12 Jan 2021 17:46:12 +0200
+
+pyston (2.0) unstable; urgency=medium
+
+  * Initial Release.
+
+ -- Marius Wachtler <undingen@gmail.com>  Thu, 15 Oct 2020 15:06:12 +0200
