@@ -42,9 +42,9 @@ HAS_GIT=no-repository
 fi
 if test $HAS_GIT = found
 then
-    GITVERSION="git --git-dir \$(srcdir)/../../.git rev-parse --short HEAD"
-    GITTAG="git --git-dir \$(srcdir)/../../.git describe --all --always"
-    GITBRANCH="git --git-dir \$(srcdir)/../../.git name-rev --name-only HEAD"
+    GITVERSION="git --git-dir \$(srcdir)/.git rev-parse --short HEAD"
+    GITTAG="git --git-dir \$(srcdir)/.git describe --all --always"
+    GITBRANCH="git --git-dir \$(srcdir)/.git name-rev --name-only HEAD"
 else
     GITVERSION=""
     GITTAG=""

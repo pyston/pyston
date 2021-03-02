@@ -1,7 +1,7 @@
 import os
 import sys
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "../python/cpython/Tools/clinic"))
+sys.path.append(os.path.join(os.path.dirname(__file__), "../../Tools/clinic"))
 from cpp import Monitor
 sys.path.pop()
 

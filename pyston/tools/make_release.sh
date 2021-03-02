@@ -16,13 +16,13 @@ make clean
 for DIST in 16.04 18.04 20.04
 do
     echo "Creating $DIST release"
-    docker build -f Dockerfile.$DIST -t pyston-build:$DIST .
+    docker build -f pyston/Dockerfile.$DIST -t pyston-build:$DIST .
     docker run -iv${PWD}/release/$VERSION:/host-volume --rm pyston-build:$DIST sh -s <<EOF
 set -ex
 make package
 apt-get install -y patchelf
-make build/opt_env/bin/python3
-build/opt_env/bin/python3 tools/make_portable_dir.py ../pyston_${VERSION}_amd64.deb /src/pyston_${VERSION}_${DIST}
+make pyston/build/opt_env/bin/python3
+pyston/build/opt_env/bin/python3 pyston/tools/make_portable_dir.py ../pyston_${VERSION}_amd64.deb /src/pyston_${VERSION}_${DIST}
 chown -R $(id -u):$(id -g) /src/pyston_${VERSION}_amd64.deb
 chown -R $(id -u):$(id -g) /src/pyston_${VERSION}_${DIST}
 cp -ar /src/pyston_${VERSION}_amd64.deb /host-volume/pyston_${VERSION}_${DIST}.deb

@@ -32,10 +32,10 @@ pypybench_results: $(patsubst %,results/pypybench-%.json,$(BUILDS))
 # Usage: make_benchmark,NAME,NITERS
 define make_benchmark
 $(eval
-results/$(1)-%.json: ../../python/macrobenchmarks/benchmarks/$(1).py | $(ENV_DIR)%_env/bin/python results
-	PYTHONPATH=../../python/benchmarks/tester:$(PYTHONPATH) python3 -c "import tune; tune.tune()"
+results/$(1)-%.json: ../../macrobenchmarks/benchmarks/$(1).py | $(ENV_DIR)%_env/bin/python results
+	PYTHONPATH=..:$(PYTHONPATH) python3 -c "import tune; tune.tune()"
 	/usr/bin/time --verbose --output=$$(patsubst %.json,%.time_,$$@) $$(firstword $$|) $$< $(2) $$@ || echo failed > $$@
-	PYTHONPATH=../../python/benchmarks/tester:$(PYTHONPATH) python3 -c "import tune; tune.untune()"
+	PYTHONPATH=..:$(PYTHONPATH) python3 -c "import tune; tune.untune()"
 	mv $$(patsubst %.json,%.time_,$$@) $$(patsubst %.json,%.time,$$@)
 	cat $$(patsubst %.json,%.time,$$@)
 

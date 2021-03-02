@@ -4,3 +4,5 @@ aot_profile.c
 *.o
 *.so
 *.a
+*.bc
+*.profdata

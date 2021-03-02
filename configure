@@ -2727,7 +2727,7 @@ if test "$srcdir" != . -a "$srcdir" != "$(pwd)"; then
     BASECPPFLAGS="-IObjects -IInclude -IPython"
 else
     BASECPPFLAGS=""
-    as_fn_error $? "pyston does not support in-source builds, please configure in a separate directory" "$LINENO" 5
+    as_fn_error $? "pyston does not support in-source builds, please run configure from a separate directory" "$LINENO" 5
 fi
 
 
@@ -2779,9 +2779,9 @@ HAS_GIT=no-repository
 fi
 if test $HAS_GIT = found
 then
-    GITVERSION="git --git-dir \$(srcdir)/../../.git rev-parse --short HEAD"
-    GITTAG="git --git-dir \$(srcdir)/../../.git describe --all --always"
-    GITBRANCH="git --git-dir \$(srcdir)/../../.git name-rev --name-only HEAD"
+    GITVERSION="git --git-dir \$(srcdir)/.git rev-parse --short HEAD"
+    GITTAG="git --git-dir \$(srcdir)/.git describe --all --always"
+    GITBRANCH="git --git-dir \$(srcdir)/.git name-rev --name-only HEAD"
 else
     GITVERSION=""
     GITTAG=""
