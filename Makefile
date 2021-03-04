@@ -7,7 +7,12 @@ GDB:=gdb
 -include Makefile.local
 
 .PHONY: all
-all: pyston/build/unopt_env/bin/python
+all: pyston3
+
+pyston3: pyston/build/opt_env/bin/python
+	ln -sf $< $@
+
+unopt: pyston/build/unopt_env/bin/python
 
 .PHONY: clean
 clean:
