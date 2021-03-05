@@ -2,9 +2,6 @@ FROM ubuntu:20.04
 
 WORKDIR /src/build
 
-# copy over whole nitrous dir except of stuff excluded via .dockerignore
-COPY . /src/build/
-
 # have to set this else apt will ask for a config for tzdata
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -34,7 +31,11 @@ RUN apt-get install -y libwebp-dev libjpeg-dev python3-gdbm python3-tk python3.8
 # revert bolt patched llvm
 RUN git config --global user.email "you@example.com"
 RUN git config --global user.name "Your Name"
-RUN cd pyston/bolt/llvm; git stash; cd /src/build/
+
+# copy over whole nitrous dir except of stuff excluded via .dockerignore
+COPY . /src/build/
+
+RUN cd pyston/bolt/llvm && git stash && cd /src/build/
 RUN rm pyston/bolt/llvm/tools/llvm-bolt pyston/bolt/llvm/include/llvm/Support/Alignment.h
 
 # run this to build the package
