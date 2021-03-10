@@ -19,9 +19,9 @@ clean:
 	rm -rf pyston/build/*_env pyston/build/cpython_* pyston/aot/*.o pyston/aot/*.so pyston/aot/*.bc pyston/aot/*.c pyston/aot/*.gcda pyston/aot/aot_prof pyston/aot/*.profdata
 
 tune: pyston/build/system_env/bin/python
-	PYTHONPATH=python/benchmarks/tester/ pyston/build/system_env/bin/python -c "import tune; tune.tune()"
+	PYTHONPATH=pyston/tools pyston/build/system_env/bin/python -c "import tune; tune.tune()"
 tune_reset: pyston/build/system_env/bin/python
-	PYTHONPATH=python/benchmarks/tester/ pyston/build/system_env/bin/python -c "import tune; tune.untune()"
+	PYTHONPATH=pyston/tools pyston/build/system_env/bin/python -c "import tune; tune.untune()"
 
 pyston/build/Release/build.ninja:
 	mkdir -p pyston/build/Release
@@ -330,23 +330,23 @@ perf_%_system: %.py $(SYSTEM_BENCH_ENV)
 	JIT_PERF_MAP=1 perf record -g ./pyston/build/system_env/bin/python3 $< $(ARGS)
 	$(MAKE) perf_report
 
-multi_unopt: python/benchmarks/run_benchmarks_unopt
-multi_opt: python/benchmarks/run_benchmarks_opt
-multi_stock: python/benchmarks/run_benchmarks_stock
-multi_stockunopt: python/benchmarks/run_benchmarks_stockunopt
-multi_system: python/benchmarks/run_benchmarks_system
-pyperf_multi_unopt: python/benchmarks/pyperf_run_benchmarks_unopt
-pyperf_multi_opt: python/benchmarks/pyperf_run_benchmarks_opt
-pyperf_multi_stock: python/benchmarks/pyperf_run_benchmarks_stock
-pyperf_multi_system: python/benchmarks/pyperf_run_benchmarks_system
-perf_multi_unopt: python/benchmarks/perf_run_benchmarks_unopt
-perf_multi_opt: python/benchmarks/perf_run_benchmarks_opt
+multi_unopt: pyston/run_profile_task_unopt
+multi_opt: pyston/run_profile_task_opt
+multi_stock: pyston/run_profile_task_stock
+multi_stockunopt: pyston/run_profile_task_stockunopt
+multi_system: pyston/run_profile_task_system
+pyperf_multi_unopt: pyston/pyperf_run_profile_task_unopt
+pyperf_multi_opt: pyston/pyperf_run_profile_task_opt
+pyperf_multi_stock: pyston/pyperf_run_profile_task_stock
+pyperf_multi_system: pyston/pyperf_run_profile_task_system
+perf_multi_unopt: pyston/perf_run_profile_task_unopt
+perf_multi_opt: pyston/perf_run_profile_task_opt
 
 measure: $(OPT_BENCH_ENV) pyston/build/system_env/bin/python
 	rm -f results.json
 	@# Run the command a second time with output if it failed:
 	$(MAKE) tune > /dev/null || $(MAKE) tune
-	$(PYPERF) -n $(or $(N),$(N),5) -o results.json ./pyston/build/opt_env/bin/python3 python/benchmarks/run_benchmarks.py
+	$(PYPERF) -n $(or $(N),$(N),5) -o results.json ./pyston/build/opt_env/bin/python3 pyston/run_profile_task.py
 	$(MAKE) tune_reset > /dev/null
 measure_%: %.py $(OPT_BENCH_ENV) pyston/build/system_env/bin/python
 	rm -f results.json
@@ -355,7 +355,7 @@ measure_%: %.py $(OPT_BENCH_ENV) pyston/build/system_env/bin/python
 	$(MAKE) tune_reset > /dev/null
 measure_append: $(OPT_BENCH_ENV) pyston/build/system_env/bin/python
 	$(MAKE) tune > /dev/null || $(MAKE) tune
-	$(PYPERF) -n $(or $(N),$(N),1) --append results.json ./pyston/build/opt_env/bin/python3 python/benchmarks/run_benchmarks.py
+	$(PYPERF) -n $(or $(N),$(N),1) --append results.json ./pyston/build/opt_env/bin/python3 pyston/run_profile_task.py
 	$(MAKE) tune_reset > /dev/null
 compare: pyston/build/system_env/bin/python
 	pyston/build/system_env/bin/pyperf compare_to -v $(ARGS) results.json
