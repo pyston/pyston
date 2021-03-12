@@ -18,7 +18,9 @@ _Py_IDENTIFIER(errors);
 _Py_IDENTIFIER(fileno);
 _Py_IDENTIFIER(flush);
 _Py_IDENTIFIER(metaclass);
+#if !PYSTON_SPEEDUPS
 _Py_IDENTIFIER(sort);
+#endif
 _Py_IDENTIFIER(stdin);
 _Py_IDENTIFIER(stdout);
 _Py_IDENTIFIER(stderr);
@@ -266,6 +268,41 @@ PyDoc_STRVAR(build_class_doc,
 \n\
 Internal helper function used by the class statement.");
 
+#if PYSTON_SPEEDUPS
+/*[clinic input]
+__import__ as builtin___import__
+    name: unicode
+    globals: object(py_default="None") = NULL
+    locals: object(py_default="None") = NULL
+    fromlist: object(py_default="()") = NULL
+    level: int = 0
+
+Import a module.
+
+Because this function is meant for use by the Python
+interpreter and not for general use, it is better to use
+importlib.import_module() to programmatically import a module.
+
+The globals argument is only used to determine the context;
+they are not modified.  The locals argument is unused.  The fromlist
+should be a list of names to emulate ``from name import ...'', or an
+empty list to emulate ``import name''.
+When importing a module from a package, note that __import__('A.B', ...)
+returns package A when fromlist is empty, but its submodule B when
+fromlist is not empty.  The level argument is used to determine whether to
+perform absolute or relative imports: 0 is absolute, while a positive number
+is the number of parent directories to search relative to the current module.
+[clinic start generated code]*/
+
+static PyObject *
+builtin___import___impl(PyObject *module, PyObject *name, PyObject *globals,
+                        PyObject *locals, PyObject *fromlist, int level)
+/*[clinic end generated code: output=4febeda88a0cd245 input=b5bc1c58e8136c87]*/
+{
+    return PyImport_ImportModuleLevelObject(name, globals, locals,
+                                            fromlist, level);
+}
+#else
 static PyObject *
 builtin___import__(PyObject *self, PyObject *args, PyObject *kwds)
 {
@@ -298,6 +335,7 @@ fromlist is not empty.  The level argument is used to determine whether to\n\
 perform absolute or relative imports: 0 is absolute, while a positive number\n\
 is the number of parent directories to search relative to the current module.");
 
+#endif
 
 /*[clinic input]
 abs as builtin_abs
@@ -518,7 +556,7 @@ filter_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     if (type == &PyFilter_Type && !_PyArg_NoKeywords("filter", kwds))
         return NULL;
 
-    if (!PyArg_UnpackTuple(args, "filter", 2, 2, &func, &seq))
+    if (!PyArg_UnpackTuple2(args, "filter", 2, 2, &func, &seq))
         return NULL;
 
     /* Get iterator. */
@@ -833,7 +871,7 @@ builtin_dir(PyObject *self, PyObject *args)
 {
     PyObject *arg = NULL;
 
-    if (!PyArg_UnpackTuple(args, "dir", 0, 1, &arg))
+    if (!PyArg_UnpackTuple1(args, "dir", 0, 1, &arg))
         return NULL;
     return PyObject_Dir(arg);
 }
@@ -1298,7 +1336,7 @@ static PyObject *
 map_reduce(mapobject *lz, PyObject *Py_UNUSED(ignored))
 {
     Py_ssize_t numargs = PyTuple_GET_SIZE(lz->iters);
-    PyObject *args = PyTuple_New(numargs+1);
+    PyObject *args = PyTuple_New_Nonzeroed(numargs+1);
     Py_ssize_t i;
     if (args == NULL)
         return NULL;
@@ -1543,7 +1581,7 @@ len as builtin_len
 Return the number of items in a container.
 [clinic start generated code]*/
 
-static PyObject *
+PyObject *
 builtin_len(PyObject *module, PyObject *obj)
 /*[clinic end generated code: output=fa7a270d314dfb6c input=bc55598da9e9c9b5]*/
 {
@@ -1592,10 +1630,10 @@ min_max(PyObject *args, PyObject *kwds, int op)
 
     if (positional)
         v = args;
-    else if (!PyArg_UnpackTuple(args, name, 1, 1, &v))
+    else if (!PyArg_UnpackTuple1(args, name, 1, 1, &v))
         return NULL;
 
-    emptytuple = PyTuple_New(0);
+    emptytuple = PyTuple_New_Nonzeroed(0);
     if (emptytuple == NULL)
         return NULL;
     ret = PyArg_ParseTupleAndKeywords(emptytuple, kwds,
@@ -2214,10 +2252,16 @@ PyDoc_STRVAR(builtin_sorted__doc__,
 #define BUILTIN_SORTED_METHODDEF    \
     {"sorted", (PyCFunction)(void(*)(void))builtin_sorted, METH_FASTCALL | METH_KEYWORDS, builtin_sorted__doc__},
 
+/* static */ PyObject *
+list_sort(PyListObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject *kwnames);
+
 static PyObject *
 builtin_sorted(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject *kwnames)
 {
-    PyObject *newlist, *v, *seq, *callable;
+    PyObject *newlist, *v, *seq;
+#if !PYSTON_SPEEDUPS
+    PyObject *callable;
+#endif
 
     /* Keyword arguments are passed through list.sort() which will check
        them. */
@@ -2228,15 +2272,23 @@ builtin_sorted(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject
     if (newlist == NULL)
         return NULL;
 
+#if PYSTON_SPEEDUPS
+    assert(Py_TYPE(newlist) == &PyList_Type);
+#else
     callable = _PyObject_GetAttrId(newlist, &PyId_sort);
     if (callable == NULL) {
         Py_DECREF(newlist);
         return NULL;
     }
+#endif
 
     assert(nargs >= 1);
+#if PYSTON_SPEEDUPS
+    v = list_sort((PyListObject*)newlist, args + 1, nargs - 1, kwnames);
+#else
     v = _PyObject_Vectorcall(callable, args + 1, nargs - 1, kwnames);
     Py_DECREF(callable);
+#endif
     if (v == NULL) {
         Py_DECREF(newlist);
         return NULL;
@@ -2253,7 +2305,7 @@ builtin_vars(PyObject *self, PyObject *args)
     PyObject *v = NULL;
     PyObject *d;
 
-    if (!PyArg_UnpackTuple(args, "vars", 0, 1, &v))
+    if (!PyArg_UnpackTuple1(args, "vars", 0, 1, &v))
         return NULL;
     if (v == NULL) {
         d = PyEval_GetLocals();
@@ -2712,7 +2764,11 @@ PyTypeObject PyZip_Type = {
 static PyMethodDef builtin_methods[] = {
     {"__build_class__", (PyCFunction)(void(*)(void))builtin___build_class__,
      METH_FASTCALL | METH_KEYWORDS, build_class_doc},
+#if PYSTON_SPEEDUPS
+    BUILTIN___IMPORT___METHODDEF
+#else
     {"__import__",      (PyCFunction)(void(*)(void))builtin___import__, METH_VARARGS | METH_KEYWORDS, import_doc},
+#endif
     BUILTIN_ABS_METHODDEF
     BUILTIN_ALL_METHODDEF
     BUILTIN_ANY_METHODDEF

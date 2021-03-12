@@ -1029,6 +1029,7 @@ class BaseTest:
         s = None
         self.assertRaises(ReferenceError, len, p)
 
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "pyston changes refcounts")
     @unittest.skipUnless(hasattr(sys, 'getrefcount'),
                          'test needs sys.getrefcount()')
     def test_bug_782369(self):

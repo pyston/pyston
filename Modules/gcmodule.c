@@ -1948,7 +1948,7 @@ PyObject_GC_UnTrack(void *op_raw)
     }
 }
 
-static PyObject *
+PyObject *
 _PyObject_GC_Alloc(int use_calloc, size_t basicsize)
 {
     struct _gc_runtime_state *state = &_PyRuntime.gc;

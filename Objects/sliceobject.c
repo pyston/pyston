@@ -26,7 +26,7 @@ ellipsis_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
         PyErr_SetString(PyExc_TypeError, "EllipsisType takes no arguments");
         return NULL;
     }
-    Py_INCREF(Py_Ellipsis);
+    Py_INCREF_IMMORTAL(Py_Ellipsis);
     return Py_Ellipsis;
 }
 
@@ -90,7 +90,12 @@ PyTypeObject PyEllipsis_Type = {
 
 PyObject _Py_EllipsisObject = {
     _PyObject_EXTRA_INIT
-    1, &PyEllipsis_Type
+#ifdef PYSTON_SPEEDUPS
+    IMMORTAL_REFCOUNT,
+#else
+    1,
+#endif
+    &PyEllipsis_Type
 };
 
 
@@ -127,12 +132,24 @@ PySlice_New(PyObject *start, PyObject *stop, PyObject *step)
             return NULL;
     }
 
-    if (step == NULL) step = Py_None;
-    Py_INCREF(step);
-    if (start == NULL) start = Py_None;
-    Py_INCREF(start);
-    if (stop == NULL) stop = Py_None;
-    Py_INCREF(stop);
+    if (step == NULL) {
+        step = Py_None;
+        Py_INCREF_IMMORTAL(step);
+    } else {
+        Py_INCREF(step);
+    }
+    if (start == NULL) {
+        start = Py_None;
+        Py_INCREF_IMMORTAL(start);
+    } else {
+        Py_INCREF(start);
+    }
+    if (stop == NULL) {
+        stop = Py_None;
+        Py_INCREF_IMMORTAL(stop);
+    } else {
+        Py_INCREF(stop);
+    }
 
     obj->step = step;
     obj->start = start;
@@ -303,7 +320,7 @@ slice_new(PyTypeObject *type, PyObject *args, PyObject *kw)
     if (!_PyArg_NoKeywords("slice", kw))
         return NULL;
 
-    if (!PyArg_UnpackTuple(args, "slice", 1, 3, &start, &stop, &step))
+    if (!PyArg_UnpackTuple3(args, "slice", 1, 3, &start, &stop, &step))
         return NULL;
 
     /* This swapping of stop and start is to maintain similarity with
@@ -562,7 +579,7 @@ static PyMethodDef slice_methods[] = {
     {NULL, NULL}
 };
 
-static PyObject *
+/* static */ PyObject *
 slice_richcompare(PyObject *v, PyObject *w, int op)
 {
     if (!PySlice_Check(v) || !PySlice_Check(w))
@@ -582,12 +599,12 @@ slice_richcompare(PyObject *v, PyObject *w, int op)
             res = Py_False;
             break;
         }
-        Py_INCREF(res);
+        Py_INCREF_IMMORTAL(res);
         return res;
     }
 
 
-    PyObject *t1 = PyTuple_Pack(3,
+    PyObject *t1 = PyTuple_Pack3(
                                 ((PySliceObject *)v)->start,
                                 ((PySliceObject *)v)->stop,
                                 ((PySliceObject *)v)->step);
@@ -595,7 +612,7 @@ slice_richcompare(PyObject *v, PyObject *w, int op)
         return NULL;
     }
 
-    PyObject *t2 = PyTuple_Pack(3,
+    PyObject *t2 = PyTuple_Pack3(
                                 ((PySliceObject *)w)->start,
                                 ((PySliceObject *)w)->stop,
                                 ((PySliceObject *)w)->step);

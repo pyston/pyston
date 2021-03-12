@@ -619,7 +619,7 @@ _abc__abc_subclasscheck_impl(PyObject *module, PyObject *self,
         goto end;
     }
     if (ok == Py_True) {
-        Py_DECREF(ok);
+        Py_DECREF_IMMORTAL(ok);
         if (_add_to_weak_set(&impl->_abc_cache, subclass) < 0) {
             goto end;
         }
@@ -627,7 +627,7 @@ _abc__abc_subclasscheck_impl(PyObject *module, PyObject *self,
         goto end;
     }
     if (ok == Py_False) {
-        Py_DECREF(ok);
+        Py_DECREF_IMMORTAL(ok);
         if (_add_to_weak_set(&impl->_abc_negative_cache, subclass) < 0) {
             goto end;
         }
@@ -640,7 +640,7 @@ _abc__abc_subclasscheck_impl(PyObject *module, PyObject *self,
                                               " False, True, or NotImplemented");
         goto end;
     }
-    Py_DECREF(ok);
+    Py_DECREF_IMMORTAL(ok);
 
     /* 4. Check if it's a direct subclass. */
     PyObject *mro = ((PyTypeObject *)subclass)->tp_mro;
@@ -698,7 +698,7 @@ _abc__abc_subclasscheck_impl(PyObject *module, PyObject *self,
 end:
     Py_DECREF(impl);
     Py_XDECREF(subclasses);
-    Py_XINCREF(result);
+    Py_XINCREF_IMMORTAL(result);
     return result;
 }
 

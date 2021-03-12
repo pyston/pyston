@@ -462,7 +462,7 @@ PyImport_Cleanup(void)
     if (weaklist != NULL) { \
         PyObject *wr = PyWeakref_NewRef(mod, NULL); \
         if (wr) { \
-            PyObject *tup = PyTuple_Pack(2, name, wr); \
+            PyObject *tup = PyTuple_Pack2(name, wr); \
             if (!tup || PyList_Append(weaklist, tup) < 0) { \
                 PyErr_WriteUnraisable(NULL); \
             } \
@@ -691,7 +691,7 @@ _PyImport_FixupExtensionObject(PyObject *mod, PyObject *name,
         if (def->m_base.m_copy == NULL)
             return -1;
     }
-    key = PyTuple_Pack(2, filename, name);
+    key = PyTuple_Pack2(filename, name);
     if (key == NULL)
         return -1;
     res = PyDict_SetItem(extensions, key, (PyObject *)def);
@@ -729,7 +729,7 @@ _PyImport_FindExtensionObjectEx(PyObject *name, PyObject *filename,
     PyModuleDef* def;
     if (extensions == NULL)
         return NULL;
-    key = PyTuple_Pack(2, filename, name);
+    key = PyTuple_Pack2(filename, name);
     if (key == NULL)
         return NULL;
     def = (PyModuleDef *)PyDict_GetItemWithError(extensions, key);
@@ -1637,7 +1637,13 @@ resolve_name(PyObject *name, PyObject *globals, int level)
         return base;
     }
 
+#if PYSTON_SPEEDUPS
+    _Py_static_string(PyId_dot, ".");
+    PyObject *dot = _PyUnicode_FromId(&PyId_dot); /* borrowed */
+    abs_name = PyUnicode_Concat3(base, dot, name);
+#else
     abs_name = PyUnicode_FromFormat("%U.%U", base, name);
+#endif
     Py_DECREF(base);
     return abs_name;
 
@@ -1771,7 +1777,9 @@ PyImport_ImportModuleLevelObject(PyObject *name, PyObject *globals,
     }
 
     if (mod != NULL && mod != Py_None) {
+#if !PYSTON_SPEEDUPS
         _Py_IDENTIFIER(__spec__);
+#endif
         _Py_IDENTIFIER(_lock_unlock_module);
         PyObject *spec;
 
@@ -1780,7 +1788,11 @@ PyImport_ImportModuleLevelObject(PyObject *name, PyObject *globals,
            NOTE: because of this, initializing must be set *before*
            stuffing the new module in sys.modules.
          */
+#if PYSTON_SPEEDUPS
+        spec = _PyModule_GetSpec(mod);
+#else
         spec = _PyObject_GetAttrId(mod, &PyId___spec__);
+#endif
         if (_PyModuleSpec_IsInitializing(spec)) {
             PyObject *value = _PyObject_CallMethodIdObjArgs(interp->importlib,
                                             &PyId__lock_unlock_module, abs_name,
@@ -1860,11 +1872,15 @@ PyImport_ImportModuleLevelObject(PyObject *name, PyObject *globals,
         }
     }
     else {
+#if PYSTON_SPEEDUPS
+        PyObject *path = _PyModule_GetPath(mod);
+#else
         _Py_IDENTIFIER(__path__);
         PyObject *path;
         if (_PyObject_LookupAttrId(mod, &PyId___path__, &path) < 0) {
             goto error;
         }
+#endif
         if (path) {
             Py_DECREF(path);
             final_mod = _PyObject_CallMethodIdObjArgs(
@@ -1872,6 +1888,10 @@ PyImport_ImportModuleLevelObject(PyObject *name, PyObject *globals,
                         mod, fromlist, interp->import_func, NULL);
         }
         else {
+#if PYSTON_SPEEDUPS
+            if (PyErr_Occurred())
+                goto error;
+#endif
             final_mod = mod;
             Py_INCREF(mod);
         }
@@ -1951,15 +1971,16 @@ PyImport_Import(PyObject *module_name)
 
     /* Initialize constant string objects */
     if (silly_list == NULL) {
-        import_str = PyUnicode_InternFromString("__import__");
+        import_str = PyUnicode_InternFromStringImmortal("__import__");
         if (import_str == NULL)
             return NULL;
-        builtins_str = PyUnicode_InternFromString("__builtins__");
+        builtins_str = PyUnicode_InternFromStringImmortal("__builtins__");
         if (builtins_str == NULL)
             return NULL;
         silly_list = PyList_New(0);
         if (silly_list == NULL)
             return NULL;
+        MAKE_IMMORTAL(silly_list);
     }
 
     /* Get the builtins from current globals */
@@ -2033,7 +2054,14 @@ _imp_extension_suffixes_impl(PyObject *module)
     const char *suffix;
     unsigned int index = 0;
 
-    while ((suffix = _PyImport_DynLoadFiletab[index])) {
+    const char** filetab = _PyImport_DynLoadFiletab;
+#if PYSTON_SPEEDUPS
+    const char *envar = getenv("PYSTON_UNSAFE_ABI");
+    if (envar && atoll(envar)) {
+        filetab = _PyImport_UnsafeDynLoadFiletab;
+    }
+#endif
+    while ((suffix = filetab[index])) {
         PyObject *item = PyUnicode_FromString(suffix);
         if (item == NULL) {
             Py_DECREF(list);

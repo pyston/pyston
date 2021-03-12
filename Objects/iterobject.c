@@ -5,6 +5,8 @@
 #include "pycore_pymem.h"
 #include "pycore_pystate.h"
 
+PyObject* avoid_clang_bug_iterobject() { return NULL; }
+
 typedef struct {
     PyObject_HEAD
     Py_ssize_t it_index;

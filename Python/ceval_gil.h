@@ -243,6 +243,7 @@ _ready:
     errno = err;
 }
 
+#ifdef DEFINE_SWITCH_INTERVAL
 void _PyEval_SetSwitchInterval(unsigned long microseconds)
 {
     _PyRuntime.ceval.gil.interval = microseconds;
@@ -252,3 +253,4 @@ unsigned long _PyEval_GetSwitchInterval()
 {
     return _PyRuntime.ceval.gil.interval;
 }
+#endif

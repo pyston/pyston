@@ -748,6 +748,6 @@ class build_ext(Command):
 
             if link_libpython:
                 ldversion = get_config_var('LDVERSION')
-                return ext.libraries + ['python' + ldversion]
+                return ext.libraries + ['pyston' + ldversion]
 
         return ext.libraries

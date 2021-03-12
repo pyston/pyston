@@ -284,7 +284,7 @@ static int
 parse_weakref_init_args(const char *funcname, PyObject *args, PyObject *kwargs,
                         PyObject **obp, PyObject **callbackp)
 {
-    return PyArg_UnpackTuple(args, funcname, 1, 2, obp, callbackp);
+    return PyArg_UnpackTuple2(args, funcname, 1, 2, obp, callbackp);
 }
 
 static PyObject *

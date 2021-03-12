@@ -1,0 +1,17 @@
+Source: pyston
+Section: python
+Priority: optional
+Maintainer: Pyston Team <support@pyston.org>
+Build-Depends: debhelper-compat (= 12), dh-exec
+Standards-Version: 4.4.1
+Homepage: https://github.com/pyston/
+#Vcs-Browser: https://salsa.debian.org/debian/nitrous
+#Vcs-Git: https://salsa.debian.org/debian/nitrous.git
+
+Package: pyston
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Pyston, a faster implementation of Python
+ Pyston is a faster and highly-compatible implementation of the
+ Python programming language.  Pyston focuses on real world use-cases
+ and aims to be a low-drawback way of improving your Python performance.

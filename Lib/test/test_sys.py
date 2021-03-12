@@ -346,6 +346,7 @@ class SysModuleTest(unittest.TestCase):
         self.assertEqual(sys.getdlopenflags(), oldflags+1)
         sys.setdlopenflags(oldflags)
 
+    @unittest.skipIf(True, "Pyston changes refcount of None")
     @test.support.refcount_test
     def test_refcount(self):
         # n here must be a global in order for this test to pass while
@@ -1155,9 +1156,9 @@ class SizeofTest(unittest.TestCase):
         # empty dict
         check({}, size('nQ2P'))
         # dict
-        check({"a": 1}, size('nQ2P') + calcsize('2nP2n') + 8 + (8*2//3)*calcsize('n2P'))
+        check({"a": 1}, size('nQ2P') + calcsize('2nP2nQ') + 8 + (8*2//3)*calcsize('n2P'))
         longdict = {1:1, 2:2, 3:3, 4:4, 5:5, 6:6, 7:7, 8:8}
-        check(longdict, size('nQ2P') + calcsize('2nP2n') + 16 + (16*2//3)*calcsize('n2P'))
+        check(longdict, size('nQ2P') + calcsize('2nP2nQ') + 16 + (16*2//3)*calcsize('n2P'))
         # dictionary-keyview
         check({}.keys(), size('P'))
         # dictionary-valueview
@@ -1249,7 +1250,7 @@ class SizeofTest(unittest.TestCase):
         check(int(PyLong_BASE**2-1), vsize('') + 2*self.longdigit)
         check(int(PyLong_BASE**2), vsize('') + 3*self.longdigit)
         # module
-        check(unittest, size('PnPPP'))
+        check(unittest, size('PnPPPnPnPnP'))
         # None
         check(None, size(''))
         # NotImplementedType
@@ -1318,13 +1319,13 @@ class SizeofTest(unittest.TestCase):
                   '4P')
         class newstyleclass(object): pass
         # Separate block for PyDictKeysObject with 8 keys and 5 entries
-        check(newstyleclass, s + calcsize("2nP2n0P") + 8 + 5*calcsize("n2P"))
+        check(newstyleclass, s + calcsize("2nP2n0PQ") + 8 + 5*calcsize("n2P") + calcsize("PPPP"))
         # dict with shared keys
         check(newstyleclass().__dict__, size('nQ2P') + 5*self.P)
         o = newstyleclass()
         o.a = o.b = o.c = o.d = o.e = o.f = o.g = o.h = 1
         # Separate block for PyDictKeysObject with 16 keys and 10 entries
-        check(newstyleclass, s + calcsize("2nP2n0P") + 16 + 10*calcsize("n2P"))
+        check(newstyleclass, s + calcsize("2nP2n0PQ") + 16 + 10*calcsize("n2P") + calcsize("PPPP"))
         # dict with shared keys
         check(newstyleclass().__dict__, size('nQ2P') + 10*self.P)
         # unicode

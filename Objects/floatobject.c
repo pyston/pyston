@@ -5,6 +5,8 @@
 
 #include "Python.h"
 
+PyObject* avoid_clang_bug_floatobject() { return NULL; }
+
 #include <ctype.h>
 #include <float.h>
 
@@ -23,8 +25,12 @@ class float "PyObject *" "&PyFloat_Type"
 #ifndef PyFloat_MAXFREELIST
 #define PyFloat_MAXFREELIST    100
 #endif
-static int numfree = 0;
-static PyFloatObject *free_list = NULL;
+
+#define numfree float_numfree
+#define free_list float_free_list
+
+/* static */ int numfree = 0;
+/* static */ PyFloatObject *free_list = NULL;
 
 double
 PyFloat_GetMax(void)
@@ -38,7 +44,7 @@ PyFloat_GetMin(void)
     return DBL_MIN;
 }
 
-static PyTypeObject FloatInfoType;
+/* static */ PyTypeObject FloatInfoType;
 
 PyDoc_STRVAR(floatinfo__doc__,
 "sys.float_info\n\
@@ -47,7 +53,7 @@ A named tuple holding information about the float type. It contains low level\n\
 information about the precision and internal representation. Please study\n\
 your system's :file:`float.h` for more information.");
 
-static PyStructSequence_Field floatinfo_fields[] = {
+/* static */ PyStructSequence_Field floatinfo_fields[] = {
     {"max",             "DBL_MAX -- maximum representable finite float"},
     {"max_exp",         "DBL_MAX_EXP -- maximum int e such that radix**(e-1) "
                     "is representable"},
@@ -67,7 +73,7 @@ static PyStructSequence_Field floatinfo_fields[] = {
     {0}
 };
 
-static PyStructSequence_Desc floatinfo_desc = {
+/* static */ PyStructSequence_Desc floatinfo_desc = {
     "sys.float_info",           /* name */
     floatinfo__doc__,           /* doc */
     floatinfo_fields,           /* fields */
@@ -129,7 +135,7 @@ PyFloat_FromDouble(double fval)
     return (PyObject *) op;
 }
 
-static PyObject *
+/* static */ PyObject *
 float_from_string_inner(const char *s, Py_ssize_t len, void *obj)
 {
     double x;
@@ -212,7 +218,7 @@ PyFloat_FromString(PyObject *v)
     return result;
 }
 
-static void
+/* static */ void
 float_dealloc(PyFloatObject *op)
 {
     if (PyFloat_CheckExact(op)) {
@@ -301,7 +307,7 @@ PyFloat_AsDouble(PyObject *op)
 
 /* Methods */
 
-static int
+/* static */ int
 convert_to_double(PyObject **v, double *dbl)
 {
     PyObject *obj = *v;
@@ -314,14 +320,14 @@ convert_to_double(PyObject **v, double *dbl)
         }
     }
     else {
-        Py_INCREF(Py_NotImplemented);
+        Py_INCREF_IMMORTAL(Py_NotImplemented);
         *v = Py_NotImplemented;
         return -1;
     }
     return 0;
 }
 
-static PyObject *
+/* static */ PyObject *
 float_repr(PyFloatObject *v)
 {
     PyObject *result;
@@ -353,7 +359,7 @@ float_repr(PyFloatObject *v)
  * coercion to double.  So this part is painful too.
  */
 
-static PyObject*
+/* static */ PyObject*
 float_richcompare(PyObject *v, PyObject *w, int op)
 {
     double i, j;
@@ -534,13 +540,13 @@ float_richcompare(PyObject *v, PyObject *w, int op)
     Py_RETURN_NOTIMPLEMENTED;
 }
 
-static Py_hash_t
+/* static */ Py_hash_t
 float_hash(PyFloatObject *v)
 {
     return _Py_HashDouble(v->ob_fval);
 }
 
-static PyObject *
+/* static */ PyObject *
 float_add(PyObject *v, PyObject *w)
 {
     double a,b;
@@ -552,7 +558,7 @@ float_add(PyObject *v, PyObject *w)
     return PyFloat_FromDouble(a);
 }
 
-static PyObject *
+/* static */ PyObject *
 float_sub(PyObject *v, PyObject *w)
 {
     double a,b;
@@ -564,7 +570,7 @@ float_sub(PyObject *v, PyObject *w)
     return PyFloat_FromDouble(a);
 }
 
-static PyObject *
+/* static */ PyObject *
 float_mul(PyObject *v, PyObject *w)
 {
     double a,b;
@@ -576,7 +582,7 @@ float_mul(PyObject *v, PyObject *w)
     return PyFloat_FromDouble(a);
 }
 
-static PyObject *
+/* static */ PyObject *
 float_div(PyObject *v, PyObject *w)
 {
     double a,b;
@@ -593,7 +599,7 @@ float_div(PyObject *v, PyObject *w)
     return PyFloat_FromDouble(a);
 }
 
-static PyObject *
+/* static */ PyObject *
 float_rem(PyObject *v, PyObject *w)
 {
     double vx, wx;
@@ -623,7 +629,7 @@ float_rem(PyObject *v, PyObject *w)
     return PyFloat_FromDouble(mod);
 }
 
-static PyObject *
+/* static */ PyObject *
 float_divmod(PyObject *v, PyObject *w)
 {
     double vx, wx;
@@ -670,7 +676,7 @@ float_divmod(PyObject *v, PyObject *w)
     return Py_BuildValue("(dd)", floordiv, mod);
 }
 
-static PyObject *
+/* static */ PyObject *
 float_floor_div(PyObject *v, PyObject *w)
 {
     PyObject *t, *r;
@@ -689,7 +695,7 @@ float_floor_div(PyObject *v, PyObject *w)
    x is not an infinity or nan. */
 #define DOUBLE_IS_ODD_INTEGER(x) (fmod(fabs(x), 2.0) == 1.0)
 
-static PyObject *
+/* static */ PyObject *
 float_pow(PyObject *v, PyObject *w, PyObject *z)
 {
     double iv, iw, ix;
@@ -813,19 +819,19 @@ float_pow(PyObject *v, PyObject *w, PyObject *z)
 
 #undef DOUBLE_IS_ODD_INTEGER
 
-static PyObject *
+/* static */ PyObject *
 float_neg(PyFloatObject *v)
 {
     return PyFloat_FromDouble(-v->ob_fval);
 }
 
-static PyObject *
+/* static */ PyObject *
 float_abs(PyFloatObject *v)
 {
     return PyFloat_FromDouble(fabs(v->ob_fval));
 }
 
-static int
+/* static */ int
 float_bool(PyFloatObject *v)
 {
     return v->ob_fval != 0.0;
@@ -837,7 +843,7 @@ float.is_integer
 Return True if the float is an integer.
 [clinic start generated code]*/
 
-static PyObject *
+/* static */ PyObject *
 float_is_integer_impl(PyObject *self)
 /*[clinic end generated code: output=7112acf95a4d31ea input=311810d3f777e10d]*/
 {
@@ -857,7 +863,7 @@ float_is_integer_impl(PyObject *self)
                              PyExc_ValueError);
         return NULL;
     }
-    Py_INCREF(o);
+    Py_INCREF_IMMORTAL(o);
     return o;
 }
 
@@ -867,7 +873,7 @@ float.__trunc__
 Return the Integral closest to x between 0 and x.
 [clinic start generated code]*/
 
-static PyObject *
+/* static */ PyObject *
 float___trunc___impl(PyObject *self)
 /*[clinic end generated code: output=dd3e289dd4c6b538 input=591b9ba0d650fdff]*/
 {
@@ -903,7 +909,7 @@ float___trunc___impl(PyObject *self)
 /* version of double_round that uses the correctly-rounded string<->double
    conversions from Python/dtoa.c */
 
-static PyObject *
+/* static */ PyObject *
 double_round(double x, int ndigits) {
 
     double rounded;
@@ -961,7 +967,7 @@ double_round(double x, int ndigits) {
 /* fallback version, to be used when correctly rounded binary<->decimal
    conversions aren't available */
 
-static PyObject *
+/* static */ PyObject *
 double_round(double x, int ndigits) {
     double pow1, pow2, y, z;
     if (ndigits >= 0) {
@@ -1021,7 +1027,7 @@ Return the Integral closest to x, rounding half toward even.
 When an argument is passed, work like built-in round(x, ndigits).
 [clinic start generated code]*/
 
-static PyObject *
+/* static */ PyObject *
 float___round___impl(PyObject *self, PyObject *o_ndigits)
 /*[clinic end generated code: output=374c36aaa0f13980 input=fc0fe25924fbc9ed]*/
 {
@@ -1066,7 +1072,7 @@ float___round___impl(PyObject *self, PyObject *o_ndigits)
 #undef NDIGITS_MIN
 }
 
-static PyObject *
+/* static */ PyObject *
 float_float(PyObject *v)
 {
     if (PyFloat_CheckExact(v))
@@ -1082,7 +1088,7 @@ float.conjugate
 Return self, the complex conjugate of any float.
 [clinic start generated code]*/
 
-static PyObject *
+/* static */ PyObject *
 float_conjugate_impl(PyObject *self)
 /*[clinic end generated code: output=8ca292c2479194af input=82ba6f37a9ff91dd]*/
 {
@@ -1091,14 +1097,14 @@ float_conjugate_impl(PyObject *self)
 
 /* turn ASCII hex characters into integer values and vice versa */
 
-static char
+/* static */ char
 char_from_hex(int x)
 {
     assert(0 <= x && x < 16);
     return Py_hexdigits[x];
 }
 
-static int
+/* static */ int
 hex_from_char(char c) {
     int x;
     switch(c) {
@@ -1180,7 +1186,7 @@ Return a hexadecimal representation of a floating-point number.
 '0x1.921f9f01b866ep+1'
 [clinic start generated code]*/
 
-static PyObject *
+/* static */ PyObject *
 float_hex_impl(PyObject *self)
 /*[clinic end generated code: output=0ebc9836e4d302d4 input=bec1271a33d47e67]*/
 {
@@ -1251,7 +1257,7 @@ Create a floating-point number from a hexadecimal string.
 -5e-324
 [clinic start generated code]*/
 
-static PyObject *
+/* static */ PyObject *
 float_fromhex(PyTypeObject *type, PyObject *string)
 /*[clinic end generated code: output=46c0274d22b78e82 input=0407bebd354bca89]*/
 {
@@ -1510,7 +1516,7 @@ Raise OverflowError on infinities and a ValueError on NaNs.
 (-1, 4)
 [clinic start generated code]*/
 
-static PyObject *
+/* static */ PyObject *
 float_as_integer_ratio_impl(PyObject *self)
 /*[clinic end generated code: output=65f25f0d8d30a712 input=e21d08b4630c2e44]*/
 {
@@ -1574,7 +1580,7 @@ float_as_integer_ratio_impl(PyObject *self)
             goto error;
     }
 
-    result_pair = PyTuple_Pack(2, numerator, denominator);
+    result_pair = PyTuple_Pack2(numerator, denominator);
 
 error:
     Py_XDECREF(py_exponent);
@@ -1583,7 +1589,7 @@ error:
     return result_pair;
 }
 
-static PyObject *
+/* static */ PyObject *
 float_subtype_new(PyTypeObject *type, PyObject *x);
 
 /*[clinic input]
@@ -1595,7 +1601,7 @@ float.__new__ as float_new
 Convert a string or number to a floating point number, if possible.
 [clinic start generated code]*/
 
-static PyObject *
+/* static */ PyObject *
 float_new_impl(PyTypeObject *type, PyObject *x)
 /*[clinic end generated code: output=ccf1e8dc460ba6ba input=540ee77c204ff87a]*/
 {
@@ -1613,7 +1619,7 @@ float_new_impl(PyTypeObject *type, PyObject *x)
    then allocate a subtype instance and initialize its ob_fval
    from the regular float.  The regular float is then thrown away.
 */
-static PyObject *
+/* static */ PyObject *
 float_subtype_new(PyTypeObject *type, PyObject *x)
 {
     PyObject *tmp, *newobj;
@@ -1637,7 +1643,7 @@ float_subtype_new(PyTypeObject *type, PyObject *x)
 float.__getnewargs__
 [clinic start generated code]*/
 
-static PyObject *
+/* static */ PyObject *
 float___getnewargs___impl(PyObject *self)
 /*[clinic end generated code: output=873258c9d206b088 input=002279d1d77891e6]*/
 {
@@ -1650,8 +1656,8 @@ typedef enum {
     unknown_format, ieee_big_endian_format, ieee_little_endian_format
 } float_format_type;
 
-static float_format_type double_format, float_format;
-static float_format_type detected_double_format, detected_float_format;
+/* static */ float_format_type double_format, float_format;
+/* static */ float_format_type detected_double_format, detected_float_format;
 
 /*[clinic input]
 @classmethod
@@ -1670,7 +1676,7 @@ little-endian' best describes the format of floating point numbers used by the
 C type named by typestr.
 [clinic start generated code]*/
 
-static PyObject *
+/* static */ PyObject *
 float___getformat___impl(PyTypeObject *type, const char *typestr)
 /*[clinic end generated code: output=2bfb987228cc9628 input=d5a52600f835ad67]*/
 {
@@ -1722,7 +1728,7 @@ Override the automatic determination of C-level floating point type.
 This affects how floats are converted to and from binary strings.
 [clinic start generated code]*/
 
-static PyObject *
+/* static */ PyObject *
 float___set_format___impl(PyTypeObject *type, const char *typestr,
                           const char *fmt)
 /*[clinic end generated code: output=504460f5dc85acbd input=5306fa2b81a997e4]*/
@@ -1775,13 +1781,13 @@ float___set_format___impl(PyTypeObject *type, const char *typestr,
     Py_RETURN_NONE;
 }
 
-static PyObject *
+/* static */ PyObject *
 float_getreal(PyObject *v, void *closure)
 {
     return float_float(v);
 }
 
-static PyObject *
+/* static */ PyObject *
 float_getimag(PyObject *v, void *closure)
 {
     return PyFloat_FromDouble(0.0);
@@ -1796,7 +1802,7 @@ float.__format__
 Formats the float according to format_spec.
 [clinic start generated code]*/
 
-static PyObject *
+/* static */ PyObject *
 float___format___impl(PyObject *self, PyObject *format_spec)
 /*[clinic end generated code: output=b260e52a47eade56 input=2ece1052211fd0e6]*/
 {
@@ -1815,7 +1821,7 @@ float___format___impl(PyObject *self, PyObject *format_spec)
     return _PyUnicodeWriter_Finish(&writer);
 }
 
-static PyMethodDef float_methods[] = {
+/* static */ PyMethodDef float_methods[] = {
     FLOAT_CONJUGATE_METHODDEF
     FLOAT___TRUNC___METHODDEF
     FLOAT___ROUND___METHODDEF
@@ -1830,7 +1836,7 @@ static PyMethodDef float_methods[] = {
     {NULL,              NULL}           /* sentinel */
 };
 
-static PyGetSetDef float_getset[] = {
+/* static */ PyGetSetDef float_getset[] = {
     {"real",
      float_getreal, (setter)NULL,
      "the real part of a complex number",
@@ -1843,7 +1849,7 @@ static PyGetSetDef float_getset[] = {
 };
 
 
-static PyNumberMethods float_as_number = {
+/* static */ PyNumberMethods float_as_number = {
     float_add,          /* nb_add */
     float_sub,          /* nb_subtract */
     float_mul,          /* nb_multiply */

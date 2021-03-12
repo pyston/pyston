@@ -84,6 +84,15 @@ typedef struct PyModuleDef{
   freefunc m_free;
 } PyModuleDef;
 
+#ifndef PYSTON_CLEANUP
+#if PYSTON_SPEEDUPS
+// gets __path__
+PyAPI_FUNC(PyObject *) _PyModule_GetPath(PyObject *);
+// gets __spec__
+PyAPI_FUNC(PyObject *) _PyModule_GetSpec(PyObject *);
+#endif
+#endif
+
 #ifdef __cplusplus
 }
 #endif

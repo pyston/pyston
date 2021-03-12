@@ -2080,7 +2080,7 @@ delta_add(PyObject *left, PyObject *right)
     }
 
     if (result == Py_NotImplemented)
-        Py_INCREF(result);
+        Py_INCREF_IMMORTAL(result);
     return result;
 }
 
@@ -2139,7 +2139,7 @@ delta_subtract(PyObject *left, PyObject *right)
     }
 
     if (result == Py_NotImplemented)
-        Py_INCREF(result);
+        Py_INCREF_IMMORTAL(result);
     return result;
 }
 
@@ -2205,7 +2205,7 @@ delta_multiply(PyObject *left, PyObject *right)
                         (PyDateTime_Delta *) right, left, 0);
 
     if (result == Py_NotImplemented)
-        Py_INCREF(result);
+        Py_INCREF_IMMORTAL(result);
     return result;
 }
 
@@ -2227,7 +2227,7 @@ delta_divide(PyObject *left, PyObject *right)
     }
 
     if (result == Py_NotImplemented)
-        Py_INCREF(result);
+        Py_INCREF_IMMORTAL(result);
     return result;
 }
 
@@ -2250,7 +2250,7 @@ delta_truedivide(PyObject *left, PyObject *right)
     }
 
     if (result == Py_NotImplemented)
-        Py_INCREF(result);
+        Py_INCREF_IMMORTAL(result);
     return result;
 }
 
@@ -2418,11 +2418,34 @@ accum(const char* tag, PyObject *sofar, PyObject *num, PyObject *factor,
     return NULL;
 }
 
+#if PYSTON_SPEEDUPS
+/*[clinic input]
+class delta "PyObject *" "&PyDateTime_DeltaType"
+[clinic start generated code]*/
+/*[clinic end generated code: output=da39a3ee5e6b4b0d input=51493cf352c998d7]*/
+
+/*[clinic input]
+@classmethod
+delta.__new__ as delta_new
+    days as day: object = NULL
+    seconds as second: object = NULL
+    microseconds as us: object = NULL
+    milliseconds as ms: object = NULL
+    minutes as minute: object = NULL
+    hours as hour: object = NULL
+    weeks as week: object = NULL
+[clinic start generated code]*/
+
+static PyObject *
+delta_new_impl(PyTypeObject *type, PyObject *day, PyObject *second,
+               PyObject *us, PyObject *ms, PyObject *minute, PyObject *hour,
+               PyObject *week)
+/*[clinic end generated code: output=55237b07b2768706 input=c8ddef12f8aa65ea]*/
+{
+#else
 static PyObject *
 delta_new(PyTypeObject *type, PyObject *args, PyObject *kw)
 {
-    PyObject *self = NULL;
-
     /* Argument objects. */
     PyObject *day = NULL;
     PyObject *second = NULL;
@@ -2431,10 +2454,6 @@ delta_new(PyTypeObject *type, PyObject *args, PyObject *kw)
     PyObject *minute = NULL;
     PyObject *hour = NULL;
     PyObject *week = NULL;
-
-    PyObject *x = NULL;         /* running sum of microseconds */
-    PyObject *y = NULL;         /* temp sum of microseconds */
-    double leftover_us = 0.0;
 
     static char *keywords[] = {
         "days", "seconds", "microseconds", "milliseconds",
@@ -2446,6 +2465,13 @@ delta_new(PyTypeObject *type, PyObject *args, PyObject *kw)
                                     &day, &second, &us,
                                     &ms, &minute, &hour, &week) == 0)
         goto Done;
+#endif
+
+    PyObject *self = NULL;
+
+    PyObject *x = NULL;         /* running sum of microseconds */
+    PyObject *y = NULL;         /* temp sum of microseconds */
+    double leftover_us = 0.0;
 
     x = PyLong_FromLong(0);
     if (x == NULL)
@@ -5364,7 +5390,7 @@ datetime_subtract(PyObject *left, PyObject *right)
     }
 
     if (result == Py_NotImplemented)
-        Py_INCREF(result);
+        Py_INCREF_IMMORTAL(result);
     return result;
 }
 

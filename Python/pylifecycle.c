@@ -25,6 +25,7 @@
 #include "marshal.h"
 #include "osdefs.h"
 #include <locale.h>
+#include "frameobject.h"
 
 #ifdef HAVE_SIGNAL_H
 #include <signal.h>
@@ -596,6 +597,17 @@ pycore_init_types(void)
 }
 
 
+#ifdef ENABLE_AOT
+void PyInit_aot_ceval();
+void aot_exit();
+#else
+// Define this function so that we can resolve it during trace-optimization,
+// but it doesn't need to be functional.
+PyObject* _PyEval_EvalFrame_AOT(PyFrameObject *f, int throwflag) {
+    Py_FatalError("AOT called but not enabled");
+}
+#endif
+
 static PyStatus
 pycore_init_builtins(PyInterpreterState *interp)
 {
@@ -934,6 +946,10 @@ pyinit_main(_PyRuntimeState *runtime, PyInterpreterState *interp)
         return _PyStatus_ERR("can't finish initializing sys");
     }
 
+#ifdef ENABLE_AOT
+    PyInit_aot_ceval();
+#endif
+
     PyStatus status = init_importlib_external(interp);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
@@ -1230,6 +1246,10 @@ Py_FinalizeEx(void)
 
     /* Print debug stats if any */
     _PyEval_Fini();
+
+#ifdef ENABLE_AOT
+    aot_exit();
+#endif
 
     /* Flush sys.stdout and sys.stderr (again, in case more was printed) */
     if (flush_std_files() < 0) {
@@ -2012,7 +2032,7 @@ _Py_FatalError_PrintExc(int fd)
     PyErr_NormalizeException(&exception, &v, &tb);
     if (tb == NULL) {
         tb = Py_None;
-        Py_INCREF(tb);
+        Py_INCREF_IMMORTAL(tb);
     }
     PyException_SetTraceback(v, tb);
     if (exception == NULL) {

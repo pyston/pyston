@@ -20,14 +20,14 @@ __all__ = [
 
 _INSTALL_SCHEMES = {
     'posix_prefix': {
-        'stdlib': '{installed_base}/lib/python{py_version_short}',
-        'platstdlib': '{platbase}/lib/python{py_version_short}',
-        'purelib': '{base}/lib/python{py_version_short}/site-packages',
-        'platlib': '{platbase}/lib/python{py_version_short}/site-packages',
+        'stdlib': '{installed_base}/lib/pyston{py_version_short}',
+        'platstdlib': '{platbase}/lib/pyston{py_version_short}',
+        'purelib': '{base}/lib/pyston{py_version_short}/site-packages',
+        'platlib': '{platbase}/lib/pyston{py_version_short}/site-packages',
         'include':
-            '{installed_base}/include/python{py_version_short}{abiflags}',
+            '{installed_base}/include/pyston{py_version_short}{abiflags}',
         'platinclude':
-            '{installed_platbase}/include/python{py_version_short}{abiflags}',
+            '{installed_platbase}/include/pyston{py_version_short}{abiflags}',
         'scripts': '{base}/bin',
         'data': '{base}',
         },
@@ -62,11 +62,11 @@ _INSTALL_SCHEMES = {
         'data': '{userbase}',
         },
     'posix_user': {
-        'stdlib': '{userbase}/lib/python{py_version_short}',
-        'platstdlib': '{userbase}/lib/python{py_version_short}',
-        'purelib': '{userbase}/lib/python{py_version_short}/site-packages',
-        'platlib': '{userbase}/lib/python{py_version_short}/site-packages',
-        'include': '{userbase}/include/python{py_version_short}',
+        'stdlib': '{userbase}/lib/pyston{py_version_short}',
+        'platstdlib': '{userbase}/lib/pyston{py_version_short}',
+        'purelib': '{userbase}/lib/pyston{py_version_short}/site-packages',
+        'platlib': '{userbase}/lib/pyston{py_version_short}/site-packages',
+        'include': '{userbase}/include/pyston{py_version_short}',
         'scripts': '{userbase}/bin',
         'data': '{userbase}',
         },
@@ -421,6 +421,14 @@ def _init_posix(vars):
     name = _get_sysconfigdata_name()
     _temp = __import__(name, globals(), locals(), ['build_time_vars'], 0)
     build_time_vars = _temp.build_time_vars
+
+    if "Pyston" in sys.version and sys.implementation.name == "cpython":
+        # unsafe abi mode detected
+        # It's not clear if it's better to overwrite SOABI, since that means
+        # we would create builds with the unsafe soabi suffix
+        # build_time_vars["SOABI"] = build_time_vars["UNSAFE_SOABI"]
+        pass
+
     vars.update(build_time_vars)
 
 def _init_non_posix(vars):

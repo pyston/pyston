@@ -51,7 +51,7 @@ BaseException_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
         return (PyObject *)self;
     }
 
-    self->args = PyTuple_New(0);
+    self->args = PyTuple_New_Nonzeroed(0);
     if (!self->args) {
         Py_DECREF(self);
         return NULL;
@@ -131,9 +131,9 @@ static PyObject *
 BaseException_reduce(PyBaseExceptionObject *self, PyObject *Py_UNUSED(ignored))
 {
     if (self->args && self->dict)
-        return PyTuple_Pack(3, Py_TYPE(self), self->args, self->dict);
+        return PyTuple_Pack3(Py_TYPE(self), self->args, self->dict);
     else
-        return PyTuple_Pack(2, Py_TYPE(self), self->args);
+        return PyTuple_Pack2(Py_TYPE(self), self->args);
 }
 
 /*
@@ -501,11 +501,13 @@ StopIteration_init(PyStopIterationObject *self, PyObject *args, PyObject *kwds)
     if (BaseException_init((PyBaseExceptionObject *)self, args, kwds) == -1)
         return -1;
     Py_CLEAR(self->value);
-    if (size > 0)
+    if (size > 0) {
         value = PyTuple_GET_ITEM(args, 0);
-    else
+        Py_INCREF(value);
+    } else {
         value = Py_None;
-    Py_INCREF(value);
+        Py_INCREF_IMMORTAL(value);
+    }
     self->value = value;
     return 0;
 }
@@ -632,7 +634,7 @@ ImportError_init(PyImportErrorObject *self, PyObject *args, PyObject *kwds)
     if (BaseException_init((PyBaseExceptionObject *)self, args, NULL) == -1)
         return -1;
 
-    empty_tuple = PyTuple_New(0);
+    empty_tuple = PyTuple_New_Nonzeroed(0);
     if (!empty_tuple)
         return -1;
     if (!PyArg_ParseTupleAndKeywords(empty_tuple, kwds, "|$OO:ImportError", kwlist,
@@ -735,9 +737,9 @@ ImportError_reduce(PyImportErrorObject *self, PyObject *Py_UNUSED(ignored))
         return NULL;
     args = ((PyBaseExceptionObject *)self)->args;
     if (state == Py_None)
-        res = PyTuple_Pack(2, Py_TYPE(self), args);
+        res = PyTuple_Pack2(Py_TYPE(self), args);
     else
-        res = PyTuple_Pack(3, Py_TYPE(self), args, state);
+        res = PyTuple_Pack3(Py_TYPE(self), args, state);
     Py_DECREF(state);
     return res;
 }
@@ -843,7 +845,7 @@ oserror_parse_args(PyObject **p_args,
             *myerrno = PyLong_FromLong(errcode);
             if (!*myerrno)
                 return -1;
-            newargs = PyTuple_New(nargs);
+            newargs = PyTuple_New_Nonzeroed(nargs);
             if (!newargs)
                 return -1;
             PyTuple_SET_ITEM(newargs, 0, *myerrno);
@@ -1003,7 +1005,7 @@ OSError_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
             goto error;
     }
     else {
-        self->args = PyTuple_New(0);
+        self->args = PyTuple_New_Nonzeroed(0);
         if (self->args == NULL)
             goto error;
     }
@@ -1145,7 +1147,7 @@ OSError_reduce(PyOSErrorObject *self, PyObject *Py_UNUSED(ignored))
      * file name given to OSError. */
     if (PyTuple_GET_SIZE(args) == 2 && self->filename) {
         Py_ssize_t size = self->filename2 ? 5 : 3;
-        args = PyTuple_New(size);
+        args = PyTuple_New_Nonzeroed(size);
         if (!args)
             return NULL;
 
@@ -1166,7 +1168,7 @@ OSError_reduce(PyOSErrorObject *self, PyObject *Py_UNUSED(ignored))
              * So, to recreate filename2, we need to pass in
              * winerror as well.
              */
-            Py_INCREF(Py_None);
+            Py_INCREF_IMMORTAL(Py_None);
             PyTuple_SET_ITEM(args, 3, Py_None);
 
             /* filename2 */
@@ -1177,9 +1179,9 @@ OSError_reduce(PyOSErrorObject *self, PyObject *Py_UNUSED(ignored))
         Py_INCREF(args);
 
     if (self->dict)
-        res = PyTuple_Pack(3, Py_TYPE(self), args, self->dict);
+        res = PyTuple_Pack3(Py_TYPE(self), args, self->dict);
     else
-        res = PyTuple_Pack(2, Py_TYPE(self), args);
+        res = PyTuple_Pack2(Py_TYPE(self), args);
     Py_DECREF(args);
     return res;
 }
@@ -2278,7 +2280,7 @@ MemoryError_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
         return BaseException_new(type, args, kwds);
     /* Fetch object from freelist and revive it */
     self = memerrors_freelist;
-    self->args = PyTuple_New(0);
+    self->args = PyTuple_New_Nonzeroed(0);
     /* This shouldn't happen since the empty tuple is persistent */
     if (self->args == NULL)
         return NULL;

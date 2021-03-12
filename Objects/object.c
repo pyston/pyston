@@ -57,6 +57,16 @@ _Py_GetRefTotal(void)
     o = _PySet_Dummy;
     if (o != NULL)
         total -= o->ob_refcnt;
+
+#ifdef PYSTON_SPEEDUPS
+    // Minus the starting refcount
+    // TODO: MAKE_IMMORTAL should subtract the refcount from reftotal and register the object
+    total -= Py_None->ob_refcnt - IMMORTAL_REFCOUNT;
+    total -= Py_True->ob_refcnt - IMMORTAL_REFCOUNT;
+    total -= Py_False->ob_refcnt - IMMORTAL_REFCOUNT;
+    total -= Py_NotImplemented->ob_refcnt - IMMORTAL_REFCOUNT;
+    total -= Py_Ellipsis->ob_refcnt - IMMORTAL_REFCOUNT;
+#endif
     return total;
 }
 
@@ -720,19 +730,19 @@ do_richcompare(PyObject *v, PyObject *w, int op)
         res = (*f)(w, v, _Py_SwappedOp[op]);
         if (res != Py_NotImplemented)
             return res;
-        Py_DECREF(res);
+        Py_DECREF_IMMORTAL(res);
     }
     if ((f = v->ob_type->tp_richcompare) != NULL) {
         res = (*f)(v, w, op);
         if (res != Py_NotImplemented)
             return res;
-        Py_DECREF(res);
+        Py_DECREF_IMMORTAL(res);
     }
     if (!checked_reverse_op && (f = w->ob_type->tp_richcompare) != NULL) {
         res = (*f)(w, v, _Py_SwappedOp[op]);
         if (res != Py_NotImplemented)
             return res;
-        Py_DECREF(res);
+        Py_DECREF_IMMORTAL(res);
     }
     /* If neither object implements it, provide a sensible default
        for == and !=, but raise an exception for ordering. */
@@ -751,7 +761,7 @@ do_richcompare(PyObject *v, PyObject *w, int op)
                      w->ob_type->tp_name);
         return NULL;
     }
-    Py_INCREF(res);
+    Py_INCREF_IMMORTAL(res);
     return res;
 }
 
@@ -796,11 +806,13 @@ PyObject_RichCompareBool(PyObject *v, PyObject *w, int op)
     res = PyObject_RichCompare(v, w, op);
     if (res == NULL)
         return -1;
-    if (PyBool_Check(res))
+    if (PyBool_Check(res)) {
         ok = (res == Py_True);
-    else
+        Py_DECREF_IMMORTAL(res);
+    } else {
         ok = PyObject_IsTrue(res);
-    Py_DECREF(res);
+        Py_DECREF(res);
+    }
     return ok;
 }
 
@@ -951,6 +963,11 @@ PyObject_GetAttr(PyObject *v, PyObject *name)
     return NULL;
 }
 
+#if PYSTON_SPEEDUPS
+PyObject * type_getattro_suppress(PyTypeObject *type, PyObject *name);
+PyObject * type_getattro(PyTypeObject *type, PyObject *name);
+#endif
+
 int
 _PyObject_LookupAttr(PyObject *v, PyObject *name, PyObject **result)
 {
@@ -975,7 +992,14 @@ _PyObject_LookupAttr(PyObject *v, PyObject *name, PyObject **result)
         return 0;
     }
     if (tp->tp_getattro != NULL) {
+#if PYSTON_SPEEDUPS
+        if (tp->tp_getattro == (getattrofunc)type_getattro)
+            *result = type_getattro_suppress((PyTypeObject*)v, name);
+        else
+            *result = (*tp->tp_getattro)(v, name);
+#else
         *result = (*tp->tp_getattro)(v, name);
+#endif
     }
     else if (tp->tp_getattr != NULL) {
         const char *name_str = PyUnicode_AsUTF8(name);
@@ -993,7 +1017,11 @@ _PyObject_LookupAttr(PyObject *v, PyObject *name, PyObject **result)
     if (*result != NULL) {
         return 1;
     }
-    if (!PyErr_ExceptionMatches(PyExc_AttributeError)) {
+    if (
+#if PYSTON_SPEEDUPS
+            PyErr_Occurred() &&
+#endif
+        !PyErr_ExceptionMatches(PyExc_AttributeError)) {
         return -1;
     }
     PyErr_Clear();
@@ -1213,7 +1241,6 @@ _PyObject_GetMethod(PyObject *obj, PyObject *name, PyObject **method)
 }
 
 /* Generic GetAttr functions - put these in your tp_[gs]etattro slot. */
-
 PyObject *
 _PyObject_GenericGetAttrWithDict(PyObject *obj, PyObject *name,
                                  PyObject *dict, int suppress)
@@ -1319,9 +1346,38 @@ _PyObject_GenericGetAttrWithDict(PyObject *obj, PyObject *name,
     }
 
     if (!suppress) {
+#if PYSTON_SPEEDUPS
+        _Py_static_string(PyId_quote, "'");
+        _Py_static_string(PyId_message, "' object has no attribute '");
+
+        size_t length = Py_MIN(strlen(tp->tp_name), 50);
+        PyObject* tp_name = PyUnicode_DecodeUTF8Stateful(tp->tp_name, length, "replace", NULL);
+        if (!tp_name)
+            goto done;
+
+        PyObject* quote = _PyUnicode_FromId(&PyId_quote); // borrowed
+        if (!quote)
+            goto done;
+        PyObject* message = _PyUnicode_FromId(&PyId_message); // borrowed
+        if (!message)
+            goto done;
+
+        PyObject* first = PyUnicode_Concat3(quote, tp_name, message);
+        Py_DECREF(tp_name);
+        if (!first)
+            goto done;
+        PyObject* err = PyUnicode_Concat3(first, name, quote);
+        Py_DECREF(first);
+        if (!err)
+            goto done;
+
+        PyErr_SetObject(PyExc_AttributeError, err);
+        Py_DECREF(err);
+#else
         PyErr_Format(PyExc_AttributeError,
                      "'%.50s' object has no attribute '%U'",
                      tp->tp_name, name);
+#endif
     }
   done:
     Py_XDECREF(descr);
@@ -1681,7 +1737,12 @@ PyTypeObject _PyNone_Type = {
 
 PyObject _Py_NoneStruct = {
   _PyObject_EXTRA_INIT
-  1, &_PyNone_Type
+#ifdef PYSTON_SPEEDUPS
+  IMMORTAL_REFCOUNT,
+#else
+  1,
+#endif
+  &_PyNone_Type
 };
 
 /* NotImplemented is an object that can be used to signal that an
@@ -1766,7 +1827,12 @@ PyTypeObject _PyNotImplemented_Type = {
 
 PyObject _Py_NotImplementedStruct = {
     _PyObject_EXTRA_INIT
-    1, &_PyNotImplemented_Type
+#ifdef PYSTON_SPEEDUPS
+    IMMORTAL_REFCOUNT,
+#else
+    1,
+#endif
+    &_PyNotImplemented_Type
 };
 
 PyStatus

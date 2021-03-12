@@ -2,6 +2,84 @@
 preserve
 [clinic start generated code]*/
 
+#if (PYSTON_SPEEDUPS)
+
+static PyObject *
+delta_new_impl(PyTypeObject *type, PyObject *day, PyObject *second,
+               PyObject *us, PyObject *ms, PyObject *minute, PyObject *hour,
+               PyObject *week);
+
+static PyObject *
+delta_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
+{
+    PyObject *return_value = NULL;
+    static const char * const _keywords[] = {"days", "seconds", "microseconds", "milliseconds", "minutes", "hours", "weeks", NULL};
+    static _PyArg_Parser _parser = {NULL, _keywords, "delta", 0};
+    PyObject *argsbuf[7];
+    PyObject * const *fastargs;
+    Py_ssize_t nargs = PyTuple_GET_SIZE(args);
+    Py_ssize_t noptargs = nargs + (kwargs ? PyDict_GET_SIZE(kwargs) : 0) - 0;
+    PyObject *day = NULL;
+    PyObject *second = NULL;
+    PyObject *us = NULL;
+    PyObject *ms = NULL;
+    PyObject *minute = NULL;
+    PyObject *hour = NULL;
+    PyObject *week = NULL;
+
+    fastargs = _PyArg_UnpackKeywords(_PyTuple_CAST(args)->ob_item, nargs, kwargs, NULL, &_parser, 0, 7, 0, argsbuf);
+    if (!fastargs) {
+        goto exit;
+    }
+    if (!noptargs) {
+        goto skip_optional_pos;
+    }
+    if (fastargs[0]) {
+        day = fastargs[0];
+        if (!--noptargs) {
+            goto skip_optional_pos;
+        }
+    }
+    if (fastargs[1]) {
+        second = fastargs[1];
+        if (!--noptargs) {
+            goto skip_optional_pos;
+        }
+    }
+    if (fastargs[2]) {
+        us = fastargs[2];
+        if (!--noptargs) {
+            goto skip_optional_pos;
+        }
+    }
+    if (fastargs[3]) {
+        ms = fastargs[3];
+        if (!--noptargs) {
+            goto skip_optional_pos;
+        }
+    }
+    if (fastargs[4]) {
+        minute = fastargs[4];
+        if (!--noptargs) {
+            goto skip_optional_pos;
+        }
+    }
+    if (fastargs[5]) {
+        hour = fastargs[5];
+        if (!--noptargs) {
+            goto skip_optional_pos;
+        }
+    }
+    week = fastargs[6];
+skip_optional_pos:
+    return_value = delta_new_impl(type, day, second, us, ms, minute, hour, week);
+
+exit:
+    return return_value;
+}
+
+#endif /* (PYSTON_SPEEDUPS) */
+
 PyDoc_STRVAR(datetime_date_fromtimestamp__doc__,
 "fromtimestamp($type, timestamp, /)\n"
 "--\n"
@@ -55,4 +133,4 @@ skip_optional_pos:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=aae916ab728ca85b input=a9049054013a1b77]*/
+/*[clinic end generated code: output=69ec93b7351b43d8 input=a9049054013a1b77]*/

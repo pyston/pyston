@@ -1130,7 +1130,7 @@ class ClassCreationTests(unittest.TestCase):
             X = types.new_class("X", (int(), C))
 
     def test_one_argument_type(self):
-        expected_message = 'type.__new__() takes exactly 3 arguments (1 given)'
+        expected_message = 'type.__new__ expected 3 arguments, got 1'
 
         # Only type itself can use the one-argument form (#27157)
         self.assertIs(type(5), int)

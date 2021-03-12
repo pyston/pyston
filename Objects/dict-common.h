@@ -46,6 +46,12 @@ struct _dictkeysobject {
     /* Number of used entries in dk_entries. */
     Py_ssize_t dk_nentries;
 
+#if PYSTON_SPEEDUPS
+    /* Version of the key object. Only updated if it's a split dictionary!
+      Can be used to guard on the shape of the splitdict dictionary. */
+    uint64_t dk_version_tag;
+#endif
+
     /* Actual hash table of dk_size entries. It holds indices in dk_entries,
        or DKIX_EMPTY(-1) or DKIX_DUMMY(-2).
 

@@ -56,7 +56,6 @@ Lib/distutils/command/*.pdb
 Lib/lib2to3/*.pickle
 Lib/test/data/*
 !Lib/test/data/README
-/Makefile
 /Makefile.pre
 Misc/python.pc
 Misc/python-embed.pc
@@ -120,3 +119,5 @@ Tools/ssl/win32
 # Ignore ./python binary on Unix but still look into ./Python/ directory.
 /python
 !/Python/
+
+pyston3

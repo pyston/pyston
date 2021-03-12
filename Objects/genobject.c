@@ -7,6 +7,8 @@
 #include "structmember.h"
 #include "opcode.h"
 
+PyObject* avoid_clang_bug_genobject() { return NULL; }
+
 static PyObject *gen_close(PyGenObject *, PyObject *);
 static PyObject *async_gen_asend_new(PyAsyncGenObject *, PyObject *);
 static PyObject *async_gen_athrow_new(PyAsyncGenObject *, PyObject *);
@@ -529,7 +531,7 @@ gen_throw(PyGenObject *gen, PyObject *args)
     PyObject *tb = NULL;
     PyObject *val = NULL;
 
-    if (!PyArg_UnpackTuple(args, "throw", 1, 3, &typ, &val, &tb)) {
+    if (!PyArg_UnpackTuple3(args, "throw", 1, 3, &typ, &val, &tb)) {
         return NULL;
     }
 
@@ -1873,7 +1875,7 @@ async_gen_athrow_send(PyAsyncGenAThrow *o, PyObject *arg)
             PyObject *tb = NULL;
             PyObject *val = NULL;
 
-            if (!PyArg_UnpackTuple(o->agt_args, "athrow", 1, 3,
+            if (!PyArg_UnpackTuple3(o->agt_args, "athrow", 1, 3,
                                    &typ, &val, &tb)) {
                 return NULL;
             }

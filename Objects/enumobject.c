@@ -71,7 +71,7 @@ enum_new_impl(PyTypeObject *type, PyObject *iterable, PyObject *start)
         Py_DECREF(en);
         return NULL;
     }
-    en->en_result = PyTuple_Pack(2, Py_None, Py_None);
+    en->en_result = PyTuple_Pack2(Py_None, Py_None);
     if (en->en_result == NULL) {
         Py_DECREF(en);
         return NULL;
@@ -138,7 +138,7 @@ enum_next_long(enumobject *en, PyObject* next_item)
         }
         return result;
     }
-    result = PyTuple_New(2);
+    result = PyTuple_New_Nonzeroed(2);
     if (result == NULL) {
         Py_DECREF(next_index);
         Py_DECREF(next_item);
@@ -188,7 +188,7 @@ enum_next(enumobject *en)
         }
         return result;
     }
-    result = PyTuple_New(2);
+    result = PyTuple_New_Nonzeroed(2);
     if (result == NULL) {
         Py_DECREF(next_index);
         Py_DECREF(next_item);
@@ -288,7 +288,7 @@ reversed_new_impl(PyTypeObject *type, PyObject *seq)
 
     reversed_meth = _PyObject_LookupSpecial(seq, &PyId___reversed__);
     if (reversed_meth == Py_None) {
-        Py_DECREF(reversed_meth);
+        Py_DECREF_IMMORTAL(reversed_meth);
         PyErr_Format(PyExc_TypeError,
                      "'%.200s' object is not reversible",
                      Py_TYPE(seq)->tp_name);

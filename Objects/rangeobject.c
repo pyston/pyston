@@ -3,6 +3,8 @@
 #include "Python.h"
 #include "structmember.h"
 
+PyObject* avoid_clang_bug_rangeobject() { return NULL; }
+
 /* Support objects whose length is > PY_SSIZE_T_MAX.
 
    This could be sped up for small PyLongs if they fit in a Py_ssize_t.
@@ -21,7 +23,7 @@ typedef struct {
 /* Helper function for validating step.  Always returns a new reference or
    NULL on error.
 */
-static PyObject *
+/* static */ PyObject *
 validate_step(PyObject *step)
 {
     /* No step specified, use a step of 1. */
@@ -38,10 +40,10 @@ validate_step(PyObject *step)
     return step;
 }
 
-static PyObject *
+/* static */ PyObject *
 compute_range_length(PyObject *start, PyObject *stop, PyObject *step);
 
-static rangeobject *
+/* static */ rangeobject *
 make_range_object(PyTypeObject *type, PyObject *start,
                   PyObject *stop, PyObject *step)
 {
@@ -68,7 +70,7 @@ make_range_object(PyTypeObject *type, PyObject *start,
    range(0, -5)
    range(0, 5, -1)
 */
-static PyObject *
+/* static */ PyObject *
 range_new(PyTypeObject *type, PyObject *args, PyObject *kw)
 {
     rangeobject *obj;
@@ -78,7 +80,7 @@ range_new(PyTypeObject *type, PyObject *args, PyObject *kw)
         return NULL;
 
     if (PyTuple_Size(args) <= 1) {
-        if (!PyArg_UnpackTuple(args, "range", 1, 1, &stop))
+        if (!PyArg_UnpackTuple1(args, "range", 1, 1, &stop))
             return NULL;
         stop = PyNumber_Index(stop);
         if (!stop)
@@ -89,7 +91,7 @@ range_new(PyTypeObject *type, PyObject *args, PyObject *kw)
         step = _PyLong_One;
     }
     else {
-        if (!PyArg_UnpackTuple(args, "range", 2, 3,
+        if (!PyArg_UnpackTuple3(args, "range", 2, 3,
                                &start, &stop, &step))
             return NULL;
 
@@ -131,7 +133,7 @@ start defaults to 0, and stop is omitted!  range(4) produces 0, 1, 2, 3.\n\
 These are exactly the valid indices for a list of 4 elements.\n\
 When step is given, it specifies the increment (or decrement).");
 
-static void
+/* static */ void
 range_dealloc(rangeobject *r)
 {
     Py_DECREF(r->start);
@@ -145,7 +147,7 @@ range_dealloc(rangeobject *r)
  * when arguments are PyLong objects.  Arguments MUST return 1 with
  * PyLong_Check().  Return NULL when there is an error.
  */
-static PyObject*
+/* static */ PyObject*
 compute_range_length(PyObject *start, PyObject *stop, PyObject *step)
 {
     /* -------------------------------------------------------------
@@ -209,13 +211,13 @@ compute_range_length(PyObject *start, PyObject *stop, PyObject *step)
     return NULL;
 }
 
-static Py_ssize_t
+/* static */ Py_ssize_t
 range_length(rangeobject *r)
 {
     return PyLong_AsSsize_t(r->length);
 }
 
-static PyObject *
+/* static */ PyObject *
 compute_item(rangeobject *r, PyObject *i)
 {
     PyObject *incr, *result;
@@ -230,7 +232,7 @@ compute_item(rangeobject *r, PyObject *i)
     return result;
 }
 
-static PyObject *
+/* static */ PyObject *
 compute_range_item(rangeobject *r, PyObject *arg)
 {
     int cmp_result;
@@ -282,7 +284,7 @@ compute_range_item(rangeobject *r, PyObject *arg)
     return result;
 }
 
-static PyObject *
+/* static */ PyObject *
 range_item(rangeobject *r, Py_ssize_t i)
 {
     PyObject *res, *arg = PyLong_FromSsize_t(i);
@@ -294,7 +296,7 @@ range_item(rangeobject *r, Py_ssize_t i)
     return res;
 }
 
-static PyObject *
+/* static */ PyObject *
 compute_slice(rangeobject *r, PyObject *_slice)
 {
     PySliceObject *slice = (PySliceObject *) _slice;
@@ -334,7 +336,7 @@ fail:
 }
 
 /* Assumes (PyLong_CheckExact(ob) || PyBool_Check(ob)) */
-static int
+/* static */ int
 range_contains_long(rangeobject *r, PyObject *ob)
 {
     int cmp1, cmp2, cmp3;
@@ -378,7 +380,7 @@ range_contains_long(rangeobject *r, PyObject *ob)
     return result;
 }
 
-static int
+/* static */ int
 range_contains(rangeobject *r, PyObject *ob)
 {
     if (PyLong_CheckExact(ob) || PyBool_Check(ob))
@@ -403,7 +405,7 @@ range_contains(rangeobject *r, PyObject *ob)
        return True
    return r0.step == r1.step
 */
-static int
+/* static */ int
 range_equals(rangeobject *r0, rangeobject *r1)
 {
     int cmp_result;
@@ -429,7 +431,7 @@ range_equals(rangeobject *r0, rangeobject *r1)
     return PyObject_RichCompareBool(r0->step, r1->step, Py_EQ);
 }
 
-static PyObject *
+/* static */ PyObject *
 range_richcompare(PyObject *self, PyObject *other, int op)
 {
     int result;
@@ -467,7 +469,7 @@ range_richcompare(PyObject *self, PyObject *other, int op)
        return hash((len(r), r.start, None))
    return hash((len(r), r.start, r.step))
 */
-static Py_hash_t
+/* static */ Py_hash_t
 range_hash(rangeobject *r)
 {
     PyObject *t;
@@ -483,8 +485,8 @@ range_hash(rangeobject *r)
     if (cmp_result == -1)
         goto end;
     if (cmp_result == 1) {
-        Py_INCREF(Py_None);
-        Py_INCREF(Py_None);
+        Py_INCREF_IMMORTAL(Py_None);
+        Py_INCREF_IMMORTAL(Py_None);
         PyTuple_SET_ITEM(t, 1, Py_None);
         PyTuple_SET_ITEM(t, 2, Py_None);
     }
@@ -495,7 +497,7 @@ range_hash(rangeobject *r)
         if (cmp_result == -1)
             goto end;
         if (cmp_result == 1) {
-            Py_INCREF(Py_None);
+            Py_INCREF_IMMORTAL(Py_None);
             PyTuple_SET_ITEM(t, 2, Py_None);
         }
         else {
@@ -509,7 +511,7 @@ range_hash(rangeobject *r)
     return result;
 }
 
-static PyObject *
+/* static */ PyObject *
 range_count(rangeobject *r, PyObject *ob)
 {
     if (PyLong_CheckExact(ob) || PyBool_Check(ob)) {
@@ -526,7 +528,7 @@ range_count(rangeobject *r, PyObject *ob)
     }
 }
 
-static PyObject *
+/* static */ PyObject *
 range_index(rangeobject *r, PyObject *ob)
 {
     int contains;
@@ -558,7 +560,7 @@ range_index(rangeobject *r, PyObject *ob)
     return NULL;
 }
 
-static PySequenceMethods range_as_sequence = {
+/* static */ PySequenceMethods range_as_sequence = {
     (lenfunc)range_length,      /* sq_length */
     0,                          /* sq_concat */
     0,                          /* sq_repeat */
@@ -569,7 +571,7 @@ static PySequenceMethods range_as_sequence = {
     (objobjproc)range_contains, /* sq_contains */
 };
 
-static PyObject *
+/* static */ PyObject *
 range_repr(rangeobject *r)
 {
     Py_ssize_t istep;
@@ -590,14 +592,14 @@ range_repr(rangeobject *r)
 }
 
 /* Pickling support */
-static PyObject *
+/* static */ PyObject *
 range_reduce(rangeobject *r, PyObject *args)
 {
     return Py_BuildValue("(O(OOO))", Py_TYPE(r),
                          r->start, r->stop, r->step);
 }
 
-static PyObject *
+/* static */ PyObject *
 range_subscript(rangeobject* self, PyObject* item)
 {
     if (PyIndex_Check(item)) {
@@ -619,24 +621,24 @@ range_subscript(rangeobject* self, PyObject* item)
 }
 
 
-static PyMappingMethods range_as_mapping = {
+/* static */ PyMappingMethods range_as_mapping = {
         (lenfunc)range_length,       /* mp_length */
         (binaryfunc)range_subscript, /* mp_subscript */
         (objobjargproc)0,            /* mp_ass_subscript */
 };
 
-static int
+/* static */ int
 range_bool(rangeobject* self)
 {
     return PyObject_IsTrue(self->length);
 }
 
-static PyNumberMethods range_as_number = {
+/* static */ PyNumberMethods range_as_number = {
     .nb_bool = (inquiry)range_bool,
 };
 
-static PyObject * range_iter(PyObject *seq);
-static PyObject * range_reverse(PyObject *seq, PyObject *Py_UNUSED(ignored));
+/* static */ PyObject * range_iter(PyObject *seq);
+/* static */ PyObject * range_reverse(PyObject *seq, PyObject *Py_UNUSED(ignored));
 
 PyDoc_STRVAR(reverse_doc,
 "Return a reverse iterator.");
@@ -648,7 +650,7 @@ PyDoc_STRVAR(index_doc,
 "rangeobject.index(value) -> integer -- return index of value.\n"
 "Raise ValueError if the value is not present.");
 
-static PyMethodDef range_methods[] = {
+/* static */ PyMethodDef range_methods[] = {
     {"__reversed__",    range_reverse,              METH_NOARGS, reverse_doc},
     {"__reduce__",      (PyCFunction)range_reduce,  METH_VARARGS},
     {"count",           (PyCFunction)range_count,   METH_O,      count_doc},
@@ -656,7 +658,7 @@ static PyMethodDef range_methods[] = {
     {NULL,              NULL}           /* sentinel */
 };
 
-static PyMemberDef range_members[] = {
+/* static */ PyMemberDef range_members[] = {
     {"start",   T_OBJECT_EX,    offsetof(rangeobject, start),   READONLY},
     {"stop",    T_OBJECT_EX,    offsetof(rangeobject, stop),    READONLY},
     {"step",    T_OBJECT_EX,    offsetof(rangeobject, step),    READONLY},
@@ -719,7 +721,7 @@ typedef struct {
         long    len;
 } rangeiterobject;
 
-static PyObject *
+/* static */ PyObject *
 rangeiter_next(rangeiterobject *r)
 {
     if (r->index < r->len)
@@ -730,7 +732,7 @@ rangeiter_next(rangeiterobject *r)
     return NULL;
 }
 
-static PyObject *
+/* static */ PyObject *
 rangeiter_len(rangeiterobject *r, PyObject *Py_UNUSED(ignored))
 {
     return PyLong_FromLong(r->len - r->index);
@@ -739,7 +741,7 @@ rangeiter_len(rangeiterobject *r, PyObject *Py_UNUSED(ignored))
 PyDoc_STRVAR(length_hint_doc,
              "Private method returning an estimate of len(list(it)).");
 
-static PyObject *
+/* static */ PyObject *
 rangeiter_reduce(rangeiterobject *r, PyObject *Py_UNUSED(ignored))
 {
     _Py_IDENTIFIER(iter);
@@ -770,7 +772,7 @@ err:
     return NULL;
 }
 
-static PyObject *
+/* static */ PyObject *
 rangeiter_setstate(rangeiterobject *r, PyObject *state)
 {
     long index = PyLong_AsLong(state);
@@ -788,7 +790,7 @@ rangeiter_setstate(rangeiterobject *r, PyObject *state)
 PyDoc_STRVAR(reduce_doc, "Return state information for pickling.");
 PyDoc_STRVAR(setstate_doc, "Set state information for unpickling.");
 
-static PyMethodDef rangeiter_methods[] = {
+/* static */ PyMethodDef rangeiter_methods[] = {
     {"__length_hint__", (PyCFunction)rangeiter_len, METH_NOARGS,
         length_hint_doc},
     {"__reduce__", (PyCFunction)rangeiter_reduce, METH_NOARGS,
@@ -834,7 +836,7 @@ PyTypeObject PyRangeIter_Type = {
 /* Return number of items in range (lo, hi, step).  step != 0
  * required.  The result always fits in an unsigned long.
  */
-static unsigned long
+/* static */ unsigned long
 get_len_of_range(long lo, long hi, long step)
 {
     /* -------------------------------------------------------------
@@ -862,7 +864,7 @@ get_len_of_range(long lo, long hi, long step)
 /* Initialize a rangeiter object.  If the length of the rangeiter object
    is not representable as a C long, OverflowError is raised. */
 
-static PyObject *
+/* static */ PyObject *
 fast_range_iter(long start, long stop, long step)
 {
     rangeiterobject *it = PyObject_New(rangeiterobject, &PyRangeIter_Type);
@@ -891,13 +893,13 @@ typedef struct {
     PyObject *len;
 } longrangeiterobject;
 
-static PyObject *
+/* static */ PyObject *
 longrangeiter_len(longrangeiterobject *r, PyObject *no_args)
 {
     return PyNumber_Subtract(r->len, r->index);
 }
 
-static PyObject *
+/* static */ PyObject *
 longrangeiter_reduce(longrangeiterobject *r, PyObject *Py_UNUSED(ignored))
 {
     _Py_IDENTIFIER(iter);
@@ -928,7 +930,7 @@ longrangeiter_reduce(longrangeiterobject *r, PyObject *Py_UNUSED(ignored))
                          range, r->index);
 }
 
-static PyObject *
+/* static */ PyObject *
 longrangeiter_setstate(longrangeiterobject *r, PyObject *state)
 {
     int cmp;
@@ -952,7 +954,7 @@ longrangeiter_setstate(longrangeiterobject *r, PyObject *state)
     Py_RETURN_NONE;
 }
 
-static PyMethodDef longrangeiter_methods[] = {
+/* static */ PyMethodDef longrangeiter_methods[] = {
     {"__length_hint__", (PyCFunction)longrangeiter_len, METH_NOARGS,
         length_hint_doc},
     {"__reduce__", (PyCFunction)longrangeiter_reduce, METH_NOARGS,
@@ -962,7 +964,7 @@ static PyMethodDef longrangeiter_methods[] = {
     {NULL,              NULL}           /* sentinel */
 };
 
-static void
+/* static */ void
 longrangeiter_dealloc(longrangeiterobject *r)
 {
     Py_XDECREF(r->index);
@@ -972,7 +974,7 @@ longrangeiter_dealloc(longrangeiterobject *r)
     PyObject_Del(r);
 }
 
-static PyObject *
+/* static */ PyObject *
 longrangeiter_next(longrangeiterobject *r)
 {
     PyObject *product, *new_index, *result;
@@ -1034,7 +1036,7 @@ PyTypeObject PyLongRangeIter_Type = {
         0,
 };
 
-static PyObject *
+/* static */ PyObject *
 range_iter(PyObject *seq)
 {
     rangeobject *r = (rangeobject *)seq;
@@ -1084,7 +1086,7 @@ range_iter(PyObject *seq)
     return (PyObject *)it;
 }
 
-static PyObject *
+/* static */ PyObject *
 range_reverse(PyObject *seq, PyObject *Py_UNUSED(ignored))
 {
     rangeobject *range = (rangeobject*) seq;

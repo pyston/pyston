@@ -50,7 +50,7 @@ PyMember_GetOne(const char *addr, PyMemberDef *l)
         break;
     case T_STRING:
         if (*(char**)addr == NULL) {
-            Py_INCREF(Py_None);
+            Py_INCREF_IMMORTAL(Py_None);
             v = Py_None;
         }
         else
@@ -64,9 +64,12 @@ PyMember_GetOne(const char *addr, PyMemberDef *l)
         break;
     case T_OBJECT:
         v = *(PyObject **)addr;
-        if (v == NULL)
+        if (v == NULL) {
             v = Py_None;
-        Py_INCREF(v);
+            Py_INCREF_IMMORTAL(v);
+        } else {
+            Py_INCREF(v);
+        }
         break;
     case T_OBJECT_EX:
         v = *(PyObject **)addr;
@@ -82,7 +85,7 @@ PyMember_GetOne(const char *addr, PyMemberDef *l)
         break;
     case T_NONE:
         v = Py_None;
-        Py_INCREF(v);
+        Py_INCREF_IMMORTAL(v);
         break;
     default:
         PyErr_SetString(PyExc_SystemError, "bad memberdescr type");

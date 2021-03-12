@@ -166,7 +166,7 @@ PyDoc_STRVAR(float_new__doc__,
 static PyObject *
 float_new_impl(PyTypeObject *type, PyObject *x);
 
-static PyObject *
+PyObject *
 float_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 {
     PyObject *return_value = NULL;

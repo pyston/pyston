@@ -2778,6 +2778,104 @@ PyArg_UnpackTuple(PyObject *args, const char *name, Py_ssize_t min, Py_ssize_t m
     return retval;
 }
 
+#if PYSTON_SPEEDUPS
+int
+PyArg_UnpackTuple1(PyObject *args, const char *name, Py_ssize_t min, Py_ssize_t max, PyObject **arg0)
+{
+    PyObject **stack;
+    Py_ssize_t nargs;
+
+    if (!PyTuple_Check(args)) {
+        PyErr_SetString(PyExc_SystemError,
+            "PyArg_UnpackTuple() argument list is not a tuple");
+        return 0;
+    }
+    stack = _PyTuple_ITEMS(args);
+    nargs = PyTuple_GET_SIZE(args);
+
+    if (!_PyArg_CheckPositional(name, nargs, min, max)) {
+        return 0;
+    }
+
+    switch (nargs) {
+        case 1:
+            *arg0 = stack[0];
+            __attribute__((fallthrough));
+        default:
+            break;
+    }
+
+    return 1;
+}
+
+int
+PyArg_UnpackTuple2(PyObject *args, const char *name, Py_ssize_t min, Py_ssize_t max, PyObject **arg0, PyObject **arg1)
+{
+    PyObject **stack;
+    Py_ssize_t nargs;
+
+    if (!PyTuple_Check(args)) {
+        PyErr_SetString(PyExc_SystemError,
+            "PyArg_UnpackTuple() argument list is not a tuple");
+        return 0;
+    }
+    stack = _PyTuple_ITEMS(args);
+    nargs = PyTuple_GET_SIZE(args);
+
+    if (!_PyArg_CheckPositional(name, nargs, min, max)) {
+        return 0;
+    }
+
+    switch (nargs) {
+        case 2:
+            *arg1 = stack[1];
+            __attribute__((fallthrough));
+        case 1:
+            *arg0 = stack[0];
+            __attribute__((fallthrough));
+        default:
+            break;
+    }
+
+    return 1;
+}
+
+int
+PyArg_UnpackTuple3(PyObject *args, const char *name, Py_ssize_t min, Py_ssize_t max, PyObject **arg0, PyObject **arg1, PyObject **arg2)
+{
+    PyObject **stack;
+    Py_ssize_t nargs;
+
+    if (!PyTuple_Check(args)) {
+        PyErr_SetString(PyExc_SystemError,
+            "PyArg_UnpackTuple() argument list is not a tuple");
+        return 0;
+    }
+    stack = _PyTuple_ITEMS(args);
+    nargs = PyTuple_GET_SIZE(args);
+
+    if (!_PyArg_CheckPositional(name, nargs, min, max)) {
+        return 0;
+    }
+
+    switch (nargs) {
+        case 3:
+            *arg2 = stack[2];
+            __attribute__((fallthrough));
+        case 2:
+            *arg1 = stack[1];
+            __attribute__((fallthrough));
+        case 1:
+            *arg0 = stack[0];
+            __attribute__((fallthrough));
+        default:
+            break;
+    }
+
+    return 1;
+}
+#endif
+
 int
 _PyArg_UnpackStack(PyObject *const *args, Py_ssize_t nargs, const char *name,
                    Py_ssize_t min, Py_ssize_t max, ...)

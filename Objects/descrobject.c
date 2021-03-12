@@ -12,6 +12,8 @@ class property "propertyobject *" "&PyProperty_Type"
 [clinic start generated code]*/
 /*[clinic end generated code: output=da39a3ee5e6b4b0d input=556352653fd4c02e]*/
 
+PyObject* avoid_clang_bug_descrobject() { return NULL; }
+
 static void
 descr_dealloc(PyDescrObject *descr)
 {
@@ -127,7 +129,7 @@ classmethod_get(PyMethodDescrObject *descr, PyObject *obj, PyObject *type)
     return PyCFunction_NewEx(descr->d_method, type, NULL);
 }
 
-static PyObject *
+/* static */ PyObject *
 method_get(PyMethodDescrObject *descr, PyObject *obj, PyObject *type)
 {
     PyObject *res;
@@ -288,17 +290,17 @@ method_vectorcall_VARARGS(
     if (method_check_args(func, args, nargs, kwnames)) {
         return NULL;
     }
-    PyObject *argstuple = _PyTuple_FromArray(args+1, nargs-1);
+    PyObject *argstuple = _PyTuple_FromArray_Borrowed(args+1, nargs-1);
     if (argstuple == NULL) {
         return NULL;
     }
     PyCFunction meth = (PyCFunction)method_enter_call(func);
     if (meth == NULL) {
-        Py_DECREF(argstuple);
+        _PyTuple_Decref_Borrowed(argstuple);
         return NULL;
     }
     PyObject *result = meth(args[0], argstuple);
-    Py_DECREF(argstuple);
+    _PyTuple_Decref_Borrowed(argstuple);
     Py_LeaveRecursiveCall();
     return result;
 }
@@ -311,7 +313,7 @@ method_vectorcall_VARARGS_KEYWORDS(
     if (method_check_args(func, args, nargs, NULL)) {
         return NULL;
     }
-    PyObject *argstuple = _PyTuple_FromArray(args+1, nargs-1);
+    PyObject *argstuple = _PyTuple_FromArray_Borrowed(args+1, nargs-1);
     if (argstuple == NULL) {
         return NULL;
     }
@@ -332,7 +334,7 @@ method_vectorcall_VARARGS_KEYWORDS(
     result = meth(args[0], argstuple, kwdict);
     Py_LeaveRecursiveCall();
 exit:
-    Py_DECREF(argstuple);
+    _PyTuple_Decref_Borrowed(argstuple);
     Py_XDECREF(kwdict);
     return result;
 }
@@ -373,7 +375,7 @@ method_vectorcall_FASTCALL_KEYWORDS(
     return result;
 }
 
-static PyObject *
+/* static */ PyObject *
 method_vectorcall_NOARGS(
     PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames)
 {
@@ -395,7 +397,7 @@ method_vectorcall_NOARGS(
     return result;
 }
 
-static PyObject *
+PyObject *
 method_vectorcall_O(
     PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames)
 {
@@ -1015,7 +1017,7 @@ mappingproxy_get(mappingproxyobject *pp, PyObject *args)
     PyObject *key, *def = Py_None;
     _Py_IDENTIFIER(get);
 
-    if (!PyArg_UnpackTuple(args, "get", 1, 2, &key, &def))
+    if (!PyArg_UnpackTuple2(args, "get", 1, 2, &key, &def))
         return NULL;
     return _PyObject_CallMethodIdObjArgs(pp->mapping, &PyId_get,
                                          key, def, NULL);
@@ -1534,15 +1536,15 @@ property_copy(PyObject *old, PyObject *get, PyObject *set, PyObject *del)
         return NULL;
 
     if (get == NULL || get == Py_None) {
-        Py_XDECREF(get);
+        Py_XDECREF_IMMORTAL(get);
         get = pold->prop_get ? pold->prop_get : Py_None;
     }
     if (set == NULL || set == Py_None) {
-        Py_XDECREF(set);
+        Py_XDECREF_IMMORTAL(set);
         set = pold->prop_set ? pold->prop_set : Py_None;
     }
     if (del == NULL || del == Py_None) {
-        Py_XDECREF(del);
+        Py_XDECREF_IMMORTAL(del);
         del = pold->prop_del ? pold->prop_del : Py_None;
     }
     if (pold->getter_doc && get != Py_None) {

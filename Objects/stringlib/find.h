@@ -97,8 +97,22 @@ STRINGLIB(parse_args_finds)(const char * function_name, PyObject *args,
     strncpy(format + len, function_name, FORMAT_BUFFER_SIZE - len - 1);
     format[FORMAT_BUFFER_SIZE - 1] = '\0';
 
+#if PYSTON_SPEEDUPS
+    Py_ssize_t nargs = PyTuple_GET_SIZE(args);
+    if (!_PyArg_CheckPositional(function_name, nargs, 1, 3))
+        return 0;
+
+    tmp_subobj = PyTuple_GET_ITEM(args, 0);
+
+    if (nargs >= 2)
+        obj_start = PyTuple_GET_ITEM(args, 1);
+
+    if (nargs >= 3)
+        obj_end = PyTuple_GET_ITEM(args, 2);
+#else
     if (!PyArg_ParseTuple(args, format, &tmp_subobj, &obj_start, &obj_end))
         return 0;
+#endif
 
     /* To support None in "start" and "end" arguments, meaning
        the same as if they were not passed.

@@ -44,7 +44,12 @@ extern int _PyObject_GetMethod(PyObject *, PyObject *, PyObject **);
 typedef PyObject *(*callproc)(PyObject *, PyObject *, PyObject *);
 
 /* Forward declarations */
-Py_LOCAL_INLINE(PyObject *) call_function(
+__attribute__((visibility("hidden"))) inline PyObject * call_function_ceval(
+    PyThreadState *tstate, PyObject ***pp_stack,
+    Py_ssize_t oparg, PyObject *kwnames);
+// This line makes sure that this function gets written out even if it
+// all its callsites were inlined:
+PyObject * call_function_ceval(
     PyThreadState *tstate, PyObject ***pp_stack,
     Py_ssize_t oparg, PyObject *kwnames);
 static PyObject * do_call_core(
@@ -58,7 +63,7 @@ static int prtrace(PyThreadState *, PyObject *, const char *);
 static int call_trace(Py_tracefunc, PyObject *,
                       PyThreadState *, PyFrameObject *,
                       int, PyObject *);
-static int call_trace_protected(Py_tracefunc, PyObject *,
+int call_trace_protected(Py_tracefunc, PyObject *,
                                 PyThreadState *, PyFrameObject *,
                                 int, PyObject *);
 static void call_exc_trace(Py_tracefunc, PyObject *,
@@ -70,7 +75,7 @@ static void maybe_dtrace_line(PyFrameObject *, int *, int *, int *);
 static void dtrace_function_entry(PyFrameObject *);
 static void dtrace_function_return(PyFrameObject *);
 
-static PyObject * cmp_outcome(PyThreadState *, int, PyObject *, PyObject *);
+/*static*/ PyObject * cmp_outcome(PyThreadState *, int, PyObject *, PyObject *);
 static PyObject * import_name(PyThreadState *, PyFrameObject *,
                               PyObject *, PyObject *, PyObject *);
 static PyObject * import_from(PyThreadState *, PyObject *, PyObject *);
@@ -189,6 +194,7 @@ static size_t opcache_global_misses = 0;
 #include <errno.h>
 #endif
 #include "pythread.h"
+#define DEFINE_SWITCH_INTERVAL
 #include "ceval_gil.h"
 
 int
@@ -742,6 +748,10 @@ PyEval_EvalFrameEx(PyFrameObject *f, int throwflag)
 }
 
 PyObject* _Py_HOT_FUNCTION
+// unfortunately bolt fails instrumenting this function when it's compiled with standard O level.
+#if PYSTON_SPEEDUPS
+__attribute__((optimize("-Os")))
+#endif
 _PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
 {
 #ifdef DXPAIRS
@@ -3466,7 +3476,7 @@ main_loop:
                    `callable` will be POPed by call_function.
                    NULL will will be POPed manually later.
                 */
-                res = call_function(tstate, &sp, oparg, NULL);
+                res = call_function_ceval(tstate, &sp, oparg, NULL);
                 stack_pointer = sp;
                 (void)POP(); /* POP the NULL. */
             }
@@ -3483,7 +3493,7 @@ main_loop:
                   We'll be passing `oparg + 1` to call_function, to
                   make it accept the `self` as a first argument.
                 */
-                res = call_function(tstate, &sp, oparg + 1, NULL);
+                res = call_function_ceval(tstate, &sp, oparg + 1, NULL);
                 stack_pointer = sp;
             }
 
@@ -3497,7 +3507,7 @@ main_loop:
             PREDICTED(CALL_FUNCTION);
             PyObject **sp, *res;
             sp = stack_pointer;
-            res = call_function(tstate, &sp, oparg, NULL);
+            res = call_function_ceval(tstate, &sp, oparg, NULL);
             stack_pointer = sp;
             PUSH(res);
             if (res == NULL) {
@@ -3512,7 +3522,7 @@ main_loop:
             names = POP();
             assert(PyTuple_CheckExact(names) && PyTuple_GET_SIZE(names) <= oparg);
             sp = stack_pointer;
-            res = call_function(tstate, &sp, oparg, names);
+            res = call_function_ceval(tstate, &sp, oparg, names);
             stack_pointer = sp;
             PUSH(res);
             Py_DECREF(names);
@@ -3745,7 +3755,7 @@ exception_unwind:
                     PUSH(exc_info->exc_type);
                 }
                 else {
-                    Py_INCREF(Py_None);
+                    Py_INCREF_IMMORTAL(Py_None);
                     PUSH(Py_None);
                 }
                 _PyErr_Fetch(tstate, &exc, &val, &tb);
@@ -3763,9 +3773,12 @@ exception_unwind:
                 Py_INCREF(val);
                 exc_info->exc_value = val;
                 exc_info->exc_traceback = tb;
-                if (tb == NULL)
+                if (tb == NULL) {
                     tb = Py_None;
-                Py_INCREF(tb);
+                    Py_INCREF_IMMORTAL(tb);
+                } else {
+                    Py_INCREF(tb);
+                }
                 PUSH(tb);
                 PUSH(val);
                 PUSH(exc);
@@ -4419,7 +4432,7 @@ do_raise(PyThreadState *tstate, PyObject *exc, PyObject *cause)
             fixed_cause = cause;
         }
         else if (cause == Py_None) {
-            Py_DECREF(cause);
+            Py_DECREF_IMMORTAL(cause);
             fixed_cause = NULL;
         }
         else {
@@ -4568,11 +4581,11 @@ call_exc_trace(Py_tracefunc func, PyObject *self,
     _PyErr_Fetch(tstate, &type, &value, &orig_traceback);
     if (value == NULL) {
         value = Py_None;
-        Py_INCREF(value);
+        Py_INCREF_IMMORTAL(value);
     }
     _PyErr_NormalizeException(tstate, &type, &value, &orig_traceback);
     traceback = (orig_traceback != NULL) ? orig_traceback : Py_None;
-    arg = PyTuple_Pack(3, type, value, traceback);
+    arg = PyTuple_Pack3(type, value, traceback);
     if (arg == NULL) {
         _PyErr_Restore(tstate, type, value, orig_traceback);
         return;
@@ -4589,7 +4602,7 @@ call_exc_trace(Py_tracefunc func, PyObject *self,
     }
 }
 
-static int
+int
 call_trace_protected(Py_tracefunc func, PyObject *obj,
                      PyThreadState *tstate, PyFrameObject *frame,
                      int what, PyObject *arg)
@@ -4910,8 +4923,8 @@ if (tstate->use_tracing && tstate->c_profilefunc) { \
     x = call; \
     }
 
-
-static PyObject *
+// don't inline this function it should be cold and will increase our traces a lot
+/*static*/ PyObject * __attribute__((noinline))
 trace_call_function(PyThreadState *tstate,
                     PyObject *func,
                     PyObject **args, Py_ssize_t nargs,
@@ -4946,17 +4959,26 @@ trace_call_function(PyThreadState *tstate,
 
 /* Issue #29227: Inline call_function() into _PyEval_EvalFrameDefault()
    to reduce the stack consumption. */
-Py_LOCAL_INLINE(PyObject *) _Py_HOT_FUNCTION
-call_function(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg, PyObject *kwnames)
+__attribute__((visibility("hidden"))) inline PyObject * _Py_HOT_FUNCTION
+call_function_ceval(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg, PyObject *kwnames)
 {
+#if PYSTON_SPEEDUPS
+    PyObject** stack_top = *pp_stack;
+    PyObject **pfunc = stack_top - oparg - 1;
+#else
     PyObject **pfunc = (*pp_stack) - oparg - 1;
+#endif
     PyObject *func = *pfunc;
     PyObject *x, *w;
     Py_ssize_t nkwargs = (kwnames == NULL) ? 0 : PyTuple_GET_SIZE(kwnames);
     Py_ssize_t nargs = oparg - nkwargs;
+#if PYSTON_SPEEDUPS
+    PyObject **stack = stack_top - nargs - nkwargs;
+#else
     PyObject **stack = (*pp_stack) - nargs - nkwargs;
+#endif
 
-    if (tstate->use_tracing) {
+    if (__builtin_expect(tstate->use_tracing, 0)) {
         x = trace_call_function(tstate, func, stack, nargs, kwnames);
     }
     else {
@@ -4966,12 +4988,59 @@ call_function(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg, PyO
     assert((x != NULL) ^ (_PyErr_Occurred(tstate) != NULL));
 
     /* Clear the stack of the function object. */
+#if PYSTON_SPEEDUPS && !defined(LLTRACE_DEF)
+    for (int i = oparg; i >= 0; i--) {
+        Py_DECREF(pfunc[i]);
+    }
+    *pp_stack = pfunc;
+#else
     while ((*pp_stack) > pfunc) {
         w = EXT_POP(*pp_stack);
         Py_DECREF(w);
     }
+#endif
 
     return x;
+}
+
+PyObject * _Py_HOT_FUNCTION
+call_function_ceval_no_kw(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg) {
+    return call_function_ceval(tstate, pp_stack, oparg, NULL /*kwnames*/);
+}
+PyObject * _Py_HOT_FUNCTION
+call_method_ceval_no_kw(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg) {
+    return call_function_ceval(tstate, pp_stack, oparg, NULL /*kwnames*/);
+}
+PyObject* PyNumber_PowerNone(PyObject *v, PyObject *w) {
+  return PyNumber_Power(v, w, Py_None);
+}
+PyObject* PyNumber_InPlacePowerNone(PyObject *v, PyObject *w) {
+  return PyNumber_InPlacePower(v, w, Py_None);
+}
+PyObject* cmp_outcome(PyThreadState *tstate, int, PyObject *v, PyObject *w);
+PyObject* cmp_outcomePyCmp_LT(PyObject *v, PyObject *w) {
+  return cmp_outcome(NULL, PyCmp_LT, v, w);
+}
+PyObject* cmp_outcomePyCmp_LE(PyObject *v, PyObject *w) {
+  return cmp_outcome(NULL, PyCmp_LE, v, w);
+}
+PyObject* cmp_outcomePyCmp_EQ(PyObject *v, PyObject *w) {
+  return cmp_outcome(NULL, PyCmp_EQ, v, w);
+}
+PyObject* cmp_outcomePyCmp_NE(PyObject *v, PyObject *w) {
+  return cmp_outcome(NULL, PyCmp_NE, v, w);
+}
+PyObject* cmp_outcomePyCmp_GT(PyObject *v, PyObject *w) {
+  return cmp_outcome(NULL, PyCmp_GT, v, w);
+}
+PyObject* cmp_outcomePyCmp_GE(PyObject *v, PyObject *w) {
+  return cmp_outcome(NULL, PyCmp_GE, v, w);
+}
+PyObject* cmp_outcomePyCmp_IN(PyObject *v, PyObject *w) {
+  return cmp_outcome(NULL, PyCmp_IN, v, w);
+}
+PyObject* cmp_outcomePyCmp_NOT_IN(PyObject *v, PyObject *w) {
+  return cmp_outcome(NULL, PyCmp_NOT_IN, v, w);
 }
 
 static PyObject *
@@ -5062,7 +5131,7 @@ _PyEval_SliceIndexNotNone(PyObject *v, Py_ssize_t *pi)
 #define CANNOT_CATCH_MSG "catching classes that do not inherit from "\
                          "BaseException is not allowed"
 
-static PyObject *
+/*static*/ PyObject *
 cmp_outcome(PyThreadState *tstate, int op, PyObject *v, PyObject *w)
 {
     int res = 0;
@@ -5554,6 +5623,20 @@ _PyEval_RequestCodeExtraIndex(freefunc free)
     new_index = interp->co_extra_user_count++;
     interp->co_extra_freefuncs[new_index] = free;
     return new_index;
+}
+
+// This function is necessary if you have a free func that is not
+// safe to run during interpreter shutdown.  For example if you register
+// a python function as a freefunc (such as in test_code.py), the function
+// will get deallocated before all the freefunc calls are done.
+// So to be safe, clear it after you've freed all the functions with the
+// relevant extra data.
+// This is mostly just to make test_code.py not segfault on exit when run on Pyston
+void
+_PyEval_ClearCodeExtraFreeFunc(Py_ssize_t index) {
+    PyInterpreterState *interp = _PyInterpreterState_GET_UNSAFE();
+    assert(index < interp->co_extra_user_count);
+    interp->co_extra_freefuncs[index] = NULL;
 }
 
 static void

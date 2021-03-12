@@ -1,0 +1,42 @@
+FROM ubuntu:20.04
+
+WORKDIR /src/build
+
+# have to set this else apt will ask for a config for tzdata
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN echo 'deb-src http://archive.ubuntu.com/ubuntu/ focal main restricted' >> /etc/apt/sources.list
+
+RUN apt-get update
+RUN apt-get upgrade -y
+RUN apt-get install -y build-essential ninja-build cmake clang libssl-dev libsqlite3-dev luajit libjemalloc-dev
+RUN apt-get install -y debhelper dh-make dh-exec
+RUN apt-get install -y zlib1g-dev virtualenv python3.8
+RUN apt-get install -y git
+
+# we have to set a local else it will use ascii
+RUN apt-get install -y locales
+RUN locale-gen en_US.UTF-8
+ENV LANG en_US.UTF-8
+ENV LANGUAGE en_US:en
+ENV LC_ALL en_US.UTF-8
+
+# if we don't install this option packages our build will have way fewer functions
+# e.g. no libreadline -> no repl history
+RUN apt build-dep -y python3.8
+
+# install dependencies for the test suite
+RUN apt-get install -y libwebp-dev libjpeg-dev python3-gdbm python3-tk python3.8-dev
+
+# revert bolt patched llvm
+RUN git config --global user.email "you@example.com"
+RUN git config --global user.name "Your Name"
+
+# copy over whole nitrous dir except of stuff excluded via .dockerignore
+COPY . /src/build/
+
+RUN cd pyston/bolt/llvm && git stash && cd /src/build/
+RUN rm pyston/bolt/llvm/tools/llvm-bolt pyston/bolt/llvm/include/llvm/Support/Alignment.h
+
+# run this to build the package
+#RUN make package

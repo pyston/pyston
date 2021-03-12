@@ -20,6 +20,8 @@ static int numfree = 0;
 _Py_IDENTIFIER(__name__);
 _Py_IDENTIFIER(__qualname__);
 
+PyObject* avoid_clang_bug_classobject() { return NULL; }
+
 PyObject *
 PyMethod_Function(PyObject *im)
 {
@@ -227,7 +229,7 @@ method_new(PyTypeObject* type, PyObject* args, PyObject *kw)
 
     if (!_PyArg_NoKeywords("method", kw))
         return NULL;
-    if (!PyArg_UnpackTuple(args, "method", 2, 2,
+    if (!PyArg_UnpackTuple2(args, "method", 2, 2,
                           &func, &self))
         return NULL;
     if (!PyCallable_Check(func)) {
@@ -287,7 +289,7 @@ method_richcompare(PyObject *self, PyObject *other, int op)
         res = eq ? Py_True : Py_False;
     else
         res = eq ? Py_False : Py_True;
-    Py_INCREF(res);
+    Py_INCREF_IMMORTAL(res);
     return res;
 }
 
@@ -561,7 +563,7 @@ instancemethod_richcompare(PyObject *self, PyObject *other, int op)
         res = eq ? Py_True : Py_False;
     else
         res = eq ? Py_False : Py_True;
-    Py_INCREF(res);
+    Py_INCREF_IMMORTAL(res);
     return res;
 }
 
@@ -620,7 +622,7 @@ instancemethod_new(PyTypeObject* type, PyObject* args, PyObject *kw)
 
     if (!_PyArg_NoKeywords("instancemethod", kw))
         return NULL;
-    if (!PyArg_UnpackTuple(args, "instancemethod", 1, 1, &func))
+    if (!PyArg_UnpackTuple1(args, "instancemethod", 1, 1, &func))
         return NULL;
     if (!PyCallable_Check(func)) {
         PyErr_SetString(PyExc_TypeError,

@@ -15,6 +15,7 @@
 /* Alternative SOABI used in debug build to load C extensions built in release
    mode */
 #undef ALT_SOABI
+#undef UNSAFE_ALT_SOABI
 
 /* The Android API level. */
 #undef ANDROID_API_LEVEL
@@ -1651,6 +1652,9 @@
 /* Define to `int' if <sys/types.h> doesn't define. */
 #undef uid_t
 
+#undef PYSTON_SPEEDUPS
+
+#undef IMPLEMENTATION_NAME
 
 /* Define the macros needed if on a UnixWare 7.x system. */
 #if defined(__USLC__) && defined(__SCO_VERSION__)

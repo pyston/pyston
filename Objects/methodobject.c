@@ -20,13 +20,13 @@ static int numfree = 0;
 #undef PyCFunction_New
 
 /* Forward declarations */
-static PyObject * cfunction_vectorcall_FASTCALL(
+/*static*/ PyObject * cfunction_vectorcall_FASTCALL(
     PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 static PyObject * cfunction_vectorcall_FASTCALL_KEYWORDS(
     PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
-static PyObject * cfunction_vectorcall_NOARGS(
+/* static */ PyObject * cfunction_vectorcall_NOARGS(
     PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
-static PyObject * cfunction_vectorcall_O(
+PyObject * cfunction_vectorcall_O(
     PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 
 
@@ -225,9 +225,12 @@ meth_get__self__(PyCFunctionObject *m, void *closure)
     PyObject *self;
 
     self = PyCFunction_GET_SELF(m);
-    if (self == NULL)
+    if (self == NULL) {
         self = Py_None;
-    Py_INCREF(self);
+        Py_INCREF_IMMORTAL(self);
+    } else {
+        Py_INCREF(self);
+    }
     return self;
 }
 
@@ -281,7 +284,7 @@ meth_richcompare(PyObject *self, PyObject *other, int op)
         res = eq ? Py_True : Py_False;
     else
         res = eq ? Py_False : Py_True;
-    Py_INCREF(res);
+    Py_INCREF_IMMORTAL(res);
     return res;
 }
 
@@ -406,7 +409,7 @@ cfunction_enter_call(PyObject *func)
 }
 
 /* Now the actual vectorcall functions */
-static PyObject *
+/*static*/ PyObject *
 cfunction_vectorcall_FASTCALL(
     PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames)
 {
@@ -439,7 +442,7 @@ cfunction_vectorcall_FASTCALL_KEYWORDS(
     return result;
 }
 
-static PyObject *
+/* static */ PyObject *
 cfunction_vectorcall_NOARGS(
     PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames)
 {
@@ -461,7 +464,7 @@ cfunction_vectorcall_NOARGS(
     return result;
 }
 
-static PyObject *
+PyObject *
 cfunction_vectorcall_O(
     PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames)
 {

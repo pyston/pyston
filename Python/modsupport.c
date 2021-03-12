@@ -6,6 +6,8 @@
 #define FLAG_SIZE_T 1
 typedef double va_double;
 
+PyObject* avoid_clang_bug_modsupport() { return NULL; }
+
 static PyObject *va_build_value(const char *, va_list, int);
 static PyObject **va_build_stack(PyObject **small_stack, Py_ssize_t small_stack_len, const char *, va_list, int, Py_ssize_t*);
 

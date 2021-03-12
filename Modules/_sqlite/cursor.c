@@ -551,24 +551,24 @@ _pysqlite_query_execute(pysqlite_Cursor* self, int multiple, PyObject* args)
                 goto error;
             }
             for (i = 0; i < numcols; i++) {
-                descriptor = PyTuple_New(7);
-                if (!descriptor) {
-                    goto error;
-                }
                 column_name = _pysqlite_build_column_name(self,
                                 sqlite3_column_name(self->statement->st, i));
                 if (!column_name) {
-                    Py_DECREF(descriptor);
                     goto error;
                 }
-                PyTuple_SetItem(descriptor, 0, column_name);
-                Py_INCREF(Py_None); PyTuple_SetItem(descriptor, 1, Py_None);
-                Py_INCREF(Py_None); PyTuple_SetItem(descriptor, 2, Py_None);
-                Py_INCREF(Py_None); PyTuple_SetItem(descriptor, 3, Py_None);
-                Py_INCREF(Py_None); PyTuple_SetItem(descriptor, 4, Py_None);
-                Py_INCREF(Py_None); PyTuple_SetItem(descriptor, 5, Py_None);
-                Py_INCREF(Py_None); PyTuple_SetItem(descriptor, 6, Py_None);
-                PyTuple_SetItem(self->description, i, descriptor);
+                descriptor = PyTuple_New_Nonzeroed(7);
+                if (!descriptor) {
+                    Py_DECREF(column_name);
+                    goto error;
+                }
+                PyTuple_SET_ITEM(descriptor, 0, column_name);
+                Py_INCREF(Py_None); PyTuple_SET_ITEM(descriptor, 1, Py_None);
+                Py_INCREF(Py_None); PyTuple_SET_ITEM(descriptor, 2, Py_None);
+                Py_INCREF(Py_None); PyTuple_SET_ITEM(descriptor, 3, Py_None);
+                Py_INCREF(Py_None); PyTuple_SET_ITEM(descriptor, 4, Py_None);
+                Py_INCREF(Py_None); PyTuple_SET_ITEM(descriptor, 5, Py_None);
+                Py_INCREF(Py_None); PyTuple_SET_ITEM(descriptor, 6, Py_None);
+                PyTuple_SET_ITEM(self->description, i, descriptor);
             }
         }
 

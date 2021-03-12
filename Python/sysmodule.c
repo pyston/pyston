@@ -162,12 +162,12 @@ PySys_Audit(const char *event, const char *argFormat, ...)
         eventArgs = _Py_VaBuildValue_SizeT(argFormat, args);
         va_end(args);
         if (eventArgs && !PyTuple_Check(eventArgs)) {
-            PyObject *argTuple = PyTuple_Pack(1, eventArgs);
+            PyObject *argTuple = PyTuple_Pack1(eventArgs);
             Py_DECREF(eventArgs);
             eventArgs = argTuple;
         }
     } else {
-        eventArgs = PyTuple_New(0);
+        eventArgs = PyTuple_New_Nonzeroed(0);
     }
     if (!eventArgs) {
         goto exit;
@@ -621,7 +621,7 @@ sys_displayhook(PyObject *module, PyObject *o)
         }
     }
     if (newline == NULL) {
-        newline = PyUnicode_FromString("\n");
+        newline = PyUnicode_InternFromStringImmortal("\n");
         if (newline == NULL)
             return NULL;
     }
@@ -894,7 +894,7 @@ trace_trampoline(PyObject *self, PyFrameObject *frame,
         Py_XSETREF(frame->f_trace, result);
     }
     else {
-        Py_DECREF(result);
+        Py_DECREF_IMMORTAL(result);
     }
     return 0;
 }
@@ -933,9 +933,12 @@ sys_gettrace_impl(PyObject *module)
     PyThreadState *tstate = _PyThreadState_GET();
     PyObject *temp = tstate->c_traceobj;
 
-    if (temp == NULL)
+    if (temp == NULL) {
         temp = Py_None;
-    Py_INCREF(temp);
+        Py_INCREF_IMMORTAL(temp);
+    } else {
+        Py_INCREF(temp);
+    }
     return temp;
 }
 
@@ -973,9 +976,12 @@ sys_getprofile_impl(PyObject *module)
     PyThreadState *tstate = _PyThreadState_GET();
     PyObject *temp = tstate->c_profileobj;
 
-    if (temp == NULL)
+    if (temp == NULL) {
         temp = Py_None;
-    Py_INCREF(temp);
+        Py_INCREF_IMMORTAL(temp);
+    } else {
+        Py_INCREF(temp);
+    }
     return temp;
 }
 
@@ -2286,7 +2292,7 @@ _PySys_AddXOptionWithError(const wchar_t *s)
     if (!name_end) {
         name = PyUnicode_FromWideChar(s, -1);
         value = Py_True;
-        Py_INCREF(value);
+        Py_INCREF_IMMORTAL(value);
     }
     else {
         name = PyUnicode_FromWideChar(s, name_end - s);
@@ -2529,7 +2535,7 @@ static PyStructSequence_Desc version_info_desc = {
 };
 
 static PyObject *
-make_version_info(void)
+make_version_info(int pyston_info)
 {
     PyObject *version_info;
     char *s;
@@ -2559,9 +2565,15 @@ make_version_info(void)
 #define SetStrItem(flag) \
     PyStructSequence_SET_ITEM(version_info, pos++, PyUnicode_FromString(flag))
 
-    SetIntItem(PY_MAJOR_VERSION);
-    SetIntItem(PY_MINOR_VERSION);
-    SetIntItem(PY_MICRO_VERSION);
+    if (pyston_info) {
+        SetIntItem(PYSTON_MAJOR_VERSION);
+        SetIntItem(PYSTON_MINOR_VERSION);
+        SetIntItem(PYSTON_MICRO_VERSION);
+    } else {
+        SetIntItem(PY_MAJOR_VERSION);
+        SetIntItem(PY_MINOR_VERSION);
+        SetIntItem(PY_MICRO_VERSION);
+    }
     SetStrItem(s);
     SetIntItem(PY_RELEASE_SERIAL);
 #undef SetIntItem
@@ -2575,13 +2587,22 @@ make_version_info(void)
 }
 
 /* sys.implementation values */
-#define NAME "cpython"
-const char *_PySys_ImplName = NAME;
+// Pyston change: NAME is now provided by configure as IMPLEMENTATION_NAME
+const char *_PySys_ImplName = IMPLEMENTATION_NAME;
+#if PYSTON_SPEEDUPS
+#define MAJOR Py_STRINGIFY(PYSTON_MAJOR_VERSION)
+#define MINOR Py_STRINGIFY(PYSTON_MINOR_VERSION)
+#else
 #define MAJOR Py_STRINGIFY(PY_MAJOR_VERSION)
 #define MINOR Py_STRINGIFY(PY_MINOR_VERSION)
-#define TAG NAME "-" MAJOR MINOR
+#endif
+#define TAG IMPLEMENTATION_NAME "-" MAJOR MINOR
 const char *_PySys_ImplCacheTag = TAG;
-#undef NAME
+#if PYSTON_SPEEDUPS
+#define UNSAFE_TAG "cpython" "-" Py_STRINGIFY(PY_MAJOR_VERSION) Py_STRINGIFY(PY_MINOR_VERSION)
+const char *_PySys_UnsafeImplCacheTag = UNSAFE_TAG;
+const char *_PySys_UnsafeImplName = "cpython";
+#endif
 #undef MAJOR
 #undef MINOR
 #undef TAG
@@ -2598,7 +2619,16 @@ make_impl_info(PyObject *version_info)
 
     /* populate the dict */
 
+#if PYSTON_SPEEDUPS
+    const char *envar = getenv("PYSTON_UNSAFE_ABI");
+    int unsafe_abi = envar && atoll(envar);
+    if (unsafe_abi)
+        value = PyUnicode_FromString(_PySys_UnsafeImplName);
+    else
+        value = PyUnicode_FromString(_PySys_ImplName);
+#else
     value = PyUnicode_FromString(_PySys_ImplName);
+#endif
     if (value == NULL)
         goto error;
     res = PyDict_SetItemString(impl_info, "name", value);
@@ -2606,7 +2636,14 @@ make_impl_info(PyObject *version_info)
     if (res < 0)
         goto error;
 
+#if PYSTON_SPEEDUPS
+    if (unsafe_abi)
+        value = PyUnicode_FromString(_PySys_UnsafeImplCacheTag);
+    else
+        value = PyUnicode_FromString(_PySys_ImplCacheTag);
+#else
     value = PyUnicode_FromString(_PySys_ImplCacheTag);
+#endif
     if (value == NULL)
         goto error;
     res = PyDict_SetItemString(impl_info, "cache_tag", value);
@@ -2761,7 +2798,7 @@ _PySys_InitCore(_PyRuntimeState *runtime, PyInterpreterState *interp,
             goto type_init_failed;
         }
     }
-    version_info = make_version_info();
+    version_info = make_version_info(0);
     SET_SYS_FROM_STRING("version_info", version_info);
     /* prevent user from creating new instances */
     VersionInfoType.tp_init = NULL;
@@ -2772,6 +2809,10 @@ _PySys_InitCore(_PyRuntimeState *runtime, PyInterpreterState *interp,
 
     /* implementation */
     SET_SYS_FROM_STRING("implementation", make_impl_info(version_info));
+
+#if PYSTON_SPEEDUPS
+    SET_SYS_FROM_STRING("pyston_version_info", make_version_info(1));
+#endif
 
     /* flags */
     if (FlagsType.tp_name == 0) {
@@ -2855,7 +2896,7 @@ sys_add_xoption(PyObject *opts, const wchar_t *s)
     if (!name_end) {
         name = PyUnicode_FromWideChar(s, -1);
         value = Py_True;
-        Py_INCREF(value);
+        Py_INCREF_IMMORTAL(value);
     }
     else {
         name = PyUnicode_FromWideChar(s, name_end - s);

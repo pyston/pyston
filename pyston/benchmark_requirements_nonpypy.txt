@@ -1,0 +1,5 @@
+# mypy requirements
+mypy==0.790
+typed_ast==1.4.1
+mypy_extensions==0.4.3
+typing_extensions==3.7.4.3

@@ -453,7 +453,7 @@ to_complex(PyObject **pobj, Py_complex *pc)
         pc->real = PyFloat_AsDouble(obj);
         return 0;
     }
-    Py_INCREF(Py_NotImplemented);
+    Py_INCREF_IMMORTAL(Py_NotImplemented);
     *pobj = Py_NotImplemented;
     return -1;
 }
@@ -672,7 +672,7 @@ complex_richcompare(PyObject *v, PyObject *w, int op)
     else
          res = Py_False;
 
-    Py_INCREF(res);
+    Py_INCREF_IMMORTAL(res);
     return res;
 
 Unimplemented:

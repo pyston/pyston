@@ -73,7 +73,12 @@ typedef struct _typeobject {
     destructor tp_del;
 
     /* Type attribute cache version tag. Added in version 2.6 */
+#if PYSTON_SPEEDUPS
+    // NITROUS change from int to long
+    unsigned long tp_version_tag;
+#else
     unsigned int tp_version_tag;
+#endif
 
     destructor tp_finalize;
 

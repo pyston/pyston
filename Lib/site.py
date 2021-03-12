@@ -272,7 +272,7 @@ def _get_path(userbase):
     if sys.platform == 'darwin' and sys._framework:
         return f'{userbase}/lib/python/site-packages'
 
-    return f'{userbase}/lib/python{version[0]}.{version[1]}/site-packages'
+    return f'{userbase}/lib/pyston{version[0]}.{version[1]}/site-packages'
 
 
 def getuserbase():
@@ -336,7 +336,7 @@ def getsitepackages(prefixes=None):
 
         if os.sep == '/':
             sitepackages.append(os.path.join(prefix, "lib",
-                                        "python%d.%d" % sys.version_info[:2],
+                                        "pyston%d.%d" % sys.version_info[:2],
                                         "site-packages"))
         else:
             sitepackages.append(prefix)

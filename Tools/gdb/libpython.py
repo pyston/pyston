@@ -101,7 +101,7 @@ ENCODING = locale.getpreferredencoding()
 
 FRAME_INFO_OPTIMIZED_OUT = '(frame information optimized out)'
 UNABLE_READ_INFO_PYTHON_FRAME = 'Unable to read information on python frame'
-EVALFRAME = '_PyEval_EvalFrameDefault'
+EVALFRAME = ('_PyEval_EvalFrameDefault', '_PyEval_EvalFrame_AOT')
 
 class NullPyObjectPtr(RuntimeError):
     pass
@@ -1423,6 +1423,16 @@ class PyObjectPtrPrinter:
             proxyval = pyop.proxyval(set())
             return stringify(proxyval)
 
+class SimplePyObjectPtrPrinter:
+    def __init__ (self, gdbval):
+        self.gdbval = gdbval
+
+    def to_string (self):
+        pyop = PyObjectPtr(self.gdbval)
+        if long(self.gdbval) == 0:
+            return "0x0"
+        return '<%s @ 0x%x>' % (pyop.safe_tp_name(), long(self.gdbval))
+
 def pretty_printer_lookup(gdbval):
     type = gdbval.type.unqualified()
     if type.code != gdb.TYPE_CODE_PTR:
@@ -1430,8 +1440,8 @@ def pretty_printer_lookup(gdbval):
 
     type = type.target().unqualified()
     t = str(type)
-    if t in ("PyObject", "PyFrameObject", "PyUnicodeObject", "wrapperobject"):
-        return PyObjectPtrPrinter(gdbval)
+    if t.startswith("Py") and t.endswith("Object") or t in ("wrapperobject", "_frame"):
+        return SimplePyObjectPtrPrinter(gdbval)
 
 """
 During development, I've been manually invoking the code in this way:
@@ -1530,7 +1540,7 @@ class Frame(object):
 
     def is_evalframe(self):
         '''Is this a _PyEval_EvalFrameDefault frame?'''
-        if self._gdbframe.name() == EVALFRAME:
+        if self._gdbframe.name() in EVALFRAME:
             '''
             I believe we also need to filter on the inline
             struct frame_id.inline_depth, only regarding frames with

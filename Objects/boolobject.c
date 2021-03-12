@@ -5,21 +5,21 @@
 
 /* We define bool_repr to return "False" or "True" */
 
-static PyObject *false_str = NULL;
-static PyObject *true_str = NULL;
+/* static */ PyObject *false_str = NULL;
+/* static */ PyObject *true_str = NULL;
 
-static PyObject *
+/* static */ PyObject *
 bool_repr(PyObject *self)
 {
     PyObject *s;
 
     if (self == Py_True)
         s = true_str ? true_str :
-            (true_str = PyUnicode_InternFromString("True"));
+            (true_str = PyUnicode_InternFromStringImmortal("True"));
     else
         s = false_str ? false_str :
-            (false_str = PyUnicode_InternFromString("False"));
-    Py_XINCREF(s);
+            (false_str = PyUnicode_InternFromStringImmortal("False"));
+    Py_XINCREF_IMMORTAL(s);
     return s;
 }
 
@@ -33,13 +33,13 @@ PyObject *PyBool_FromLong(long ok)
         result = Py_True;
     else
         result = Py_False;
-    Py_INCREF(result);
+    Py_INCREF_IMMORTAL(result);
     return result;
 }
 
 /* We define bool_new to always return either Py_True or Py_False */
 
-static PyObject *
+/* static */ PyObject *
 bool_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
     PyObject *x = Py_False;
@@ -47,7 +47,7 @@ bool_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 
     if (!_PyArg_NoKeywords("bool", kwds))
         return NULL;
-    if (!PyArg_UnpackTuple(args, "bool", 0, 1, &x))
+    if (!PyArg_UnpackTuple1(args, "bool", 0, 1, &x))
         return NULL;
     ok = PyObject_IsTrue(x);
     if (ok < 0)
@@ -57,7 +57,7 @@ bool_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 
 /* Arithmetic operations redefined to return bool if both args are bool. */
 
-static PyObject *
+/* static */ PyObject *
 bool_and(PyObject *a, PyObject *b)
 {
     if (!PyBool_Check(a) || !PyBool_Check(b))
@@ -65,7 +65,7 @@ bool_and(PyObject *a, PyObject *b)
     return PyBool_FromLong((a == Py_True) & (b == Py_True));
 }
 
-static PyObject *
+/* static */ PyObject *
 bool_or(PyObject *a, PyObject *b)
 {
     if (!PyBool_Check(a) || !PyBool_Check(b))
@@ -73,7 +73,7 @@ bool_or(PyObject *a, PyObject *b)
     return PyBool_FromLong((a == Py_True) | (b == Py_True));
 }
 
-static PyObject *
+/* static */ PyObject *
 bool_xor(PyObject *a, PyObject *b)
 {
     if (!PyBool_Check(a) || !PyBool_Check(b))
@@ -92,7 +92,7 @@ The class bool is a subclass of the class int, and cannot be subclassed.");
 
 /* Arithmetic methods -- only so we can override &, |, ^. */
 
-static PyNumberMethods bool_as_number = {
+/* static */ PyNumberMethods bool_as_number = {
     0,                          /* nb_add */
     0,                          /* nb_subtract */
     0,                          /* nb_multiply */
@@ -174,6 +174,17 @@ PyTypeObject PyBool_Type = {
 
 /* The objects representing bool values False and True */
 
+#ifdef PYSTON_SPEEDUPS
+struct _longobject _Py_FalseStruct = {
+    { { _PyObject_EXTRA_INIT IMMORTAL_REFCOUNT, &PyBool_Type}, 0},
+    { 0 }
+};
+
+struct _longobject _Py_TrueStruct = {
+    { { _PyObject_EXTRA_INIT IMMORTAL_REFCOUNT, &PyBool_Type}, 1},
+    { 1 }
+};
+#else
 struct _longobject _Py_FalseStruct = {
     PyVarObject_HEAD_INIT(&PyBool_Type, 0)
     { 0 }
@@ -183,3 +194,4 @@ struct _longobject _Py_TrueStruct = {
     PyVarObject_HEAD_INIT(&PyBool_Type, 1)
     { 1 }
 };
+#endif

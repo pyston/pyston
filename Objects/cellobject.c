@@ -5,6 +5,8 @@
 #include "pycore_pymem.h"
 #include "pycore_pystate.h"
 
+PyObject* avoid_clang_bug_cellobject() { return NULL; }
+
 PyObject *
 PyCell_New(PyObject *obj)
 {
@@ -42,7 +44,7 @@ cell_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
         goto exit;
     }
     /* min = 0: we allow the cell to be empty */
-    if (!PyArg_UnpackTuple(args, "cell", 0, 1, &obj)) {
+    if (!PyArg_UnpackTuple1(args, "cell", 0, 1, &obj)) {
         goto exit;
     }
     return_value = PyCell_New(obj);

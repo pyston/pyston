@@ -57,7 +57,7 @@ class BaseTest(unittest.TestCase):
             self.include = 'Include'
         else:
             self.bindir = 'bin'
-            self.lib = ('lib', 'python%d.%d' % sys.version_info[:2])
+            self.lib = ('lib', 'pyston%d.%d' % sys.version_info[:2])
             self.include = 'include'
         executable = sys._base_executable
         self.exe = os.path.split(executable)[-1]

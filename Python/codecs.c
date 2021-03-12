@@ -30,6 +30,8 @@ const char *Py_hexdigits = "0123456789abcdef";
 
 static int _PyCodecRegistry_Init(void); /* Forward */
 
+PyObject* avoid_clang_bug_codecs() { return NULL; }
+
 int PyCodec_Register(PyObject *search_function)
 {
     PyInterpreterState *interp = _PyInterpreterState_Get();
@@ -132,7 +134,7 @@ PyObject *_PyCodec_Lookup(const char *encoding)
     }
 
     /* Next, scan the search functions in order of registration */
-    args = PyTuple_New(1);
+    args = PyTuple_New_Nonzeroed(1);
     if (args == NULL) {
         Py_DECREF(v);
         return NULL;
@@ -159,7 +161,7 @@ PyObject *_PyCodec_Lookup(const char *encoding)
         if (result == NULL)
             goto onError;
         if (result == Py_None) {
-            Py_DECREF(result);
+            Py_DECREF_IMMORTAL(result);
             continue;
         }
         if (!PyTuple_Check(result) || PyTuple_GET_SIZE(result) != 4) {

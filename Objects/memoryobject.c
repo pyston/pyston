@@ -2898,7 +2898,7 @@ result:
     unpacker_free(unpack_v);
     unpacker_free(unpack_w);
 
-    Py_XINCREF(res);
+    Py_XINCREF_IMMORTAL(res);
     return res;
 }
 
@@ -2968,7 +2968,7 @@ _IntTupleFromSsizet(int len, Py_ssize_t *vals)
     PyObject *intTuple;
 
     if (vals == NULL)
-        return PyTuple_New(0);
+        return PyTuple_New_Nonzeroed(0);
 
     intTuple = PyTuple_New(len);
     if (!intTuple)

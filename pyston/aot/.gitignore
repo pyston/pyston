@@ -1,0 +1,8 @@
+aot.h
+aot_pre_trace.c
+aot_profile.c
+*.o
+*.so
+*.a
+*.bc
+*.profdata

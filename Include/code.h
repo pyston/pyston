@@ -29,6 +29,10 @@ typedef struct {
     int co_stacksize;           /* #entries needed for evaluation stack */
     int co_flags;               /* CO_..., see below */
     int co_firstlineno;         /* first source line number */
+#if PYSTON_SPEEDUPS
+    // move this somewhere it packs better:
+    unsigned char co_opcache_size;  // length of co_opcache.
+#endif
     PyObject *co_code;          /* instruction opcodes */
     PyObject *co_consts;        /* list (constants used) */
     PyObject *co_names;         /* list of strings (names used) */
@@ -64,8 +68,24 @@ typedef struct {
     //  * n > 0 means there is cache in co_opcache[n-1].
     unsigned char *co_opcache_map;
     _PyOpcache *co_opcache;
+#if PYSTON_SPEEDUPS
+    long co_opcache_flag;  // used to determine when create a cache.
+#else
     int co_opcache_flag;  // used to determine when create a cache.
     unsigned char co_opcache_size;  // length of co_opcache.
+#endif
+
+#if PYSTON_SPEEDUPS
+#ifndef PYSTON_CLEANUP
+    // Cache for looking up __builtins__ when creating a new frame for this code object.
+    // Caches the last lookup.
+    uint64_t co_builtins_cache_ver;
+    PyObject* co_builtins_cache_obj; // borrowed reference
+#else
+    uint64_t _data1;
+    void* _data2;
+#endif
+#endif
 } PyCodeObject;
 
 /* Masks for co_flags above */

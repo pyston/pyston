@@ -516,7 +516,7 @@ parse_syntax_error(PyObject *err, PyObject **message, PyObject **filename,
     if (!v)
         goto finally;
     if (v == Py_None) {
-        Py_DECREF(v);
+        Py_DECREF_IMMORTAL(v);
         *filename = _PyUnicode_FromId(&PyId_string);
         if (*filename == NULL)
             goto finally;
@@ -540,7 +540,7 @@ parse_syntax_error(PyObject *err, PyObject **message, PyObject **filename,
         goto finally;
     if (v == Py_None) {
         *offset = -1;
-        Py_DECREF(v);
+        Py_DECREF_IMMORTAL(v);
     } else {
         hold = _PyLong_AsInt(v);
         Py_DECREF(v);
@@ -553,7 +553,7 @@ parse_syntax_error(PyObject *err, PyObject **message, PyObject **filename,
     if (!v)
         goto finally;
     if (v == Py_None) {
-        Py_DECREF(v);
+        Py_DECREF_IMMORTAL(v);
         *text = NULL;
     }
     else {
@@ -634,10 +634,10 @@ _Py_HandleSystemExit(int *exitcode_p)
         _Py_IDENTIFIER(code);
         PyObject *code = _PyObject_GetAttrId(value, &PyId_code);
         if (code) {
-            Py_DECREF(value);
             value = code;
             if (value == Py_None)
                 goto done;
+            Py_DECREF(value);
         }
         /* If we failed to dig out the 'code' attribute,
            just let the else clause below print the error. */
@@ -701,7 +701,7 @@ _PyErr_PrintEx(PyThreadState *tstate, int set_sys_last_vars)
     _PyErr_NormalizeException(tstate, &exception, &v, &tb);
     if (tb == NULL) {
         tb = Py_None;
-        Py_INCREF(tb);
+        Py_INCREF_IMMORTAL(tb);
     }
     PyException_SetTraceback(v, tb);
     if (exception == NULL) {
@@ -748,11 +748,11 @@ _PyErr_PrintEx(PyThreadState *tstate, int set_sys_last_vars)
                tolerate NULLs, so just be safe. */
             if (exception2 == NULL) {
                 exception2 = Py_None;
-                Py_INCREF(exception2);
+                Py_INCREF_IMMORTAL(exception2);
             }
             if (v2 == NULL) {
                 v2 = Py_None;
-                Py_INCREF(v2);
+                Py_INCREF_IMMORTAL(v2);
             }
             fflush(stdout);
             PySys_WriteStderr("Error in sys.excepthook:\n");
@@ -1621,7 +1621,7 @@ err_input(perrdetail *err)
        Explicitly convert to an object. */
     if (!err->text) {
         errtext = Py_None;
-        Py_INCREF(Py_None);
+        Py_INCREF_IMMORTAL(Py_None);
     } else {
         errtext = PyUnicode_DecodeUTF8(err->text, err->offset,
                                        "replace");

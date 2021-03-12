@@ -1041,7 +1041,7 @@ formatteriter_next(formatteriterobject *it)
            character */
         if (conversion == '\0') {
             conversion_str = Py_None;
-            Py_INCREF(conversion_str);
+            Py_INCREF_IMMORTAL(conversion_str);
         }
         else
             conversion_str = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND,
@@ -1187,7 +1187,7 @@ fieldnameiter_next(fieldnameiterobject *it)
             goto done;
 
         /* return a tuple of values */
-        result = PyTuple_Pack(2, is_attr_obj, obj);
+        result = PyTuple_Pack2(is_attr_obj, obj);
 
     done:
         Py_XDECREF(is_attr_obj);
@@ -1282,7 +1282,7 @@ formatter_field_name_split(PyObject *ignored, PyObject *self)
         goto done;
 
     /* return a tuple of values */
-    result = PyTuple_Pack(2, first_obj, it);
+    result = PyTuple_Pack2(first_obj, it);
 
 done:
     Py_XDECREF(it);
