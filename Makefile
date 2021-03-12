@@ -447,22 +447,26 @@ cpython_testsuite_dbg: pyston/build/cpython_dbg_build/pyston
 
 # Note: cpython_testsuite is itself parallel so we might need to run it not in parallel
 # with the other tests
-_runtests: pyston/test/caches_unopt test_django test_urllib3 test_setuptools test_six test_requests cpython_testsuite
+_runtests: pyston/test/caches_unopt pyston/test/deferred_stack_decref_unopt pyston/test/getattr_caches_unopt test_django test_urllib3 test_setuptools test_six test_requests cpython_testsuite
 _runtestsdbg: pyston/test/caches_dbg testdbg_django testdbg_urllib3 testdbg_setuptools testdbg_six testdbg_requests cpython_testsuite_dbg
 
 test: pyston/build/system_env/bin/python pyston/build/unopt_env/bin/python
-	rm -f $(wildcard python/test/external/*.output)
+	rm -f $(wildcard pyston/test/external/*.output)
 	# Test mostly tests the CAPI so don't rerun it with different JIT_MIN_RUNS
 	# Note: test_numpy is internally parallel so we might have to re-separate it
 	# into a separate step
 	$(MAKE) _runtests test_numpy
 	$(MAKE) test_numpy
+	JIT_MAX_MEM=50000 pyston/build/unopt_env/bin/python pyston/test/jit_limit.py
+	JIT_MAX_MEM=50000 pyston/build/unopt_env/bin/python pyston/test/jit_osr_limit.py
 	pyston/build/unopt_env/bin/python pyston/test/test_venvs.py
-	rm -f $(wildcard python/test/external/*.output)
+	rm -f $(wildcard pyston/test/external/*.output)
+	JIT_MIN_RUNS=0 $(MAKE) _runtests
+	rm -f $(wildcard pyston/test/external/*.output)
 	JIT_MIN_RUNS=50 $(MAKE) _runtests
-	rm -f $(wildcard python/test/external/*.output)
+	rm -f $(wildcard pyston/test/external/*.output)
 	JIT_MIN_RUNS=9999999999 $(MAKE) _runtests
-	rm -f $(wildcard python/test/external/*.output)
+	rm -f $(wildcard pyston/test/external/*.output)
 
 stocktest: pyston/build/cpython_stockunopt_build/python
 	$(MAKE) -C pyston/build/cpython_stockunopt_build test

@@ -29,4 +29,4 @@ if __name__ == "__main__":
         subprocess.check_call([os.path.join(env_dir, "bin/pip"), "install", "-r", rel("django_requirements.txt")])
 
         r = subprocess.call([os.path.join(env_dir, "bin/python3"), "-u", rel("django/tests/runtests.py"), "--parallel", "1"])
-        assert r in (0, 1)
+        assert r in (0, 1), r
