@@ -1223,6 +1223,8 @@ void jit_finish();
 static long opcache_min_runs = OPCACHE_MIN_RUNS;
 static long jit_min_runs = JIT_MIN_RUNS;
 
+#define JIT_FUNC_FAILED ((JitFunc*)0x1)
+
 static PyObject* _Py_HOT_FUNCTION
 _PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObject** stack_pointer, AOTExtra* aot_extra);
 __attribute__((noinline)) static PyObject* _Py_HOT_FUNCTION
@@ -1624,8 +1626,13 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 #else
         aot_extra->jit_code = jit_func(co, tstate);
 #endif
-        if (aot_extra->jit_code)
+        if (aot_extra->jit_code) {
             return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, aot_extra);
+        } else {
+            // never try again to JIT compile this python function
+            aot_extra->jit_code = JIT_FUNC_FAILED;
+            can_use_jit = 0;
+        }
     }
 
     names = co->co_names;
@@ -3695,11 +3702,21 @@ la_common:
             OPCACHE_INIT_IF_HIT_THRESHOLD();
 
             // check if we should switch over to the JIT (OSR)
-            if (co->co_opcache_flag > jit_min_runs && can_use_jit && aot_extra->jit_code == NULL) {
-                // printf("OSR %s\n", PyUnicode_AsUTF8(co->co_name));
+            if (co->co_opcache_flag > jit_min_runs && can_use_jit && aot_extra->jit_code == NULL
+                && !_Py_TracingPossible(ceval)) { // don't OSR if tracing is enabled because we seem to skip a line
                 aot_extra->jit_code = jit_func(co, tstate);
-                f->f_lasti -= 2; // our JIT entry is always adding two
-                return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, aot_extra);
+                if (aot_extra->jit_code) {
+                    // JUMPTO() did not update f->f_lasti
+                    // (it still points to the JUMP_ABSOLUTE - not the destination of the jump)
+                    // update f->f_lasti manually like DISPATCH() would do because
+                    // we can only enter the machine code at jump targets.
+                    f->f_lasti = INSTR_OFFSET() - 2; // -2 because our JIT entry is always adding two
+                    return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, aot_extra);
+                } else {
+                    // never try again to JIT compile this python function
+                    aot_extra->jit_code = JIT_FUNC_FAILED;
+                    can_use_jit = 0;
+                }
             }
 
 #if FAST_LOOPS
@@ -4635,6 +4652,9 @@ _PyEval_EvalFrame_AOT(PyFrameObject *f, int throwflag)
     // at the beginning, but they're not fixed for a code object so we can't just check at jit time.
     // Also don't enter the jit if the throwflag is set which skips the main code path and goes to error path.
     int can_use_jit = PyDict_CheckExact(f->f_globals) && PyDict_CheckExact(f->f_builtins) && !throwflag;
+    if (aot_extra->jit_code == JIT_FUNC_FAILED) {
+        can_use_jit = 0;
+    }
     if (aot_extra->jit_code != NULL && can_use_jit) {
         retval = _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, aot_extra);
     } else {

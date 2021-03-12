@@ -36,6 +36,8 @@
 
 #include "aot.h"
 
+#include "aot_ceval_jit_helper.h"
+
 extern int _PyObject_GetMethod(PyObject *, PyObject *, PyObject **);
 PyObject * call_function_ceval(
     PyThreadState *tstate, PyObject ***pp_stack,
@@ -138,19 +140,6 @@ int unpack_iterable(PyThreadState *, PyObject *, int, int, PyObject **);
 register PyObject** stack_pointer asm("r12");
 register PyFrameObject* f asm("r13");
 register PyThreadState* tstate asm("r15");
-
-#define JIT_HELPER(name) PyObject* JIT_HELPER_##name(int _not_set)
-#define JIT_HELPER1(name, py1) PyObject* JIT_HELPER_##name(int _not_set, PyObject* py1)
-#define JIT_HELPER2(name, py1, py2) PyObject* JIT_HELPER_##name(int _not_set, PyObject* py1, PyObject* py2)
-#define JIT_HELPER_WITH_OPARG(name) PyObject* JIT_HELPER_##name(int oparg)
-#define JIT_HELPER_WITH_OPARG1(name, py1) PyObject* JIT_HELPER_##name(int oparg, PyObject* py1)
-#define JIT_HELPER_WITH_OPARG2(name, py1, py2) PyObject* JIT_HELPER_##name(int oparg, PyObject* py1, PyObject* py2)
-#define JIT_HELPER_WITH_OPARG3(name, py1, py2, py3) PyObject* JIT_HELPER_##name(int oparg, PyObject* py1, PyObject* py2, PyObject* py3)
-#define JIT_HELPER_WITH_NAME(name_) PyObject* JIT_HELPER_##name_(PyObject* name)
-#define JIT_HELPER_WITH_NAME1(name_, py1) PyObject* JIT_HELPER_##name_(PyObject* name, PyObject* py1)
-#define JIT_HELPER_WITH_NAME_OPCACHE_AOT(name_) PyObject* JIT_HELPER_##name_(PyObject* name, _PyOpcache *co_opcache)
-#define JIT_HELPER_WITH_NAME_OPCACHE_AOT1(name_, py1) PyObject* JIT_HELPER_##name_(PyObject* name, PyObject* py1, _PyOpcache *co_opcache)
-#define JIT_HELPER_WITH_NAME_OPCACHE_AOT2(name_, py1, py2) PyObject* JIT_HELPER_##name_(PyObject* name, PyObject* py1, PyObject* py2, _PyOpcache *co_opcache)
 
 #define OPCACHE_CHECK()
 #define OPCACHE_STAT_GLOBAL_HIT()

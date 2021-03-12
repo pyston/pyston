@@ -15275,7 +15275,6 @@ $as_echo_n "checking SOABI... " >&6; }
 if test $PYSTON != no; then
     IMPLEMENTATION_NAME="pyston"
     SOABI_VERSION=2.1
-    LIBS="$LIBS -ljemalloc"
 else
     IMPLEMENTATION_NAME="cpython"
     SOABI_VERSION=3.8
@@ -15308,7 +15307,6 @@ cat >>confdefs.h <<_ACEOF
 _ACEOF
 
 fi
-
 
 EXT_SUFFIX=.${SOABI}${SHLIB_SUFFIX}
 

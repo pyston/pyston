@@ -1,3 +1,60 @@
+// This file contains the JIT compiler
+// The main design choices/goals are:
+//  - removing the dispatching overhead of the interpreter
+//  - reducing reference counting overhead
+//  - reducing overhead related to Python value stack push/pops
+//  - inlined caches
+//  - generates calls to ahead of time generated type specific traces of bytescodes
+//    - e.g. 'float * float' -> PyNumber_MultiplyFloatFloat2
+//  - very fast compilation speed
+//    - uses DynAsm - good documentation at: https://corsix.github.io/dynasm-doc/index.html
+//    - jit thresholds are very low
+//    - most bytecode instructions are complex and are handled by calls to functions
+//      which means even a more clever compiler can't do much better (when not inlining)
+//    - mostly using static register allocation is fine
+//      because of all the external calls which restrict register assignment
+//    - machine code gets emitted immediately, no IR, passes etc..
+//  - can switch from interpreter to compiled function at
+//    - function entry
+//    - any bytecode which is the target of jump from another bytecode
+//  - deoptimization is possible at the start of every bytecode
+//    - currently used to implement cpythons 'tracing' support
+//    - main task is creating the python value stack for the interpreter to continue
+//
+// Some assumptions:
+//   - we currently only support amd64 systems with SystemV calling convention
+//   - code gets emitted into memory area which fits into 32bit address
+//     - makes sure we can use relative addressing most of the time
+//     - saves some space
+//   - we use a custom calling convention to make external calls fast:
+//     - args get past/returned following the SystemV calling convention
+//     - in addition we have the following often used values in fixed callee saved registers
+//       (which means we can call normal C function without changes because have to save them):
+//       - r12 - PyObject** python value stack pointer
+//       - r13 - PyFrameObject* frame object of currently executing function
+//       - r15 - PyThreadState* tstate of currently executing thread
+//     - code inside aot_ceval_jit_helper.c is using this special convention
+//       via gcc global register variable extension
+//       (which prevents us from using LTO on that translation unit)
+//
+// 'Deferred value stack':
+//   - we don't emit python value stack operations (PUSH(), POP(),...) immediately
+//     like the interpreter does instead we defer them until the use
+//   - this removes many memory operations
+//   - we can directly use the correct register when doing a external call
+//   - we can avoid some reference counting updates
+//   - code which needs the interpreters value stack needs to call:
+//     - deferred_vs_apply()
+//   - if a instruction modifies register 'res' (=rax) it needs to first call:
+//     - deferred_vs_convert_reg_to_stack()
+//
+// Future bigger ideas:
+//    - we support deoptimizations at the start of every bytecode which we could use
+//      to generate faster more specialiced code which makes some assumptions
+//    - get ride of frame->f_lasti updates
+//    - update/overwrite inline cache entries when they start to fail
+//
+
 #define PY_LOCAL_AGGRESSIVE
 
 #include "Python.h"
@@ -18,12 +75,24 @@
 #include "setobject.h"
 #include "structmember.h"
 
-#define DEFERRED_VS_MAX 16 /* used by STORE_SUBSCR */
-#define NUM_MANUAL_STACK_SLOTS 2 /* used by STORE_SUBSCR */
+// enable runtime checks to catch jit compiler bugs
+//#define JIT_DEBUG 1
 
-static int is_immortal(PyObject* obj) {
-    return obj->ob_refcnt > (1L<<59);
-}
+#if JIT_DEBUG
+#define DASM_CHECKS 1
+#define JIT_ASSERT(x, m) do { if (!(x)) {                       \
+                                fprintf(stderr, "%s\n", m);     \
+                                assert(0);                      \
+                                abort();                        \
+                              }                                 \
+                         } while(0)
+
+#else
+#define JIT_ASSERT(x, m) assert(x)
+#endif
+
+#define DEFERRED_VS_MAX         16 /* used by STORE_SUBSCR */
+#define NUM_MANUAL_STACK_SLOTS   2 /* used by STORE_SUBSCR */
 
 typedef enum ValueStackLoc {
     CONST,
@@ -66,8 +135,26 @@ typedef struct Jit {
 
     Section current_section;
 
-    // =1 if an entry in deferred_vs is using the preserved_reg2
-    int deferred_vs_reg2_used;
+    // =1 if an entry in deferred_vs is using the vs_preserved_reg
+    int deferred_vs_preserved_reg_used;
+
+    // =1 if an entry in deferred_vs is using the 'res' register
+    int deferred_vs_res_used;
+
+    int num_opcodes;
+    const _Py_CODEUNIT *first_instr;
+
+    char* is_jmp_target; // need to be free()d
+
+    // this keeps track of which fast local variable we know are set (!= 0)
+    // if we don't know if they are set or if they are 0 is defined will be 0
+    // currently we only track definedness inside a basic block and in addition the function args
+    // TODO: could use a bitvector instead of a byte per local variable
+    char* known_defined; // need to be free()d
+
+    // used by emit_instr_start to keep state across calls
+    int old_line_number;
+    int emitted_trace_check_for_line;
 } Jit;
 
 #define Dst_DECL Jit* Dst
@@ -80,6 +167,7 @@ typedef struct Jit {
 #include <ctype.h>
 
 #include "aot.h"
+#include "aot_ceval_jit_helper.h"
 
 // used if JIT_PERF_MAP is enabled
 static FILE *perf_map_file = NULL, *perf_map_opcode_map = NULL;
@@ -113,126 +201,55 @@ void format_exc_unbound(PyThreadState *tstate, PyCodeObject *co, int oparg);
 
 Py_ssize_t lookdict_split(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject **value_addr);
 
-// DECLARATION OF THE JIT HELPER FUNCTIONS
-#define JIT_HELPER(name) PyObject* JIT_HELPER_##name(int oparg)
-#define JIT_HELPER1(name, py1) PyObject* JIT_HELPER_##name(int oparg, PyObject* py1)
-#define JIT_HELPER2(name, py1, py2) PyObject* JIT_HELPER_##name(int oparg, PyObject* py1, PyObject* py2)
-#define JIT_HELPER3(name, py1, py2, py3) PyObject* JIT_HELPER_##name(int oparg, PyObject* py1, PyObject* py2, PyObject* py3)
-#define JIT_HELPER_WITH_NAME(name_) PyObject* JIT_HELPER_##name_(PyObject* name)
-#define JIT_HELPER_WITH_NAME1(name_, py1) PyObject* JIT_HELPER_##name_(PyObject* name, PyObject* py1)
-#define JIT_HELPER_WITH_NAME_OPCACHE_AOT(name_) PyObject* JIT_HELPER_##name_(int oparg, PyObject* name, _PyOpcache *co_opcache)
-#define JIT_HELPER_WITH_NAME_OPCACHE_AOT1(name_, py1) PyObject* JIT_HELPER_##name_(PyObject* name, PyObject* py1, _PyOpcache *co_opcache)
-#define JIT_HELPER_WITH_NAME_OPCACHE_AOT2(name_, py1, py2) PyObject* JIT_HELPER_##name_(PyObject* name, PyObject* py1, PyObject* py2, _PyOpcache *co_opcache)
-
-JIT_HELPER1(UNARY_NOT, value);
-JIT_HELPER1(PRINT_EXPR, value);
-JIT_HELPER(RAISE_VARARGS);
-JIT_HELPER1(GET_AITER, obj);
-JIT_HELPER(GET_ANEXT);
-JIT_HELPER1(GET_AWAITABLE, iterable);
-JIT_HELPER1(YIELD_FROM, v);
-JIT_HELPER1(YIELD_VALUE, retval);
-JIT_HELPER(POP_EXCEPT);
-JIT_HELPER(POP_BLOCK);
-JIT_HELPER(POP_FINALLY);
-JIT_HELPER(BEGIN_FINALLY);
-JIT_HELPER1(END_ASYNC_FOR, exc);
-JIT_HELPER(LOAD_BUILD_CLASS);
-JIT_HELPER_WITH_NAME1(STORE_NAME, v);
-JIT_HELPER_WITH_NAME(DELETE_NAME);
-JIT_HELPER1(UNPACK_SEQUENCE, seq);
-JIT_HELPER1(UNPACK_SEQUENCE2, seq);
-JIT_HELPER1(UNPACK_SEQUENCE3, seq);
-JIT_HELPER1(UNPACK_EX, seq);
-JIT_HELPER_WITH_NAME_OPCACHE_AOT2(STORE_ATTR, owner, v);
-JIT_HELPER_WITH_NAME_OPCACHE_AOT2(STORE_ATTR_CACHED, owner, v);
-JIT_HELPER_WITH_NAME(DELETE_GLOBAL);
-JIT_HELPER_WITH_NAME(LOAD_NAME);
-JIT_HELPER_WITH_NAME_OPCACHE_AOT(LOAD_GLOBAL);
-JIT_HELPER(LOAD_CLASSDEREF);
-JIT_HELPER(BUILD_STRING);
-JIT_HELPER(BUILD_TUPLE_UNPACK_WITH_CALL);
-JIT_HELPER(BUILD_TUPLE_UNPACK);
-JIT_HELPER(BUILD_LIST_UNPACK);
-JIT_HELPER(BUILD_SET);
-JIT_HELPER(BUILD_SET_UNPACK);
-JIT_HELPER(BUILD_MAP);
-JIT_HELPER(SETUP_ANNOTATIONS);
-JIT_HELPER(BUILD_CONST_KEY_MAP);
-JIT_HELPER(BUILD_MAP_UNPACK);
-JIT_HELPER(BUILD_MAP_UNPACK_WITH_CALL);
-JIT_HELPER_WITH_NAME_OPCACHE_AOT1(LOAD_ATTR, owner);
-JIT_HELPER_WITH_NAME_OPCACHE_AOT1(LOAD_ATTR_CACHED, owner);
-JIT_HELPER1(IMPORT_STAR, from);
-JIT_HELPER1(GET_YIELD_FROM_ITER, iterable);
-JIT_HELPER(SETUP_FINALLY);
-JIT_HELPER(BEFORE_ASYNC_WITH);
-JIT_HELPER1(SETUP_ASYNC_WITH, res);
-JIT_HELPER(SETUP_WITH);
-JIT_HELPER(WITH_CLEANUP_START);
-JIT_HELPER2(WITH_CLEANUP_FINISH, res, exc);
-JIT_HELPER_WITH_NAME_OPCACHE_AOT(LOAD_METHOD);
-JIT_HELPER_WITH_NAME_OPCACHE_AOT(LOAD_METHOD_CACHED);
-JIT_HELPER1(CALL_FUNCTION_KW, names_);
-JIT_HELPER2(CALL_FUNCTION_EX_NOKWARGS, callargs, func);
-JIT_HELPER3(CALL_FUNCTION_EX_KWARGS, kwargs, callargs, func);
-JIT_HELPER2(MAKE_FUNCTION, qualname, codeobj);
-JIT_HELPER(FORMAT_VALUE);
-
-// special ones created by us
-JIT_HELPER(FOR_ITER_SECOND_PART);
-JIT_HELPER(UNBOUNDLOCAL_ERROR);
-
-#undef JIT_HELPER
-#undef JIT_HELPER_WITH_NAME
-#undef JIT_HELPER_WITH_NAME_OPCACHE_AOT
+static int is_immortal(PyObject* obj) {
+    return obj->ob_refcnt > (1L<<59);
+}
 
 static void* __attribute__ ((const)) get_addr_of_helper_func(int opcode, int oparg) {
     switch (opcode) {
-#define JIT_HELPER(name)   case name: return JIT_HELPER_##name
-#define JIT_HELPER_WITH_NAME(name) case name: return JIT_HELPER_##name
-        JIT_HELPER(UNARY_NOT);
-        JIT_HELPER(PRINT_EXPR);
-        JIT_HELPER(RAISE_VARARGS);
-        JIT_HELPER(GET_AITER);
-        JIT_HELPER(GET_ANEXT);
-        JIT_HELPER(GET_AWAITABLE);
-        JIT_HELPER(YIELD_FROM);
-        JIT_HELPER(YIELD_VALUE);
-        JIT_HELPER(POP_EXCEPT);
-        JIT_HELPER(POP_BLOCK);
-        JIT_HELPER(POP_FINALLY);
-        JIT_HELPER(BEGIN_FINALLY);
-        JIT_HELPER(END_ASYNC_FOR);
-        JIT_HELPER(LOAD_BUILD_CLASS);
-        JIT_HELPER_WITH_NAME(STORE_NAME);
-        JIT_HELPER_WITH_NAME(DELETE_NAME);
-        JIT_HELPER(UNPACK_EX);
-        JIT_HELPER_WITH_NAME(DELETE_GLOBAL);
-        JIT_HELPER_WITH_NAME(LOAD_NAME);
-        JIT_HELPER(LOAD_CLASSDEREF);
-        JIT_HELPER(BUILD_STRING);
-        JIT_HELPER(BUILD_TUPLE_UNPACK_WITH_CALL);
-        JIT_HELPER(BUILD_TUPLE_UNPACK);
-        JIT_HELPER(BUILD_LIST_UNPACK);
-        JIT_HELPER(BUILD_SET);
-        JIT_HELPER(BUILD_SET_UNPACK);
-        JIT_HELPER(BUILD_MAP);
-        JIT_HELPER(SETUP_ANNOTATIONS);
-        JIT_HELPER(BUILD_CONST_KEY_MAP);
-        JIT_HELPER(BUILD_MAP_UNPACK);
-        JIT_HELPER(BUILD_MAP_UNPACK_WITH_CALL);
-        JIT_HELPER(IMPORT_STAR);
-        JIT_HELPER(GET_YIELD_FROM_ITER);
-        JIT_HELPER(SETUP_FINALLY);
-        JIT_HELPER(BEFORE_ASYNC_WITH);
-        JIT_HELPER(SETUP_ASYNC_WITH);
-        JIT_HELPER(SETUP_WITH);
-        JIT_HELPER(WITH_CLEANUP_START);
-        JIT_HELPER(WITH_CLEANUP_FINISH);
-        JIT_HELPER(CALL_FUNCTION_KW);
-        JIT_HELPER(MAKE_FUNCTION);
-        JIT_HELPER(FORMAT_VALUE);
+#define JIT_HELPER_ADDR(name)   case name: return JIT_HELPER_##name
+        JIT_HELPER_ADDR(UNARY_NOT);
+        JIT_HELPER_ADDR(PRINT_EXPR);
+        JIT_HELPER_ADDR(RAISE_VARARGS);
+        JIT_HELPER_ADDR(GET_AITER);
+        JIT_HELPER_ADDR(GET_ANEXT);
+        JIT_HELPER_ADDR(GET_AWAITABLE);
+        JIT_HELPER_ADDR(YIELD_FROM);
+        JIT_HELPER_ADDR(YIELD_VALUE);
+        JIT_HELPER_ADDR(POP_EXCEPT);
+        JIT_HELPER_ADDR(POP_BLOCK);
+        JIT_HELPER_ADDR(POP_FINALLY);
+        JIT_HELPER_ADDR(BEGIN_FINALLY);
+        JIT_HELPER_ADDR(END_ASYNC_FOR);
+        JIT_HELPER_ADDR(LOAD_BUILD_CLASS);
+        JIT_HELPER_ADDR(STORE_NAME);
+        JIT_HELPER_ADDR(DELETE_NAME);
+        JIT_HELPER_ADDR(UNPACK_EX);
+        JIT_HELPER_ADDR(DELETE_GLOBAL);
+        JIT_HELPER_ADDR(LOAD_NAME);
+        JIT_HELPER_ADDR(LOAD_CLASSDEREF);
+        JIT_HELPER_ADDR(BUILD_STRING);
+        JIT_HELPER_ADDR(BUILD_TUPLE_UNPACK_WITH_CALL);
+        JIT_HELPER_ADDR(BUILD_TUPLE_UNPACK);
+        JIT_HELPER_ADDR(BUILD_LIST_UNPACK);
+        JIT_HELPER_ADDR(BUILD_SET);
+        JIT_HELPER_ADDR(BUILD_SET_UNPACK);
+        JIT_HELPER_ADDR(BUILD_MAP);
+        JIT_HELPER_ADDR(SETUP_ANNOTATIONS);
+        JIT_HELPER_ADDR(BUILD_CONST_KEY_MAP);
+        JIT_HELPER_ADDR(BUILD_MAP_UNPACK);
+        JIT_HELPER_ADDR(BUILD_MAP_UNPACK_WITH_CALL);
+        JIT_HELPER_ADDR(IMPORT_STAR);
+        JIT_HELPER_ADDR(GET_YIELD_FROM_ITER);
+        JIT_HELPER_ADDR(SETUP_FINALLY);
+        JIT_HELPER_ADDR(BEFORE_ASYNC_WITH);
+        JIT_HELPER_ADDR(SETUP_ASYNC_WITH);
+        JIT_HELPER_ADDR(SETUP_WITH);
+        JIT_HELPER_ADDR(WITH_CLEANUP_START);
+        JIT_HELPER_ADDR(WITH_CLEANUP_FINISH);
+        JIT_HELPER_ADDR(CALL_FUNCTION_KW);
+        JIT_HELPER_ADDR(MAKE_FUNCTION);
+        JIT_HELPER_ADDR(FORMAT_VALUE);
 
         case UNPACK_SEQUENCE:
             if (oparg == 2) return JIT_HELPER_UNPACK_SEQUENCE2;
@@ -249,6 +266,7 @@ static void* __attribute__ ((const)) get_addr_of_helper_func(int opcode, int opa
             printf("could not find helper for opcode: %d oparg: %d\n", opcode, oparg);
             abort();
     }
+#undef JIT_HELPER_ADDR
 }
 
 static void* __attribute__ ((const)) get_addr_of_aot_func(int opcode, int oparg, int opcache_available) {
@@ -465,15 +483,24 @@ static const char* get_opcode_name(int opcode) {
 #define IS_32BIT_VAL(x) ((unsigned long)(x) <= UINT32_MAX)
 #define IS_32BIT_SIGNED_VAL(x) ((int32_t)(x) == (x))
 
-
+// looks which instruction can be reached by jumps
+// this is important for the deferred stack operations because
+// if a instruction can be reached by a jump we can't use this optimization.
+// which means we have make sure to call deferred_vs_apply.
+//
 // result must be freed()
-static char* calculate_jmp_targets(const _Py_CODEUNIT *first_instr, const int num_opcodes) {
+static char* calculate_jmp_targets(Jit* Dst) {
     // TODO: could be a bit vector
-    char* is_jmp_target = malloc(num_opcodes);
-    memset(is_jmp_target, 0, num_opcodes);
+    char* is_jmp_target = malloc(Dst->num_opcodes);
+    memset(is_jmp_target, 0, Dst->num_opcodes);
+
+    // first instruction is always a jump target because entry can reach it
+    if (Dst->num_opcodes > 0)
+        is_jmp_target[0] = 1;
+
     int oldoparg = 0;
-    for (int inst_idx = 0; inst_idx < num_opcodes; ++inst_idx) {
-        _Py_CODEUNIT word = first_instr[inst_idx];
+    for (int inst_idx = 0; inst_idx < Dst->num_opcodes; ++inst_idx) {
+        _Py_CODEUNIT word = Dst->first_instr[inst_idx];
         int opcode = _Py_OPCODE(word);
         int oparg = _Py_OPARG(word);
         // this is used for the special EXTENDED_ARG opcode
@@ -491,6 +518,7 @@ static char* calculate_jmp_targets(const _Py_CODEUNIT *first_instr, const int nu
 
             case JUMP_FORWARD:
             case FOR_ITER:
+            case END_ASYNC_FOR:
                 is_jmp_target[oparg/2 + inst_idx + 1] = 1;
                 break;
 
@@ -513,6 +541,7 @@ static char* calculate_jmp_targets(const _Py_CODEUNIT *first_instr, const int nu
                 is_jmp_target[inst_idx + 1] = 1;
                 break;
 
+
             case EXTENDED_ARG:
                 oldoparg = oparg << 8;
                 break;
@@ -522,10 +551,11 @@ static char* calculate_jmp_targets(const _Py_CODEUNIT *first_instr, const int nu
 }
 
 // returns if any of the functions arguments get deleted (checks for DELETE_FAST)
-static int check_func_args_never_deleted(const _Py_CODEUNIT *first_instr, const int num_opcodes, const int num_args) {
+static int check_func_args_never_deleted(Jit* Dst) {
+    const int num_args = Dst->co->co_argcount;
     int oldoparg = 0;
-    for (int inst_idx = 0; inst_idx < num_opcodes; ++inst_idx) {
-        _Py_CODEUNIT word = first_instr[inst_idx];
+    for (int inst_idx = 0; inst_idx < Dst->num_opcodes; ++inst_idx) {
+        _Py_CODEUNIT word = Dst->first_instr[inst_idx];
         int opcode = _Py_OPCODE(word);
         int oparg = _Py_OPARG(word);
         // this is used for the special EXTENDED_ARG opcode
@@ -550,6 +580,7 @@ static int8_t* mem_chunk = NULL;
 static size_t mem_chunk_bytes_remaining = 0;
 static long mem_bytes_allocated = 0, mem_bytes_used = 0;
 static long mem_bytes_used_max = 100*1000*1000; // will stop emitting code after that many bytes
+static int jit_num_funcs = 0;
 
 static int jit_stats_enabled = 0;
 static unsigned long jit_stat_load_attr_hit, jit_stat_load_attr_miss, jit_stat_load_attr_inline, jit_stat_load_attr_total;
@@ -564,26 +595,44 @@ static unsigned long jit_stat_load_global_hit, jit_stat_load_global_miss, jit_st
 
 
 |.arch x64
+// section layout is same as specified here from left to right
 |.section entry, code, cold, opcode_addr
 
 ////////////////////////////////
 // REGISTER DEFINITIONS
 
 // all this values are in callee saved registers
-// NOTE: r13 and rbp need 1 byte more to encode a direct memory accesss without offset
+// NOTE: r13 and rbp need 1 byte more to encode a direct memory access without offset
 // e.g. mov rax, [rbp] is encoded as mov rax, [rbp + 0]
-|.define f, r13
-|.define preserved_reg, rbp // this register gets used when we have to make a call but preserve a value
-#define preserved_reg_idx 5
-|.define preserved_reg2, r14 // this register gets used by deferred_vs when we have to make a call but preserve a value
-#define preserved_reg2_idx 14
-|.define tstate, r15
-|.define vsp, r12
+|.define f, r13 // PyFrameObject*
+
+// this register gets used when we have to make a call but preserve a value across it.
+// It can never get used in the deferred_vs / will never get used across bytecode instructions
+// One has to manually check the surrounding code if it's safe to use this register.
+// This register will not automatically get xdecrefed on error / return
+// so no need to clear it after use.
+|.define tmp_preserved_reg, rbp
+#define tmp_preserved_reg_idx 5
+
+// this register gets mainly used by deferred_vs when we have to make a call
+// but preserve a value which is inside the 'res' register (same as stack slot entry but faster).
+// Code needs to always check Dst->deferred_vs_preserved_reg_used to see if it's available.
+// On error or return we will always xdecref this register which means that
+// code must manually clear the register if it does not want the decref.
+|.define vs_preserved_reg, r14
+#define vs_preserved_reg_idx 14
+
+|.define tstate, r15 // PyThreadState*
+|.define vsp, r12 // PyObject** - python value stack pointer
+
+// pointer to ceval->tracing_possible
 |.define interrupt, rbx // if you change this you may have to adjust jmp_to_inst_idx
 #define interrupt_idx 3
 
+
 // follow AMD64 calling convention
 // instruction indices can be found here: https://corsix.github.io/dynasm-doc/instructions.html
+// function arguments
 |.define arg1, rdi
 #define arg1_idx 7
 |.define arg2, rsi
@@ -594,21 +643,28 @@ static unsigned long jit_stat_load_global_hit, jit_stat_load_global_miss, jit_st
 #define arg4_idx 1
 |.define arg5, r8
 #define arg5_idx 8
-|.define arg6, r9
+|.define arg6, r9  // careful same as register 'tmp'
 #define arg6_idx 9
+
 // return values
 |.define res, rax
 #define res_idx 0
-|.define res2, rdx
+|.define res2, rdx // second return value
 |.define res_32b, eax
 
 // will be used by macros
-|.define tmp, r9
-#define tmp_idx 9
+|.define tmp, arg6
+#define tmp_idx arg6_idx
+
+// GET_DEFERRED[-1] == top deferred stack entry
+// GET_DEFERRED[-2] == second deferred stack entry..
+#define GET_DEFERRED (&Dst->deferred_vs[Dst->deferred_vs_next])
 
 static void deferred_vs_apply(Jit* Dst);
 
 static void switch_section(Jit* Dst, Section new_section) {
+    JIT_ASSERT(Dst->current_section != new_section, "safe todo but may be sign of a bug");
+
     Dst->current_section = new_section;
     if (new_section == SECTION_CODE) {
         |.code
@@ -619,8 +675,7 @@ static void switch_section(Jit* Dst, Section new_section) {
     } else if (new_section == SECTION_OPCODE_ADDR) {
         |.opcode_addr
     } else {
-        printf("unknown section");
-        abort();
+        JIT_ASSERT(0, "unknwon section");
     }
 }
 
@@ -666,25 +721,43 @@ static void emit_incref(Jit* Dst, int r_idx) {
 }
 
 static void emit_if_res_0_error(Jit* Dst) {
+    JIT_ASSERT(Dst->deferred_vs_res_used == 0, "error this would not get decrefed");
     | test res, res
     | jz ->error
 }
 
 static void emit_if_res_32b_not_0_error(Jit* Dst) {
+    JIT_ASSERT(Dst->deferred_vs_res_used == 0, "error this would not get decrefed");
     | test res_32b, res_32b
     | jnz ->error
 }
 
 static void emit_jump_by_n_bytecodes(Jit* Dst, int num_bytes, int inst_idx) {
-    | jmp => ((num_bytes)/2+inst_idx+1)
+    int dst_idx = num_bytes/2+inst_idx+1;
+    JIT_ASSERT(Dst->is_jmp_target[dst_idx], "calculate_jmp_targets needs adjustment");
+    JIT_ASSERT(dst_idx >= 0 && dst_idx < Dst->num_opcodes, "");
+    | jmp =>dst_idx
 }
 
 static void emit_jump_to_bytecode_n(Jit* Dst, int num_bytes) {
-    | jmp => (num_bytes)/2
+    int dst_idx = num_bytes/2;
+    JIT_ASSERT(Dst->is_jmp_target[dst_idx], "calculate_jmp_targets needs adjustment");
+    JIT_ASSERT(dst_idx >= 0 && dst_idx < Dst->num_opcodes, "");
+    | jmp =>dst_idx
 }
 
 static void emit_je_to_bytecode_n(Jit* Dst, int num_bytes) {
-    | je => (num_bytes)/2
+    int dst_idx = num_bytes/2;
+    JIT_ASSERT(Dst->is_jmp_target[dst_idx], "calculate_jmp_targets needs adjustment");
+    JIT_ASSERT(dst_idx >= 0 && dst_idx < Dst->num_opcodes, "");
+    | je =>dst_idx
+}
+
+static void emit_jg_to_bytecode_n(Jit* Dst, int num_bytes) {
+    int dst_idx = num_bytes/2;
+    JIT_ASSERT(Dst->is_jmp_target[dst_idx], "calculate_jmp_targets needs adjustment");
+    JIT_ASSERT(dst_idx >= 0 && dst_idx < Dst->num_opcodes, "");
+    | jg =>dst_idx
 }
 
 // moves a 32bit or 64bit immediate into a register uses smallest encoding
@@ -715,7 +788,7 @@ static void emit_qword(Jit* Dst, unsigned long val_orig) {
 
 
 // Loads a register `r_idx` with a value `addr`, potentially doing a lea
-// off of another register `other_idx` which contains a known value `other_addr`
+// of another register `other_idx` which contains a known value `other_addr`
 static void emit_mov_imm_or_lea(Jit* Dst, int r_idx, int other_idx, void* addr, void* other_addr) {
     ptrdiff_t diff = (uintptr_t)addr - (uintptr_t)other_addr;
     if (!IS_32BIT_SIGNED_VAL((unsigned long)addr) && IS_32BIT_SIGNED_VAL(diff)) {
@@ -734,9 +807,13 @@ static void emit_mov_imm2(Jit* Dst, int r_idx1, void* addr1, int r_idx2, void* a
 static void emit_call_ext_func(Jit* Dst, void* addr) {
     if (IS_32BIT_SIGNED_VAL((long)addr)) {
         // This emits a relative call. The dynasm syntax is confusing
-        // it will not actually take the address of addr (even thoug it says &addr).
+        // it will not actually take the address of addr (even though it says &addr).
         // Put instead just take the value of addr and calculate the difference to the emitted instruction address. (generated code: dasm_put(Dst, 135, (ptrdiff_t)(addr)))
-        | call qword &addr
+
+        // We emit a relative call to the destination function here which can be patched.
+        // The address of the call is retrieved via __builtin_return_address(0) inside the AOT func and
+        // then the destination of the call instruction (=relative address of the function to call) is modified.
+        | call qword &addr // 5byte inst
     } else {
         emit_mov_imm(Dst, res_idx, (unsigned long)addr);
         | call res
@@ -770,7 +847,7 @@ static void emit_decref(Jit* Dst, int r_idx, int preserve_res) {
         | mov Rq(arg1_idx), Rq(r_idx)
     }
     if (preserve_res) {
-        | mov preserved_reg, res // save the result
+        | mov tmp_preserved_reg, res // save the result
     }
 
     // inline _Py_Dealloc
@@ -779,7 +856,7 @@ static void emit_decref(Jit* Dst, int r_idx, int preserve_res) {
     | call qword [res + offsetof(PyTypeObject, tp_dealloc)]
 
     if (preserve_res) {
-        | mov res, preserved_reg
+        | mov res, tmp_preserved_reg
     }
 
     if (use_inline_decref) {
@@ -791,43 +868,6 @@ static void emit_decref(Jit* Dst, int r_idx, int preserve_res) {
     }
 }
 
-static void emit_decref_stored_args(Jit* Dst, int num, RefStatus ref_status[]) {
-    // if no deferred vs entry is using preserved_reg2 we can use it because we don't generate new
-    // deferred vs entries.
-    // Priorities for storage location are:
-    //   - preserved_reg
-    //   - preserved_reg2 - if available
-    //   - stack slot
-    int can_use_preserved_reg2 = Dst->deferred_vs_reg2_used == 0;
-    for (int i=0, num_decref=0; i<num; ++i) {
-        if (ref_status[i] != OWNED)
-            continue;
-        if (num_decref == 0) {
-            emit_decref(Dst, preserved_reg_idx, 1); /*= preserve res */
-        } else if (num_decref == 1 && can_use_preserved_reg2) {
-            emit_decref(Dst, preserved_reg2_idx, 1); /*= preserve res */
-            emit_mov_imm(Dst, preserved_reg2_idx, 0); // we have to clear it because error path will xdecref
-        } else {
-            int stack_slot = num_decref - can_use_preserved_reg2 -1;
-            // this should never happen if it does adjust NUM_MANUAL_STACK_SLOTS
-            if (stack_slot >= NUM_MANUAL_STACK_SLOTS)
-                abort();
-            | mov arg1, [rsp + stack_slot*8]
-            emit_decref(Dst, arg1_idx, 1); /*= preserve res */
-        }
-        ++num_decref;
-    }
-}
-
-
-static void emit_decref_cant_0(Jit* Dst, int r_idx) {
-    _Static_assert(offsetof(PyObject, ob_refcnt) == 0,  "sub needs to be modified");
-#ifdef Py_REF_DEBUG
-    | dec qword [&_Py_RefTotal]
-#endif
-    | dec qword [Rq(r_idx)]
-}
-
 static void emit_xdecref_arg1(Jit* Dst) {
     | test arg1, arg1
     | jz >9
@@ -835,76 +875,113 @@ static void emit_xdecref_arg1(Jit* Dst) {
     |9:
 }
 
-static void emit_store_decref_args(Jit* Dst, int num, int regs[], RefStatus ref_status[]) {
-    int num_owned = 0;
-    int can_use_preserved_reg2 = Dst->deferred_vs_reg2_used == 0;
-    for (int i=0; i<num; ++i) {
+// emits a call afterwards decrefs OWNED arguments
+// regs and ref_status arrays must be at least num entries long
+static void emit_call_decref_args(Jit* Dst, void* func, int num, int regs[], RefStatus ref_status[]) {
+    // we have to move owned args to preserved regs (callee saved regs) or to slack slots
+    // to be able to decref after the call
+
+    // if no deferred vs entry is using vs_preserved_reg we can use it because we don't generate new
+    // deferred vs entries inside this function and will release it afterwards so nobody
+    // will notice we used it here temporarily.
+    // Priorities for storage location are:
+    //   - tmp_preserved_reg
+    //   - vs_preserved_reg - if available
+    //   - stack slot
+    const int can_use_vs_preserved_reg = Dst->deferred_vs_preserved_reg_used == 0;
+
+    for (int i=0, num_owned = 0; i<num; ++i) {
         if (ref_status[i] != OWNED)
             continue;
         if (num_owned == 0) {
-            | mov preserved_reg, Rq(regs[i])
-        } else if (num_owned == 1 && can_use_preserved_reg2) {
-            | mov preserved_reg2, Rq(regs[i])
+            | mov tmp_preserved_reg, Rq(regs[i])
+        } else if (num_owned == 1 && can_use_vs_preserved_reg) {
+            | mov vs_preserved_reg, Rq(regs[i])
         } else {
-            int stack_slot = num_owned - can_use_preserved_reg2 -1;
+            int stack_slot = num_owned - can_use_vs_preserved_reg -1;
             | mov [rsp + stack_slot*8], Rq(regs[i])
         }
         ++num_owned;
     }
-}
-static void emit_store_decref_args1(Jit* Dst, int r1_idx, RefStatus ref_status[]) {
-    int regs[] = { r1_idx };
-    emit_store_decref_args(Dst, 1, regs, ref_status);
-}
-static void emit_store_decref_args2(Jit* Dst, int r1_idx, int r2_idx, RefStatus ref_status[]) {
-    int regs[] = { r1_idx, r2_idx };
-    emit_store_decref_args(Dst, 2, regs, ref_status);
-}
-static void emit_store_decref_args3(Jit* Dst, int r1_idx, int r2_idx, int r3_idx, RefStatus ref_status[]) {
-    int regs[] = { r1_idx, r2_idx, r3_idx };
-    emit_store_decref_args(Dst, 3, regs, ref_status);
-}
 
-static void emit_aot_func_call(Jit* Dst, int num_args, int opcode, int oparg, int opcache_available) {
-    // We emit a relative call to the destination function here which can be patched.
-    // The address of the call is retrieved via __builtin_return_address(0) inside the AOT func and
-    // then the destination of the call instruction (=relative address of the function to call) is modified.
-    unsigned long addr = (unsigned long)get_addr_of_aot_func(opcode, oparg, opcache_available);
-    if (!IS_32BIT_VAL(addr)) {
-        printf("aborting func addr does not fit into 32bit.\n");
-        abort();
+    emit_call_ext_func(Dst, func);
+
+    for (int i=0, num_decref=0; i<num; ++i) {
+        if (ref_status[i] != OWNED)
+            continue;
+        if (num_decref == 0) {
+            emit_decref(Dst, tmp_preserved_reg_idx, 1); /*= preserve res */
+        } else if (num_decref == 1 && can_use_vs_preserved_reg) {
+            emit_decref(Dst, vs_preserved_reg_idx, 1); /*= preserve res */
+            emit_mov_imm(Dst, vs_preserved_reg_idx, 0); // we have to clear it because error path will xdecref
+        } else {
+            int stack_slot = num_decref - can_use_vs_preserved_reg -1;
+            // this should never happen if it does adjust NUM_MANUAL_STACK_SLOTS
+            JIT_ASSERT(stack_slot < NUM_MANUAL_STACK_SLOTS, "");
+            | mov arg1, [rsp + stack_slot*8]
+            emit_decref(Dst, arg1_idx, 1); /*= preserve res */
+        }
+        ++num_decref;
     }
-    // this will generate a 5 byte long relative call.
-    // 0xe8 <4 byte rel offset>
-    | call qword &addr
+}
+static void emit_call_decref_args1(Jit* Dst, void* func, int r1_idx, RefStatus ref_status[]) {
+    int regs[] = { r1_idx };
+    emit_call_decref_args(Dst, func, 1, regs, ref_status);
+}
+static void emit_call_decref_args2(Jit* Dst, void* func, int r1_idx, int r2_idx, RefStatus ref_status[]) {
+    int regs[] = { r1_idx, r2_idx };
+    emit_call_decref_args(Dst, func, 2, regs, ref_status);
+}
+static void emit_call_decref_args3(Jit* Dst, void* func, int r1_idx, int r2_idx, int r3_idx, RefStatus ref_status[]) {
+    int regs[] = { r1_idx, r2_idx, r3_idx };
+    emit_call_decref_args(Dst, func, 3, regs, ref_status);
 }
 
-static void emit_jmp_to_inst_idx(Jit* Dst, int r_idx, int skip_sig_check) {
-    if (r_idx == tmp_idx)
-        abort(); // "can't be tmp"
+static void* get_aot_func_addr(Jit* Dst, int opcode, int oparg, int opcache_available) {
+    long addr = (long)get_addr_of_aot_func(opcode, oparg, opcache_available);
+    JIT_ASSERT(IS_32BIT_SIGNED_VAL(addr), "aborting func addr does not fit into 32bit");
+    return (void*)addr;
+}
 
-    | lea tmp, [->opcode_addr_begin]
+static void emit_mov_inst_addr(Jit* Dst, int r_dst, int r_inst_idx) {
     // *2 instead of *4 because:
     // entries are 4byte wide addresses but lasti needs to be divided by 2
     // because it tracks offset in bytecode (2bytes long) array not the index
-    | mov Rd(tmp_idx), [tmp + Rq(r_idx)*2]
-    if (skip_sig_check) {
-        // tmp points now to the beginning of the bytecode implementation
-        // but we want to skip the signal+tracing check.
-        // We can't just directly jump after the signal check beause the jne instruction is variable size
-        // so instead jump before the conditional jump and set the flags so that we don't jump
+    | mov Rd(r_dst), [Rq(r_inst_idx)*2 + ->opcode_addr_begin]
+}
 
-        // size of 'mov dword [lasti + offsetof(PyFrameObject, f_lasti)], inst_idx*2' + 'cmp qword [interrupt], 0'
-        | add tmp, 8 + 4
-        | cmp tmp, tmp // dummy to set the flags
-    }
+static void emit_jmp_to_inst_idx(Jit* Dst, int r_idx) {
+    JIT_ASSERT(r_idx != tmp_idx, "can't be tmp");
+
+    emit_mov_inst_addr(Dst, tmp_idx, r_idx);
     | jmp tmp
 }
 
+#if JIT_DEBUG
+static void debug_error_not_a_jump_target(PyFrameObject* f) {
+    fprintf(stderr, "ERROR: jit entry points to f->f_lasti %d which is not a jump target\n", f->f_lasti);
+    JIT_ASSERT(0, "");
+}
+#endif
+
 // warning this will overwrite tmp and arg1
-static void emit_jmp_to_lasti(Jit* Dst, int skip_sig_check) {
+static void emit_jmp_to_lasti(Jit* Dst) {
     | mov Rd(arg1_idx), [f + offsetof(PyFrameObject, f_lasti)]
-    emit_jmp_to_inst_idx(Dst, arg1_idx, skip_sig_check);
+
+#if JIT_DEBUG
+    // generate code to check that the instruction we jump to had 'is_jmp_target' set
+    | mov tmp, arg1
+    | shr tmp, 1 // divide by 2, because f_lasti is offset into bytecode array and every bytecode is 2bytes
+    | add tmp, ->is_jmp_target
+    | cmp byte [tmp], 0
+    | jne >9
+    | mov arg1, f
+    emit_call_ext_func(Dst, debug_error_not_a_jump_target);
+
+    |9:
+#endif
+
+    emit_jmp_to_inst_idx(Dst, arg1_idx);
 }
 
 static int get_fastlocal_offset(int fastlocal_idx) {
@@ -922,27 +999,28 @@ static void emit_load_freevar(Jit* Dst, int r_idx, int num) {
 static void deferred_vs_emit(Jit* Dst) {
     if (Dst->deferred_vs_next) {
         for (int i=Dst->deferred_vs_next; i>0; --i) {
-            if (Dst->deferred_vs[i-1].loc == CONST) {
-                PyObject* obj = PyTuple_GET_ITEM(Dst->co_consts, Dst->deferred_vs[i-1].val);
+            DeferredValueStackEntry* entry = &Dst->deferred_vs[i-1];
+            if (entry->loc == CONST) {
+                PyObject* obj = PyTuple_GET_ITEM(Dst->co_consts, entry->val);
                 emit_mov_imm(Dst, tmp_idx, (unsigned long)obj);
                 if (!is_immortal(obj))
                     emit_incref(Dst, tmp_idx);
                 | mov [vsp+ 8 * (i-1)], tmp
-            } else if (Dst->deferred_vs[i-1].loc == FAST) {
-                | mov tmp, [f + get_fastlocal_offset(Dst->deferred_vs[i-1].val)]
+            } else if (entry->loc == FAST) {
+                | mov tmp, [f + get_fastlocal_offset(entry->val)]
                 emit_incref(Dst, tmp_idx);
                 | mov [vsp+ 8 * (i-1)], tmp
-            } else if (Dst->deferred_vs[i-1].loc == REGISTER) {
-                | mov [vsp+ 8 * (i-1)], Rq(Dst->deferred_vs[i-1].val)
-                if (Dst->deferred_vs[i-1].val == preserved_reg2_idx) {
-                    emit_mov_imm(Dst, preserved_reg2_idx, 0); // we have to clear it because error path will xdecref
+            } else if (entry->loc == REGISTER) {
+                | mov [vsp+ 8 * (i-1)], Rq(entry->val)
+                if (entry->val == vs_preserved_reg_idx) {
+                    emit_mov_imm(Dst, vs_preserved_reg_idx, 0); // we have to clear it because error path will xdecref
                 }
-            } else if (Dst->deferred_vs[i-1].loc == STACK) {
-                | mov tmp, [rsp + (Dst->deferred_vs[i-1].val + NUM_MANUAL_STACK_SLOTS) * 8]
-                | mov qword [rsp + (Dst->deferred_vs[i-1].val + NUM_MANUAL_STACK_SLOTS) * 8], 0
+            } else if (entry->loc == STACK) {
+                | mov tmp, [rsp + (entry->val + NUM_MANUAL_STACK_SLOTS) * 8]
+                | mov qword [rsp + (entry->val + NUM_MANUAL_STACK_SLOTS) * 8], 0
                 | mov [vsp+ 8 * (i-1)], tmp
             } else {
-                abort();
+                JIT_ASSERT(0, "entry->loc not implemented");
             }
         }
         emit_adjust_vs(Dst, Dst->deferred_vs_next);
@@ -956,46 +1034,61 @@ static void deferred_vs_apply(Jit* Dst) {
         deferred_vs_emit(Dst);
         Dst->deferred_vs_next = 0;
         Dst->deferred_stack_slot_next = 0;
-        Dst->deferred_vs_reg2_used = 0;
+        Dst->deferred_vs_preserved_reg_used = 0;
+        Dst->deferred_vs_res_used = 0;
     }
 }
 
-static void deferred_vs_push(Jit* Dst, int location, unsigned long value) {
+static void deferred_vs_push_no_assert(Jit* Dst, int location, unsigned long value) {
     if (location == REGISTER && value == res_idx && !(ENABLE_DEFERRED_RES_PUSH)) {
         emit_push_v(Dst, res_idx);
     } else {
         if (Dst->deferred_vs_next + 1 >= DEFERRED_VS_MAX) { // make sure we are not writing out of bounds
             deferred_vs_apply(Dst); // TODO: we could just materialize the first stack item instead of all
         }
-        Dst->deferred_vs[Dst->deferred_vs_next].loc = location;
-        Dst->deferred_vs[Dst->deferred_vs_next].val = value;
+        GET_DEFERRED[0].loc = location;
+        GET_DEFERRED[0].val = value;
         ++Dst->deferred_vs_next;
+        if (location == REGISTER && value == res_idx)
+            Dst->deferred_vs_res_used = 1;
+        if (location == REGISTER && value == vs_preserved_reg_idx)
+            Dst->deferred_vs_preserved_reg_used = 1;
     }
+}
+
+static void deferred_vs_push(Jit* Dst, int location, unsigned long value) {
+    if (location == REGISTER) {
+        JIT_ASSERT(value == res_idx, "this is they only registers allowed currently");
+    }
+    deferred_vs_push_no_assert(Dst, location, value);
 }
 
 // returns one of OWNED, BORROWED, or IMMORTAL based on the reference ownership status
 static int deferred_vs_peek(Jit* Dst, int r_idx, int num) {
+    JIT_ASSERT(num >= 1, "");
+
     RefStatus ref_status = OWNED;
     if (Dst->deferred_vs_next >= num) {
         int idx = Dst->deferred_vs_next-(num);
-        if (Dst->deferred_vs[idx].loc == CONST) {
-            PyObject* obj = PyTuple_GET_ITEM(Dst->co_consts, Dst->deferred_vs[idx].val);
+        DeferredValueStackEntry* entry = &Dst->deferred_vs[idx];
+        if (entry->loc == CONST) {
+            PyObject* obj = PyTuple_GET_ITEM(Dst->co_consts, entry->val);
             emit_mov_imm(Dst, r_idx, (unsigned long)obj);
             ref_status = is_immortal(obj) ? IMMORTAL : BORROWED;
-        } else if (Dst->deferred_vs[idx].loc == FAST) {
-            | mov Rq(r_idx), [f + get_fastlocal_offset(Dst->deferred_vs[idx].val)]
+        } else if (entry->loc == FAST) {
+            | mov Rq(r_idx), [f + get_fastlocal_offset(entry->val)]
             ref_status = BORROWED;
-        } else if (Dst->deferred_vs[idx].loc == REGISTER) {
+        } else if (entry->loc == REGISTER) {
             // only generate mov if src and dst is different
-            if (r_idx != Dst->deferred_vs[idx].val) {
-                | mov Rq(r_idx), Rq(Dst->deferred_vs[idx].val)
+            if (r_idx != entry->val) {
+                | mov Rq(r_idx), Rq(entry->val)
             }
             ref_status = OWNED;
-        } else if (Dst->deferred_vs[idx].loc == STACK) {
-            | mov Rq(r_idx), [rsp + (Dst->deferred_vs[idx].val + NUM_MANUAL_STACK_SLOTS) * 8]
+        } else if (entry->loc == STACK) {
+            | mov Rq(r_idx), [rsp + (entry->val + NUM_MANUAL_STACK_SLOTS) * 8]
             ref_status = OWNED;
         } else {
-            abort();
+            JIT_ASSERT(0, "entry->loc not implemented");
         }
     } else {
         | mov Rq(r_idx), [vsp-8*((num)-Dst->deferred_vs_next)]
@@ -1011,47 +1104,62 @@ static void deferred_vs_peek_owned(Jit* Dst, int r_idx, int num) {
     }
 }
 
+// checks if register 'res' is used and if so either moves it to 'preserve_reg2' or to the stack
 static void deferred_vs_convert_reg_to_stack(Jit* Dst) {
+    if (!Dst->deferred_vs_res_used)
+        return; // nothing todo
+
     for (int i=Dst->deferred_vs_next; i>0; --i) {
-        if (Dst->deferred_vs[i-1].loc != REGISTER)
+        DeferredValueStackEntry* entry = &Dst->deferred_vs[i-1];
+        if (entry->loc != REGISTER)
             continue;
-        // we only need to handle register 'res' because 'preserved_reg2' will not
+        // we only need to handle register 'res' because 'vs_preserved_reg' will not
         // get overwritten by a call.
-        if (Dst->deferred_vs[i-1].val != res_idx)
+        if (entry->val != res_idx)
             continue;
 
-        // if we have 'preserved_reg2' available use it over a stack slot
-        if (!Dst->deferred_vs_reg2_used) {
-            | mov preserved_reg2, Rq(Dst->deferred_vs[i-1].val)
-            Dst->deferred_vs[i-1].loc = REGISTER;
-            Dst->deferred_vs[i-1].val = preserved_reg2_idx;
-            Dst->deferred_vs_reg2_used = 1;
-            continue;
+        // if we have 'vs_preserved_reg' available use it over a stack slot
+        if (!Dst->deferred_vs_preserved_reg_used) {
+            | mov vs_preserved_reg, Rq(entry->val)
+            entry->loc = REGISTER;
+            entry->val = vs_preserved_reg_idx;
+            Dst->deferred_vs_preserved_reg_used = 1;
+        } else {
+            // have to use a stack slot
+            if (Dst->num_deferred_stack_slots <= Dst->deferred_stack_slot_next)
+                ++Dst->num_deferred_stack_slots;
+            | mov [rsp + (Dst->deferred_stack_slot_next + NUM_MANUAL_STACK_SLOTS) * 8], res
+            entry->loc = STACK;
+            entry->val = Dst->deferred_stack_slot_next;
+            ++Dst->deferred_stack_slot_next;
         }
-
-        if (Dst->num_deferred_stack_slots <= Dst->deferred_stack_slot_next)
-            ++Dst->num_deferred_stack_slots;
-        | mov [rsp + (Dst->deferred_stack_slot_next + NUM_MANUAL_STACK_SLOTS) * 8], res
-        Dst->deferred_vs[i-1].loc = STACK;
-        Dst->deferred_vs[i-1].val = Dst->deferred_stack_slot_next;
-        ++Dst->deferred_stack_slot_next;
+        JIT_ASSERT(Dst->deferred_vs_res_used, "");
+        Dst->deferred_vs_res_used = 0;
+        break; // finished only reg 'res' needs special handling
     }
 }
 
 // removes the top num elements from the value stack
 static void deferred_vs_remove(Jit* Dst, int num_to_remove) {
+    JIT_ASSERT(num_to_remove >= 0, "");
+
     if (!num_to_remove)
         return;
 
     for (int i=0; i < num_to_remove && Dst->deferred_vs_next > i; ++i) {
-        if (Dst->deferred_vs[Dst->deferred_vs_next-1-i].loc == STACK) {
-            | mov qword [rsp + (Dst->deferred_vs[Dst->deferred_vs_next-1-i].val + NUM_MANUAL_STACK_SLOTS) * 8], 0
-            if (Dst->deferred_stack_slot_next-1 == Dst->deferred_vs[Dst->deferred_vs_next-1-i].val)
+        DeferredValueStackEntry* entry = &GET_DEFERRED[-i-1];
+        if (entry->loc == STACK) {
+            | mov qword [rsp + (entry->val + NUM_MANUAL_STACK_SLOTS) * 8], 0
+            if (Dst->deferred_stack_slot_next-1 == entry->val)
                 --Dst->deferred_stack_slot_next;
-        } else if (Dst->deferred_vs[Dst->deferred_vs_next-1-i].loc == REGISTER) {
-            if (Dst->deferred_vs[Dst->deferred_vs_next-1-i].val == preserved_reg2_idx) {
-                emit_mov_imm(Dst, preserved_reg2_idx, 0); // we have to clear it because error path will xdecref
-                Dst->deferred_vs_reg2_used = 0;
+        } else if (entry->loc == REGISTER) {
+            if (entry->val == vs_preserved_reg_idx) {
+                emit_mov_imm(Dst, vs_preserved_reg_idx, 0); // we have to clear it because error path will xdecref
+                JIT_ASSERT(Dst->deferred_vs_preserved_reg_used, "should be set");
+                Dst->deferred_vs_preserved_reg_used = 0;
+            } else if (entry->val == res_idx) {
+                JIT_ASSERT(Dst->deferred_vs_res_used, "should be set");
+                Dst->deferred_vs_res_used = 0;
             }
         }
     }
@@ -1066,7 +1174,7 @@ static void deferred_vs_remove(Jit* Dst, int num_to_remove) {
 // peeks the top stack entry into register r_idx_top and afterwards calls deferred_vs_apply
 // generates better code than doing it split
 static void deferred_vs_peek_top_and_apply(Jit* Dst, int r_idx_top) {
-    assert(r_idx_top != preserved_reg2_idx);
+    JIT_ASSERT(r_idx_top != res_idx && r_idx_top != vs_preserved_reg_idx, "they need special handling");
     if (Dst->deferred_vs_next) {
         // load the value into the destination register and replace the deferred_vs entry
         // with one which accesses the register instead.
@@ -1077,7 +1185,9 @@ static void deferred_vs_peek_top_and_apply(Jit* Dst, int r_idx_top) {
         // owned because deferred_vs_apply will consume one ref
         deferred_vs_peek_owned(Dst, r_idx_top, 1 /*=top*/);
         deferred_vs_remove(Dst, 1);
-        deferred_vs_push(Dst, REGISTER, r_idx_top);
+        // in this special case (=instant call to deferred_vs_apply) it's safe to
+        // use any register so skip the assert.
+        deferred_vs_push_no_assert(Dst, REGISTER, r_idx_top);
         deferred_vs_apply(Dst);
     } else {
         deferred_vs_peek(Dst, r_idx_top, 1 /*=top*/);
@@ -1132,7 +1242,8 @@ static void deferred_vs_pop3_owned(Jit* Dst, int r_idx1, int r_idx2, int r_idx3)
 static void deferred_vs_apply_if_same_var(Jit* Dst, int var_idx) {
     int materialize_stack = 0;
     for (int i=Dst->deferred_vs_next; i>0; --i) {
-        if (Dst->deferred_vs[i-1].loc == FAST && Dst->deferred_vs[i-1].val == var_idx) {
+        DeferredValueStackEntry* entry = &Dst->deferred_vs[i-1];
+        if (entry->loc == FAST && entry->val == var_idx) {
             materialize_stack = 1;
             break;
         }
@@ -1142,6 +1253,44 @@ static void deferred_vs_apply_if_same_var(Jit* Dst, int var_idx) {
     } else {
         deferred_vs_convert_reg_to_stack(Dst);
     }
+}
+
+static void emit_jump_if_false(Jit* Dst, int oparg, RefStatus ref_status) {
+    emit_cmp_imm(Dst, arg1_idx, (unsigned long)Py_False);
+    emit_je_to_bytecode_n(Dst, oparg);
+    emit_cmp_imm(Dst, arg1_idx, (unsigned long)Py_True);
+    | jne >1
+
+    switch_section(Dst, SECTION_COLD);
+    |1:
+    emit_call_decref_args1(Dst, PyObject_IsTrue, arg1_idx, &ref_status);
+    | cmp res_32b, 0
+    emit_je_to_bytecode_n(Dst, oparg);
+    | jl ->error
+    | jmp >3
+    switch_section(Dst, SECTION_CODE);
+
+    |3:
+    // continue here
+}
+
+static void emit_jump_if_true(Jit* Dst, int oparg, RefStatus ref_status) {
+    emit_cmp_imm(Dst, arg1_idx, (unsigned long)Py_True);
+    emit_je_to_bytecode_n(Dst, oparg);
+    emit_cmp_imm(Dst, arg1_idx, (unsigned long)Py_False);
+    | jne >1
+
+    switch_section(Dst, SECTION_COLD);
+    |1:
+    emit_call_decref_args1(Dst, PyObject_IsTrue, arg1_idx, &ref_status);
+    | cmp res_32b, 0
+    emit_jg_to_bytecode_n(Dst, oparg);
+    | jl ->error
+    | jmp >3
+    switch_section(Dst, SECTION_CODE);
+
+    |3:
+    // continue here
 }
 
 // returns 0 if IC generation succeeded
@@ -1198,7 +1347,6 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 | inc qword [&jit_stat_load_global_hit]
             }
             |4:
-            deferred_vs_push(Dst, REGISTER, res_idx);
             // fallthrough to next opcode
 
             // Put the slowpath in a cold section
@@ -1209,11 +1357,13 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             }
             emit_mov_imm2(Dst, arg1_idx, (unsigned long)PyTuple_GET_ITEM(Dst->co_names, oparg),
                                 arg2_idx, co_opcache);
-            emit_aot_func_call(Dst, 2, opcode, oparg, co_opcache != 0 /*= use op cache */);
+            emit_call_ext_func(Dst, get_aot_func_addr(Dst, opcode, oparg, co_opcache != 0 /*= use op cache */));
             emit_if_res_0_error(Dst);
             | jmp <4 // jump to the common code which pushes the result
             // Switch back to the normal section
             switch_section(Dst, SECTION_CODE);
+
+            deferred_vs_push(Dst, REGISTER, res_idx);
             return 0;
         }
     } else if (opcode == LOAD_ATTR || opcode == LOAD_METHOD) {
@@ -1262,7 +1412,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
 
             if (la->cache_type == LA_CACHE_DATA_DESCR) {
                 // save the obj so we can access it after the call
-                | mov preserved_reg, arg1
+                | mov tmp_preserved_reg, arg1
 
                 PyObject* descr = la->u.descr_cache.descr;
                 emit_mov_imm(Dst, tmp_idx, (unsigned long)descr);
@@ -1271,10 +1421,10 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
 
                 // res = descr->ob_type->tp_descr_get(descr, owner, (PyObject *)owner->ob_type);
                 | mov arg1, tmp
-                | mov arg2, preserved_reg
-                | mov arg3, [preserved_reg + offsetof(PyObject, ob_type)]
+                | mov arg2, tmp_preserved_reg
+                | mov arg3, [tmp_preserved_reg + offsetof(PyObject, ob_type)]
                 emit_call_ext_func(Dst, descr->ob_type->tp_descr_get);
-                | mov arg1, preserved_reg // restore the obj so that the decref code works
+                | mov arg1, tmp_preserved_reg // restore the obj so that the decref code works
                 // attr can be NULL
                 | test res, res
                 | jz >3
@@ -1408,7 +1558,6 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 }
             }
             |5:
-            deferred_vs_push(Dst, REGISTER, res_idx);
             // fallthrough to next opcode
 
             switch_section(Dst, SECTION_COLD);
@@ -1423,25 +1572,24 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 }
                 emit_mov_imm2(Dst, arg1_idx, (unsigned long)PyTuple_GET_ITEM(Dst->co_names, oparg),
                                     arg3_idx, co_opcache);
-                emit_aot_func_call(Dst, 3, opcode, oparg, co_opcache != 0 /*= use op cache */);
             } else {
                 emit_mov_imm2(Dst, arg1_idx, (unsigned long)PyTuple_GET_ITEM(Dst->co_names, oparg),
                                     arg2_idx, co_opcache);
-                emit_aot_func_call(Dst, 2, opcode, oparg, co_opcache != 0 /*= use op cache */);
             }
+            emit_call_ext_func(Dst, get_aot_func_addr(Dst, opcode, oparg, co_opcache != 0 /*= use op cache */));
             emit_if_res_0_error(Dst);
             | jmp <5 // jump to the common code which pushes the result
 
             if (emit_load_attr_res_0_helper) { // we only emit this code if it's used
                 |3:
-                | mov preserved_reg, arg1
+                | mov tmp_preserved_reg, arg1
                 emit_mov_imm(Dst, arg2_idx, (unsigned long)PyTuple_GET_ITEM(Dst->co_names, oparg));
                 emit_call_ext_func(Dst, loadAttrCacheAttrNotFound);
-                | mov arg1, preserved_reg
+                | mov arg1, tmp_preserved_reg
                 | test res, res
                 | jnz <4 // jump to the common code which decrefs the obj and pushes the result
                 if (ref_status == OWNED) {
-                    emit_decref(Dst, preserved_reg_idx, 0 /*=  don't preserve res */);
+                    emit_decref(Dst, tmp_preserved_reg_idx, 0 /*=  don't preserve res */);
                 }
                 if (jit_stats_enabled) {
                     | inc qword [opcode == LOAD_ATTR ? &jit_stat_load_attr_hit : &jit_stat_load_method_hit]
@@ -1450,13 +1598,157 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             }
             switch_section(Dst, SECTION_CODE);
 
+            deferred_vs_push(Dst, REGISTER, res_idx);
             return 0;
         }
     }
     return 1;
 }
 
-// __attribute__((optimize("-O0"))) // enable to make "source tools/dis_jit_gdb.py" work
+static void emit_instr_start(Jit* Dst, int inst_idx, int opcode, int oparg) {
+    // The interpreter will only generate a trace line for the first bytecode of line number in the source file.
+    // This means that if tracing gets enabled in the middle of a sequence of bytecodes it skips until the start
+    // of the next line.
+    // Because we don't generate trace checks for some bytecodes we have to manually check
+    // if a tracing check is the first for a specific line number even though it may not be the first bytecode
+    // for this line.
+    // In case it's the first check for a specific line we will overwrite the logic in the interpreter on deopt and
+    // force writing out the line trace.
+    int current_line_number = PyCode_Addr2Line(Dst->co, inst_idx * 2);
+    if (current_line_number != Dst->old_line_number)
+        Dst->emitted_trace_check_for_line = 0;
+    Dst->old_line_number = current_line_number;
+
+    // we don't emit signal and tracing checks for this opcodes
+    // because we know they are not calling into any python function.
+    // We currently don't do this optimizations for opcodes like STORE_FAST which
+    // could call a destructor.
+    switch (opcode) {
+#if ENABLE_AVOID_SIG_TRACE_CHECK
+        case NOP:
+        case EXTENDED_ARG:
+        case ROT_TWO:
+        case ROT_THREE:
+        case ROT_FOUR:
+        case POP_TOP:
+        case DUP_TOP:
+        case DUP_TOP_TWO:
+        case LOAD_CLOSURE:
+#if ENABLE_DEFERRED_LOAD_CONST
+        case LOAD_CONST:
+#endif
+            return;
+
+#if ENABLE_DEFERRED_LOAD_FAST
+        case LOAD_FAST:
+            if (Dst->known_defined[oparg])
+                return; // don't do a sig check if we know the load can't throw
+            break;
+#endif
+
+#endif // ENABLE_AVOID_SIG_TRACE_CHECK
+    }
+
+
+    // WARNING: if you adjust anything here check if you have to adjust jmp_to_inst_idx
+
+    // set opcode pointer. we do it before checking for signals to make deopt easier
+    | mov dword [f + offsetof(PyFrameObject, f_lasti)], inst_idx*2 // inst is 8 bytes long
+
+    // if the current opcode has an EXTENDED_ARG prefix (or more of them - not sure if possible but we handle it here)
+    // we need to modify f_lasti in case of deopt.
+    // Otherwise the interpreter would skip the EXTENDED_ARG opcodes and would end up generating a completely
+    // wrong oparg.
+    int num_extended_arg = 0;
+#if ENABLE_AVOID_SIG_TRACE_CHECK
+    for (int prev_inst_idx = inst_idx-1;
+            prev_inst_idx >= 0 && _Py_OPCODE(Dst->first_instr[prev_inst_idx]) == EXTENDED_ARG; --prev_inst_idx)
+        ++num_extended_arg;
+#endif
+
+    // generate the signal and tracing checks
+    switch (opcode) {
+    // cpython does not do signal checks for the following opcodes
+    // so only generate a trace check for this else test_generators.py will fail
+    case SETUP_FINALLY:
+    case SETUP_WITH:
+    case BEFORE_ASYNC_WITH:
+    case YIELD_FROM:
+        // compares ceval->tracing_possible == 0 (32bit)
+        | cmp dword [interrupt], 0 // inst is 3 bytes long
+        // if we deferred stack operations we have to emit a special deopt path
+        if (Dst->deferred_vs_next || num_extended_arg) {
+            | jne >1
+            switch_section(Dst, SECTION_COLD);
+            |1:
+            deferred_vs_emit(Dst);
+
+            // adjust f_lasti to point to the first EXTENDED_ARG
+            if (num_extended_arg) {
+                | mov dword [f + offsetof(PyFrameObject, f_lasti)], (inst_idx-num_extended_arg) *2
+            }
+            if (!Dst->emitted_trace_check_for_line) {
+                | jmp ->deopt_return_new_line
+            } else {
+                | jmp ->deopt_return
+            }
+            switch_section(Dst, SECTION_CODE);
+        } else {
+            if (!Dst->emitted_trace_check_for_line) {
+                | jne ->deopt_return_new_line
+            } else {
+                | jne ->deopt_return
+            }
+        }
+        break;
+
+    default:
+    {
+        _Static_assert(offsetof(struct _ceval_runtime_state, tracing_possible) == 4, "cmp need to be modified");
+        _Static_assert(offsetof(struct _ceval_runtime_state, eval_breaker) == 8, "cmp need to be modified");
+        // compares ceval->tracing_possible == 0 and eval_breaker == 0 in one (64bit)
+        | cmp qword [interrupt], 0 // inst is 4 bytes long
+
+        // if we deferred stack operations we have to emit a special deopt path
+        if (Dst->deferred_vs_next || num_extended_arg) {
+            | jne >1
+            switch_section(Dst, SECTION_COLD);
+            |1:
+            // compares ceval->tracing_possible == 0 (32bit)
+            | cmp dword [interrupt], 0
+            if (Dst->deferred_vs_res_used) {
+                | je ->handle_signal_res_in_use
+            } else {
+                | je ->handle_signal_res_not_in_use
+            }
+            deferred_vs_emit(Dst);
+
+            // adjust f_lasti to point to the first EXTENDED_ARG
+            if (num_extended_arg) {
+                | mov dword [f + offsetof(PyFrameObject, f_lasti)], (inst_idx-num_extended_arg) *2
+            }
+            if (!Dst->emitted_trace_check_for_line) {
+                | jmp ->deopt_return_new_line
+            } else {
+                | jmp ->deopt_return
+            }
+            switch_section(Dst, SECTION_CODE);
+        } else {
+            if (!Dst->emitted_trace_check_for_line) {
+                | jne ->handle_tracing_or_signal_no_deferred_stack_new_line
+            } else {
+                | jne ->handle_tracing_or_signal_no_deferred_stack
+            }
+        }
+        break;
+    }
+    }
+    Dst->emitted_trace_check_for_line = 1;
+}
+
+#if JIT_DEBUG
+__attribute__((optimize("-O0"))) // enable to make "source tools/dis_jit_gdb.py" work
+#endif
 void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     if (mem_bytes_used_max <= mem_bytes_used) // stop emitting code we used up all memory
         return NULL;
@@ -1467,8 +1759,10 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     jit.co = co;
     jit.co_consts = co->co_consts;
     jit.co_names = co->co_names;
-    jit.current_section = SECTION_CODE;
+    jit.current_section = -1;
 
+    jit.num_opcodes = PyBytes_Size(co->co_code)/sizeof(_Py_CODEUNIT);
+    jit.first_instr = (_Py_CODEUNIT *)PyBytes_AS_STRING(co->co_code);
 
     Jit* Dst = &jit;
     dasm_init(Dst, DASM_MAXSECTION);
@@ -1483,27 +1777,25 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     // we don't know how much stack it will use etc..
     switch_section(Dst, SECTION_CODE);
 
-    const int num_opcodes = PyBytes_Size(co->co_code)/sizeof(_Py_CODEUNIT);
     // allocate enough space for emitting a dynamic label for the start of every bytecode
-    dasm_growpc(Dst,  num_opcodes + 1);
-    const _Py_CODEUNIT *first_instr = (_Py_CODEUNIT *)PyBytes_AS_STRING(co->co_code);
+    dasm_growpc(Dst,  Dst->num_opcodes + 1);
 
-    char* is_jmp_target = calculate_jmp_targets(first_instr, num_opcodes);
+    jit.is_jmp_target = calculate_jmp_targets(Dst);
 
-    // this keeps track of which fast local variable we know are set (!= 0)
-    // if we don't know if they are set or if they are 0 is defined will be 0
-    // currently we only track definedness inside a basic block and in addition the function args
-    // TODO: could use a bitvector instead of a byte per local variable
-    char* known_defined = (char*)malloc(co->co_nlocals);
-    int funcs_args_are_always_defined = check_func_args_never_deleted(first_instr, num_opcodes, co->co_argcount);
+    jit.known_defined = (char*)malloc(co->co_nlocals);
+    const int funcs_args_are_always_defined = check_func_args_never_deleted(Dst);
 
-    int old_line_number = -1;
-    int emitted_trace_check_for_line = 0;
+    // did we emit the * label already?
+    int end_finally_label = 0;
+    int deref_error_label = 0;
+
+    Dst->old_line_number = -1;
+    Dst->emitted_trace_check_for_line = 0;
 
     // this is used for the special EXTENDED_ARG opcode
     int oldoparg = 0;
-    for (int inst_idx = 0; inst_idx<num_opcodes; ++inst_idx) {
-        _Py_CODEUNIT word = first_instr[inst_idx];
+    for (int inst_idx = 0; inst_idx < Dst->num_opcodes; ++inst_idx) {
+        _Py_CODEUNIT word = Dst->first_instr[inst_idx];
         int opcode = _Py_OPCODE(word);
         int oparg = _Py_OPARG(word);
 
@@ -1512,16 +1804,16 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         oldoparg = 0;
 
         // if an instruction can jump to this one we need to make sure the deferred stack is clear
-        if (is_jmp_target[inst_idx]) {
+        if (Dst->is_jmp_target[inst_idx]) {
             deferred_vs_apply(Dst);
         }
 
         // if we can jump to this opcode or it's the first in the function
         // we reset the definedness info.
-        if (ENABLE_DEFINED_TRACKING && (inst_idx == 0 || is_jmp_target[inst_idx])) {
-            memset(known_defined, 0, co->co_nlocals);
+        if (ENABLE_DEFINED_TRACKING && (inst_idx == 0 || Dst->is_jmp_target[inst_idx])) {
+            memset(Dst->known_defined, 0, co->co_nlocals);
             for (int i=0; funcs_args_are_always_defined && i<co->co_argcount; ++i) {
-                known_defined[i] = 1; // function arg is defined
+                Dst->known_defined[i] = 1; // function arg is defined
             }
         }
 
@@ -1530,136 +1822,9 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         // also used for the opcode_addr table
         |=>inst_idx:
 
-        // we don't emit signal and tracing checks for this opcodes
-        // because we know they are not calling into any python function.
-        // We currently don't do this optimizations for opcodes like STORE_FAST which
-        // could call a destructor.
+        // emits f->f_lasti update, signal and trace check
+        emit_instr_start(Dst, inst_idx, opcode, oparg);
 
-        // The interpreter will only generate a trace line for the first bytecode of line number in the source file.
-        // This means that if tracing gets enabled in the middle of a sequence of bytecodes it skips until the start
-        // of the next line.
-        // Because we don't generate trace checks for some bytecodes we have to manually check
-        // if a tracing check is the first for a specific line number even though it may not be the first bytecode
-        // for this line.
-        // In case it's the first check for a specific line we will overwrite the logic in the interpreter on deopt and
-        // force writing out the line trace.
-        int current_line_number = PyCode_Addr2Line(co, inst_idx * 2);
-        if (current_line_number != old_line_number)
-            emitted_trace_check_for_line = 0;
-        old_line_number = current_line_number;
-
-        switch (opcode) {
-#if ENABLE_AVOID_SIG_TRACE_CHECK
-            case NOP:
-            case EXTENDED_ARG:
-            case ROT_TWO:
-            case ROT_THREE:
-            case ROT_FOUR:
-            case POP_TOP:
-            case DUP_TOP:
-            case DUP_TOP_TWO:
-            case LOAD_CLOSURE:
-#if ENABLE_DEFERRED_LOAD_CONST
-            case LOAD_CONST:
-#endif
-                goto skip_sig_trace_check;
-
-#if ENABLE_DEFERRED_LOAD_FAST
-            case LOAD_FAST:
-                if (known_defined[oparg])
-                    goto skip_sig_trace_check; // don't do a sig check if we know the load can't throw
-                break;
-#endif
-
-#endif // ENABLE_AVOID_SIG_TRACE_CHECK
-        }
-
-
-        // WARNING: if you adjust anything here check if you have to adjust jmp_to_inst_idx
-
-        // set opcode pointer. we do it before checking for signals to make deopt easier
-        | mov dword [f + offsetof(PyFrameObject, f_lasti)], inst_idx*2 // inst is 8 bytes long
-
-        // if the current opcode has an EXTENDED_ARG prefix (or more of them - not sure if possible but we handle it here)
-        // we need to modify f_lasti in case of deopt.
-        // Otherwise the interpreter would skip the EXTENDED_ARG opcodes and would end up generating a completely
-        // wrong oparg.
-        int num_extended_arg = 0;
-#if ENABLE_AVOID_SIG_TRACE_CHECK
-        for (int prev_inst_idx = inst_idx-1; prev_inst_idx >= 0 && _Py_OPCODE(first_instr[prev_inst_idx]) == EXTENDED_ARG; --prev_inst_idx)
-            ++num_extended_arg;
-#endif
-
-        // generate the signal and tracing checks
-        switch (opcode) {
-        // cpython does not do signal checks for the following opcodes
-        // so only generate a trace check for this else test_generators.py will fail
-        case SETUP_FINALLY:
-        case SETUP_WITH:
-        case BEFORE_ASYNC_WITH:
-        case YIELD_FROM:
-            | cmp dword [interrupt], 0 // inst is 4 bytes long
-
-            // if we deferred stack operations we have to emit a special deopt path
-            if (Dst->deferred_vs_next || num_extended_arg) {
-                | jne >1
-                switch_section(Dst, SECTION_COLD);
-                |1:
-                deferred_vs_emit(Dst);
-
-                // adjust f_lasti to point to the first EXTENDED_ARG
-                if (num_extended_arg) {
-                    | mov dword [f + offsetof(PyFrameObject, f_lasti)], (inst_idx-num_extended_arg) *2
-                }
-            }
-            if (!emitted_trace_check_for_line) {
-                | jne ->deopt_return_new_line
-            } else {
-                | jne ->deopt_return
-            }
-            switch_section(Dst, SECTION_CODE);
-
-            break;
-
-        default:
-            {
-                // this compares ceval->tracing_possible and eval_breaker in one
-                _Static_assert(offsetof(struct _ceval_runtime_state, tracing_possible) == 4, "cmp need to be modified");
-                _Static_assert(offsetof(struct _ceval_runtime_state, eval_breaker) == 8, "cmp need to be modified");
-                | cmp qword [interrupt], 0 // inst is 4 bytes long
-
-                // if we deferred stack operations we have to emit a special deopt path
-                if (Dst->deferred_vs_next || num_extended_arg) {
-                    | jne >1
-                    switch_section(Dst, SECTION_COLD);
-                    |1:
-                    | cmp dword [interrupt], 0
-                    | je ->handle_signal
-                    deferred_vs_emit(Dst);
-
-                    // adjust f_lasti to point to the first EXTENDED_ARG
-                    if (num_extended_arg) {
-                        | mov dword [f + offsetof(PyFrameObject, f_lasti)], (inst_idx-num_extended_arg) *2
-                    }
-                    if (!emitted_trace_check_for_line) {
-                        | jne ->deopt_return_new_line
-                    } else {
-                        | jne ->deopt_return
-                    }
-                    switch_section(Dst, SECTION_CODE);
-                } else {
-                    if (!emitted_trace_check_for_line) {
-                        | jne ->handle_tracing_or_signal_no_deferred_stack_new_line
-                    } else {
-                        | jne ->handle_tracing_or_signal_no_deferred_stack
-                    }
-                }
-                break;
-            }
-        }
-        emitted_trace_check_for_line = 1;
-
-skip_sig_trace_check:
         switch(opcode) {
         case NOP:
             break;
@@ -1680,7 +1845,7 @@ skip_sig_trace_check:
 
         case LOAD_FAST:
 #if ENABLE_DEFERRED_LOAD_FAST
-            if (!known_defined[oparg] /* can be null */) {
+            if (!Dst->known_defined[oparg] /* can be null */) {
                 | cmp qword [f + get_fastlocal_offset(oparg)], 0
                 | je >1
 
@@ -1690,13 +1855,13 @@ skip_sig_trace_check:
                 | jmp ->unboundlocal_error // arg1 must be oparg!
                 switch_section(Dst, SECTION_CODE);
 
-                known_defined[oparg] = 1;
+                Dst->known_defined[oparg] = 1;
             }
 
             deferred_vs_push(Dst, FAST, oparg);
 #else
             deferred_vs_apply(Dst);
-            if (!known_defined[oparg] /* can be null */) {
+            if (!Dst->known_defined[oparg] /* can be null */) {
                 | mov arg2, [f + get_fastlocal_offset(oparg)]
                 | test arg2, arg2
                 | jz >1
@@ -1707,7 +1872,7 @@ skip_sig_trace_check:
                 | jmp ->unboundlocal_error // arg1 must be oparg!
                 switch_section(Dst, SECTION_CODE);
 
-                known_defined[oparg] = 1;
+                Dst->known_defined[oparg] = 1;
             } else {
                 | mov arg2, [f + get_fastlocal_offset(oparg)]
             }
@@ -1735,13 +1900,13 @@ skip_sig_trace_check:
             | lea tmp, [f + get_fastlocal_offset(oparg)]
             | mov arg1, [tmp]
             | mov [tmp], arg2
-            if (known_defined[oparg]) {
+            if (Dst->known_defined[oparg]) {
                 emit_decref(Dst, arg1_idx, 0 /* don't preserve res */);
             } else {
                 emit_xdecref_arg1(Dst);
             }
             if (ENABLE_DEFINED_TRACKING)
-                known_defined[oparg] = 1;
+                Dst->known_defined[oparg] = 1;
 
             break;
 
@@ -1750,7 +1915,7 @@ skip_sig_trace_check:
             deferred_vs_apply_if_same_var(Dst, oparg);
             | lea tmp, [f + get_fastlocal_offset(oparg)]
             | mov arg2, [tmp]
-            if (!known_defined[oparg] /* can be null */) {
+            if (!Dst->known_defined[oparg] /* can be null */) {
                 | test arg2, arg2
                 | jz >1
 
@@ -1763,7 +1928,7 @@ skip_sig_trace_check:
             | mov qword [tmp], 0
             emit_decref(Dst, arg2_idx, 0 /*= don't preserve res */);
 
-            known_defined[oparg] = 0;
+            Dst->known_defined[oparg] = 0;
 
             break;
         }
@@ -1772,8 +1937,7 @@ skip_sig_trace_check:
         {
             RefStatus ref_status = deferred_vs_pop1(Dst, arg1_idx);
             if (ref_status == OWNED) {
-                deferred_vs_convert_reg_to_stack(Dst);
-                emit_decref(Dst, arg1_idx, 0 /*= don't preserve res */);
+                emit_decref(Dst, arg1_idx, Dst->deferred_vs_res_used /*= preserve res */);
             }
             break;
         }
@@ -1781,9 +1945,9 @@ skip_sig_trace_check:
         case ROT_TWO:
             if (Dst->deferred_vs_next >= 2) {
                 DeferredValueStackEntry tmp[2];
-                memcpy(tmp, &Dst->deferred_vs[Dst->deferred_vs_next - 2], sizeof(tmp));
-                Dst->deferred_vs[Dst->deferred_vs_next - 1] = tmp[0];
-                Dst->deferred_vs[Dst->deferred_vs_next - 2] = tmp[1];
+                memcpy(tmp, &GET_DEFERRED[-2], sizeof(tmp));
+                GET_DEFERRED[-1] = tmp[0];
+                GET_DEFERRED[-2] = tmp[1];
             } else {
                 deferred_vs_apply(Dst);
                 emit_read_vs(Dst, arg1_idx, 1 /*=top*/);
@@ -1796,10 +1960,10 @@ skip_sig_trace_check:
         case ROT_THREE:
             if (Dst->deferred_vs_next >= 3) {
                 DeferredValueStackEntry tmp[3];
-                memcpy(tmp, &Dst->deferred_vs[Dst->deferred_vs_next - 3], sizeof(tmp));
-                Dst->deferred_vs[Dst->deferred_vs_next - 1] = tmp[1];
-                Dst->deferred_vs[Dst->deferred_vs_next - 2] = tmp[0];
-                Dst->deferred_vs[Dst->deferred_vs_next - 3] = tmp[2];
+                memcpy(tmp, &GET_DEFERRED[-3], sizeof(tmp));
+                GET_DEFERRED[-1] = tmp[1];
+                GET_DEFERRED[-2] = tmp[0];
+                GET_DEFERRED[-3] = tmp[2];
             } else {
                 deferred_vs_apply(Dst);
                 emit_read_vs(Dst, arg1_idx, 1 /*=top*/);
@@ -1814,11 +1978,11 @@ skip_sig_trace_check:
         case ROT_FOUR:
             if (Dst->deferred_vs_next >= 4) {
                 DeferredValueStackEntry tmp[4];
-                memcpy(tmp, &Dst->deferred_vs[Dst->deferred_vs_next - 4], sizeof(tmp));
-                Dst->deferred_vs[Dst->deferred_vs_next - 1] = tmp[2];
-                Dst->deferred_vs[Dst->deferred_vs_next - 2] = tmp[1];
-                Dst->deferred_vs[Dst->deferred_vs_next - 3] = tmp[0];
-                Dst->deferred_vs[Dst->deferred_vs_next - 4] = tmp[3];
+                memcpy(tmp, &GET_DEFERRED[-4], sizeof(tmp));
+                GET_DEFERRED[-1] = tmp[2];
+                GET_DEFERRED[-2] = tmp[1];
+                GET_DEFERRED[-3] = tmp[0];
+                GET_DEFERRED[-4] = tmp[3];
             } else {
                 deferred_vs_apply(Dst);
                 emit_read_vs(Dst, arg1_idx, 1 /*=top*/);
@@ -1834,8 +1998,8 @@ skip_sig_trace_check:
 
         case DUP_TOP:
             if (Dst->deferred_vs_next >= 1 && Dst->deferred_vs_next + 1 < DEFERRED_VS_MAX &&
-                (Dst->deferred_vs[Dst->deferred_vs_next-1].loc == CONST || Dst->deferred_vs[Dst->deferred_vs_next-1].loc == FAST)) {
-                Dst->deferred_vs[Dst->deferred_vs_next] = Dst->deferred_vs[Dst->deferred_vs_next-1];
+                (GET_DEFERRED[-1].loc == CONST || GET_DEFERRED[-1].loc == FAST)) {
+                GET_DEFERRED[0] = GET_DEFERRED[-1];
                 Dst->deferred_vs_next += 1;
             } else {
                 deferred_vs_apply(Dst);
@@ -1847,10 +2011,10 @@ skip_sig_trace_check:
 
         case DUP_TOP_TWO:
             if (Dst->deferred_vs_next >= 2 && Dst->deferred_vs_next + 2 < DEFERRED_VS_MAX &&
-                (Dst->deferred_vs[Dst->deferred_vs_next-1].loc == CONST || Dst->deferred_vs[Dst->deferred_vs_next-1].loc == FAST) &&
-                (Dst->deferred_vs[Dst->deferred_vs_next-2].loc == CONST || Dst->deferred_vs[Dst->deferred_vs_next-2].loc == FAST)) {
-                Dst->deferred_vs[Dst->deferred_vs_next  ] = Dst->deferred_vs[Dst->deferred_vs_next-2];
-                Dst->deferred_vs[Dst->deferred_vs_next+1] = Dst->deferred_vs[Dst->deferred_vs_next-1];
+                (GET_DEFERRED[-1].loc == CONST || GET_DEFERRED[-1].loc == FAST) &&
+                (GET_DEFERRED[-2].loc == CONST || GET_DEFERRED[-2].loc == FAST)) {
+                GET_DEFERRED[0] = GET_DEFERRED[-2];
+                GET_DEFERRED[1] = GET_DEFERRED[-1];
                 Dst->deferred_vs_next += 2;
             } else {
                 deferred_vs_apply(Dst);
@@ -1905,9 +2069,8 @@ skip_sig_trace_check:
             RefStatus ref_status[2];
             deferred_vs_pop2(Dst, arg2_idx, arg1_idx, ref_status);
             deferred_vs_convert_reg_to_stack(Dst);
-            emit_store_decref_args2(Dst, arg2_idx, arg1_idx, ref_status);
-            emit_aot_func_call(Dst, 2, opcode, oparg, 0 /*= no op cache */);
-            emit_decref_stored_args(Dst, 2, ref_status);
+            void* func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
+            emit_call_decref_args2(Dst, func, arg2_idx, arg1_idx, ref_status);
             emit_if_res_0_error(Dst);
             deferred_vs_push(Dst, REGISTER, res_idx);
             break;
@@ -1917,42 +2080,7 @@ skip_sig_trace_check:
         {
             RefStatus ref_status = deferred_vs_pop1(Dst, arg1_idx);
             deferred_vs_apply(Dst);
-
-            if (ref_status == OWNED) {
-                emit_cmp_imm(Dst, arg1_idx, (unsigned long)Py_False);
-                emit_je_to_bytecode_n(Dst, oparg);
-                emit_cmp_imm(Dst, arg1_idx, (unsigned long)Py_True);
-                | jne >1
-
-                switch_section(Dst, SECTION_COLD);
-                |1:
-                | mov preserved_reg, arg1
-                emit_call_ext_func(Dst, PyObject_IsTrue);
-                emit_decref(Dst, preserved_reg_idx, 1 /*= preserve res */);
-                | cmp res_32b, 0
-                | je =>oparg/2
-                | jl ->error
-                | jmp >3
-                switch_section(Dst, SECTION_CODE);
-
-                |3:
-            } else {
-                emit_cmp_imm(Dst, arg1_idx, (unsigned long)Py_False);
-                emit_je_to_bytecode_n(Dst, oparg);
-                emit_cmp_imm(Dst, arg1_idx, (unsigned long)Py_True);
-                | jne >1
-
-                switch_section(Dst, SECTION_COLD);
-                |1:
-                emit_call_ext_func(Dst, PyObject_IsTrue);
-                | cmp res_32b, 0
-                | je =>oparg/2
-                | jl ->error
-                | jmp >3
-                switch_section(Dst, SECTION_CODE);
-
-                |3:
-            }
+            emit_jump_if_false(Dst, oparg, ref_status);
             break;
         }
 
@@ -1960,105 +2088,25 @@ skip_sig_trace_check:
         {
             RefStatus ref_status = deferred_vs_pop1(Dst, arg1_idx);
             deferred_vs_apply(Dst);
-
-            if (ref_status == OWNED) {
-                emit_cmp_imm(Dst, arg1_idx, (unsigned long)Py_True);
-                emit_je_to_bytecode_n(Dst, oparg);
-                emit_cmp_imm(Dst, arg1_idx, (unsigned long)Py_False);
-                | jne >1
-
-                switch_section(Dst, SECTION_COLD);
-                |1:
-                | mov preserved_reg, arg1
-                emit_call_ext_func(Dst, PyObject_IsTrue);
-                emit_decref(Dst, preserved_reg_idx, 1 /*= preserve res */);
-                | cmp res_32b, 0
-                | jg =>oparg/2
-                | jl ->error
-                | jmp >3
-                switch_section(Dst, SECTION_CODE);
-
-
-                |3:
-            } else {
-                emit_cmp_imm(Dst, arg1_idx, (unsigned long)Py_True);
-                emit_je_to_bytecode_n(Dst, oparg);
-                emit_cmp_imm(Dst, arg1_idx, (unsigned long)Py_False);
-                | jne >1
-
-                switch_section(Dst, SECTION_COLD);
-                |1:
-                emit_call_ext_func(Dst, PyObject_IsTrue);
-                | cmp res_32b, 0
-                | jg =>oparg/2
-                | jl ->error
-                | jmp >3
-                switch_section(Dst, SECTION_CODE);
-
-                |3:
-            }
+            emit_jump_if_true(Dst, oparg, ref_status);
             break;
         }
 
         case JUMP_IF_FALSE_OR_POP:
             deferred_vs_peek_top_and_apply(Dst, arg1_idx);
-            emit_cmp_imm(Dst, arg1_idx, (unsigned long)Py_False);
-            emit_je_to_bytecode_n(Dst, oparg);
-            emit_cmp_imm(Dst, arg1_idx, (unsigned long)Py_True);
-            | jne >1
-
-            switch_section(Dst, SECTION_COLD);
-            |1:
-            emit_call_ext_func(Dst, PyObject_IsTrue);
-            | cmp res_32b, 0
-            emit_je_to_bytecode_n(Dst, oparg);
-            | jl ->error
-            | jmp >3
-            switch_section(Dst, SECTION_CODE);
-
-            |3:
+            emit_jump_if_false(Dst, oparg, BORROWED);
             emit_pop_v(Dst, arg1_idx);
             emit_decref(Dst, arg1_idx, 0 /*= don't preserve res */);
             break;
 
         case JUMP_IF_TRUE_OR_POP:
             deferred_vs_peek_top_and_apply(Dst, arg1_idx);
-            emit_cmp_imm(Dst, arg1_idx, (unsigned long)Py_True);
-            emit_je_to_bytecode_n(Dst, oparg);
-            emit_cmp_imm(Dst, arg1_idx, (unsigned long)Py_False);
-            | jne >1
-
-            switch_section(Dst, SECTION_COLD);
-            |1:
-            emit_call_ext_func(Dst, PyObject_IsTrue);
-            | cmp res_32b, 0
-            | jg =>oparg/2
-            | jl ->error
-            | jmp >3
-            switch_section(Dst, SECTION_CODE);
-
-            |3:
+            emit_jump_if_true(Dst, oparg, BORROWED);
             emit_pop_v(Dst, arg1_idx);
             emit_decref(Dst, arg1_idx, 0 /*= don't preserve res */);
             break;
 
         case CALL_FUNCTION:
-            deferred_vs_apply(Dst);
-            | mov arg1, tstate
-
-            // arg2 = &sp
-            | mov [rsp], vsp
-            | mov arg2, rsp
-            emit_mov_imm(Dst, arg3_idx, oparg);
-            emit_aot_func_call(Dst, 3, opcode, oparg, 0 /*= no op cache */);
-
-            // stackpointer = sp
-            | mov vsp, [rsp]
-
-            emit_if_res_0_error(Dst);
-            deferred_vs_push(Dst, REGISTER, res_idx);
-            break;
-
         case CALL_METHOD:
             deferred_vs_apply(Dst);
             | mov arg1, tstate
@@ -2067,15 +2115,21 @@ skip_sig_trace_check:
             | mov [rsp], vsp
             | mov arg2, rsp
 
-            // this is taken from clang:
-            // meth = PEEK(oparg + 2);
-            // arg3 = ((meth == 0) ? 0 : 1) + oparg
             emit_mov_imm(Dst, arg3_idx, oparg);
-            | cmp qword [vsp - (8*(oparg + 2))], 1
-            | sbb arg3, -1
 
-            emit_aot_func_call(Dst, 3, opcode, oparg, 0 /*= no op cache */);
-            emit_adjust_vs(Dst, -(oparg + 2));
+            int num_vs_args = oparg + 1;
+
+            if (opcode == CALL_METHOD) {
+                num_vs_args += 1;
+
+                // this is taken from clang:
+                // meth = PEEK(oparg + 2);
+                // arg3 = ((meth == 0) ? 0 : 1) + oparg
+                | cmp qword [vsp - (8*num_vs_args)], 1
+                | sbb arg3, -1
+            }
+            emit_call_ext_func(Dst, get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */));
+            emit_adjust_vs(Dst, -num_vs_args);
 
             emit_if_res_0_error(Dst);
             deferred_vs_push(Dst, REGISTER, res_idx);
@@ -2105,10 +2159,8 @@ skip_sig_trace_check:
         {
             RefStatus ref_status = deferred_vs_pop1(Dst, arg1_idx);
             deferred_vs_convert_reg_to_stack(Dst);
-            emit_store_decref_args1(Dst, arg1_idx, &ref_status);
-            emit_aot_func_call(Dst, 1, opcode, oparg, 0 /*= no op cache */);
-            emit_decref_stored_args(Dst, 1, &ref_status);
-
+            void* func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
+            emit_call_decref_args1(Dst, func, arg1_idx, &ref_status);
             emit_if_res_0_error(Dst);
             deferred_vs_push(Dst, REGISTER, res_idx);
             break;
@@ -2119,22 +2171,21 @@ skip_sig_trace_check:
                 RefStatus ref_status[3];
                 deferred_vs_pop3(Dst, arg2_idx, arg1_idx, arg3_idx, ref_status);
                 deferred_vs_convert_reg_to_stack(Dst);
-                emit_store_decref_args3(Dst, arg2_idx, arg1_idx, arg3_idx, ref_status);
-                emit_aot_func_call(Dst, 3, opcode, oparg, 0 /*= no op cache */);
-                emit_decref_stored_args(Dst, 3, ref_status);
+                void* func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
+                emit_call_decref_args3(Dst, func, arg2_idx, arg1_idx, arg3_idx, ref_status);
                 emit_if_res_32b_not_0_error(Dst);
             } else {
                 deferred_vs_apply(Dst);
                 emit_read_vs(Dst, arg2_idx, 1 /*=top*/);
                 emit_read_vs(Dst, arg1_idx, 2 /*=second*/);
                 emit_read_vs(Dst, arg3_idx, 3 /*=third*/);
-                emit_aot_func_call(Dst, 3, opcode, oparg, 0 /*= no op cache */);
+                emit_call_ext_func(Dst, get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */));
+                emit_if_res_32b_not_0_error(Dst);
                 for (int i=0; i<3; ++i) {
                     emit_read_vs(Dst, arg1_idx, i+1);
-                    emit_decref(Dst, arg1_idx, 1 /*= preserve res */);
+                    emit_decref(Dst, arg1_idx, 0 /*= don't preserve res */);
                 }
                 emit_adjust_vs(Dst, -3);
-                emit_if_res_32b_not_0_error(Dst);
             }
             break;
 
@@ -2143,15 +2194,16 @@ skip_sig_trace_check:
             RefStatus ref_status[2];
             deferred_vs_pop2(Dst, arg2_idx, arg1_idx, ref_status);
             deferred_vs_convert_reg_to_stack(Dst);
-            emit_store_decref_args2(Dst, arg2_idx, arg1_idx, ref_status);
-            emit_aot_func_call(Dst, 2, opcode, oparg, 0 /*= no op cache */);
-            emit_decref_stored_args(Dst, 2, ref_status);
+            void* func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
+            emit_call_decref_args2(Dst, func, arg2_idx, arg1_idx, ref_status);
             emit_if_res_32b_not_0_error(Dst);
             break;
         }
 
         case CALL_FINALLY:
             deferred_vs_apply(Dst);
+            // todo: handle during bytecode generation,
+            //       this could be normal code object constant entry
             emit_mov_imm(Dst, arg1_idx, (inst_idx+1) * 2);
             emit_call_ext_func(Dst, PyLong_FromLong);
             emit_if_res_0_error(Dst);
@@ -2161,30 +2213,34 @@ skip_sig_trace_check:
 
         case END_FINALLY:
         {
-            RefStatus ref_status = deferred_vs_pop1(Dst, arg1_idx);
+            RefStatus ref_status = OWNED;
+            deferred_vs_pop1_owned(Dst, arg1_idx);
             deferred_vs_apply(Dst);
             | test arg1, arg1
-            | jz >1
+            | jnz ->end_finally
 
-            | cmp dword [arg1 + offsetof(PyObject, ob_type)], (unsigned int)&PyLong_Type
-            | jne >2
+            if (!end_finally_label) {
+                end_finally_label = 1;
+                switch_section(Dst, SECTION_COLD);
+                |->end_finally:
+                | cmp dword [arg1 + offsetof(PyObject, ob_type)], (unsigned int)&PyLong_Type
+                | jne >2
 
-            // inside CALL_FINALLY we created a long with the bytecode offset to the next instruction
-            // extract it and jump to it
-            emit_store_decref_args1(Dst, arg1_idx, &ref_status);
-            emit_call_ext_func(Dst, PyLong_AsLong);
-            emit_decref_stored_args(Dst, 1, &ref_status);
-            emit_jmp_to_inst_idx(Dst, res_idx, 0 /* don't skip signal and eval_breaker check */);
+                // inside CALL_FINALLY we created a long with the bytecode offset to the next instruction
+                // extract it and jump to it
+                emit_call_decref_args1(Dst, PyLong_AsLong, arg1_idx, &ref_status);
+                emit_jmp_to_inst_idx(Dst, res_idx);
 
-            |2:
-            | mov arg2, arg1
-            | mov arg1, tstate
-            emit_read_vs(Dst, arg3_idx, 1 /*=top*/);
-            emit_read_vs(Dst, arg4_idx, 2 /*=second*/);
-            emit_adjust_vs(Dst, -2);
-            emit_call_ext_func(Dst, _PyErr_Restore);
-            | jmp ->exception_unwind
-            |1:
+                |2:
+                | mov arg2, arg1
+                | mov arg1, tstate
+                emit_read_vs(Dst, arg3_idx, 1 /*=top*/);
+                emit_read_vs(Dst, arg4_idx, 2 /*=second*/);
+                emit_adjust_vs(Dst, -2);
+                emit_call_ext_func(Dst, _PyErr_Restore);
+                | jmp ->exception_unwind
+                switch_section(Dst, SECTION_CODE);
+            }
             break;
         }
 
@@ -2194,9 +2250,8 @@ skip_sig_trace_check:
             RefStatus ref_status = deferred_vs_pop1(Dst, arg2_idx);
             deferred_vs_peek(Dst, arg1_idx, oparg);
             deferred_vs_convert_reg_to_stack(Dst);
-            emit_store_decref_args1(Dst, arg2_idx, &ref_status);
-            emit_call_ext_func(Dst, opcode == SET_ADD ? PySet_Add : PyList_Append);
-            emit_decref_stored_args(Dst, 1, &ref_status);
+            void* func = opcode == SET_ADD ? PySet_Add : PyList_Append;
+            emit_call_decref_args1(Dst, func, arg2_idx, &ref_status);
             emit_if_res_32b_not_0_error(Dst);
             break;
         }
@@ -2207,9 +2262,7 @@ skip_sig_trace_check:
             deferred_vs_pop2(Dst, arg3_idx, arg2_idx, ref_status);
             deferred_vs_peek(Dst, arg1_idx, oparg);
             deferred_vs_convert_reg_to_stack(Dst);
-            emit_store_decref_args2(Dst, arg3_idx, arg2_idx, ref_status);
-            emit_call_ext_func(Dst, PyDict_SetItem);
-            emit_decref_stored_args(Dst, 2, ref_status);
+            emit_call_decref_args2(Dst, PyDict_SetItem, arg3_idx, arg2_idx, ref_status);
             emit_if_res_32b_not_0_error(Dst);
             break;
         }
@@ -2222,9 +2275,7 @@ skip_sig_trace_check:
             | mov arg1, tstate
             | mov arg2, f
             emit_mov_imm(Dst, arg3_idx, (unsigned long)PyTuple_GET_ITEM(Dst->co_names, oparg));
-            emit_store_decref_args2(Dst, arg4_idx, arg5_idx, ref_status);
-            emit_call_ext_func(Dst, import_name);
-            emit_decref_stored_args(Dst, 2, ref_status);
+            emit_call_decref_args2(Dst, import_name, arg4_idx, arg5_idx, ref_status);
             emit_if_res_0_error(Dst);
             deferred_vs_push(Dst, REGISTER, res_idx);
             break;
@@ -2246,9 +2297,7 @@ skip_sig_trace_check:
             deferred_vs_convert_reg_to_stack(Dst);
             emit_mov_imm(Dst, arg2_idx, (unsigned long)PyTuple_GET_ITEM(Dst->co_names, oparg));
             emit_mov_imm(Dst, arg3_idx, 0);
-            emit_store_decref_args1(Dst, arg1_idx, &ref_status);
-            emit_call_ext_func(Dst, PyObject_SetAttr);
-            emit_decref_stored_args(Dst, 1, &ref_status);
+            emit_call_decref_args1(Dst, PyObject_SetAttr, arg1_idx, &ref_status);
             emit_if_res_32b_not_0_error(Dst);
             break;
         }
@@ -2259,9 +2308,7 @@ skip_sig_trace_check:
             deferred_vs_convert_reg_to_stack(Dst);
             | mov arg1, [f + offsetof(PyFrameObject, f_globals)]
             emit_mov_imm(Dst, arg2_idx, (unsigned long)PyTuple_GET_ITEM(Dst->co_names, oparg));
-            emit_store_decref_args1(Dst, arg3_idx, &ref_status);
-            emit_call_ext_func(Dst, PyDict_SetItem);
-            emit_decref_stored_args(Dst, 1, &ref_status);
+            emit_call_decref_args1(Dst, PyDict_SetItem, arg3_idx, &ref_status);
             emit_if_res_32b_not_0_error(Dst);
             break;
         }
@@ -2277,9 +2324,7 @@ skip_sig_trace_check:
                 ref_status[0] = BORROWED;
             }
             deferred_vs_convert_reg_to_stack(Dst);
-            emit_store_decref_args3(Dst, arg3_idx, arg2_idx, arg1_idx, ref_status);
-            emit_call_ext_func(Dst, PySlice_New);
-            emit_decref_stored_args(Dst, 3, ref_status);
+            emit_call_decref_args3(Dst, PySlice_New, arg3_idx, arg2_idx, arg1_idx, ref_status);
             emit_if_res_0_error(Dst);
             deferred_vs_push(Dst, REGISTER, res_idx);
             break;
@@ -2288,6 +2333,7 @@ skip_sig_trace_check:
         case BUILD_TUPLE:
             // empty tuple optimization
             if (oparg == 0) {
+                // todo: handle during bytecode generation
                 PyObject* empty_tuple = PyTuple_New(0);
                 deferred_vs_convert_reg_to_stack(Dst);
                 emit_mov_imm(Dst, res_idx, (unsigned long)empty_tuple);
@@ -2356,8 +2402,18 @@ skip_sig_trace_check:
 
             switch_section(Dst, SECTION_COLD);
             |1:
-            emit_mov_imm(Dst, arg3_idx, oparg); // load_deref_error assumes that oparg is in arg3!
+            emit_mov_imm(Dst, arg3_idx, oparg); // deref_error assumes that oparg is in arg3!
             | jmp ->deref_error
+
+            if (!deref_error_label) {
+                deref_error_label = 1;
+                |->deref_error: // assumes that oparg is in arg3!
+                | mov arg1, tstate
+                emit_mov_imm(Dst, arg2_idx, (unsigned long)co);
+                emit_call_ext_func(Dst, format_exc_unbound);
+                | jmp ->error
+            }
+
             switch_section(Dst, SECTION_CODE);
 
             if (opcode == LOAD_DEREF) {
@@ -2377,9 +2433,9 @@ skip_sig_trace_check:
             if (co->co_opcache != NULL) {
                 unsigned char co_opt_offset = co->co_opcache_map[inst_idx + 1];
                 if (co_opt_offset > 0) {
-                    assert(co_opt_offset <= co->co_opcache_size);
+                    JIT_ASSERT(co_opt_offset <= co->co_opcache_size, "");
                     co_opcache = &co->co_opcache[co_opt_offset - 1];
-                    assert(co_opcache != NULL);
+                    JIT_ASSERT(co_opcache != NULL, "");
                 }
             }
 
@@ -2524,17 +2580,17 @@ skip_sig_trace_check:
                     // so instead of doing two 64-bit moves, we can do the second
                     // one as a lea off the first one and save a few bytes
                     emit_mov_imm_or_lea(Dst, arg2_idx, arg1_idx, co_opcache, PyTuple_GET_ITEM(Dst->co_names, oparg));
-                    emit_aot_func_call(Dst, 2, opcode, oparg, co_opcache != 0 /*= use op cache */);
+                    emit_call_ext_func(Dst, get_aot_func_addr(Dst, opcode, oparg, co_opcache != 0 /*= use op cache */));
                     break;
 
                 case LOAD_ATTR:
                     emit_mov_imm_or_lea(Dst, arg3_idx, arg1_idx, co_opcache, PyTuple_GET_ITEM(Dst->co_names, oparg));
-                    emit_aot_func_call(Dst, 3, opcode, oparg, co_opcache != 0 /*= use op cache */);
+                    emit_call_ext_func(Dst, get_aot_func_addr(Dst, opcode, oparg, co_opcache != 0 /*= use op cache */));
                     break;
 
                 case STORE_ATTR:
                     emit_mov_imm_or_lea(Dst, arg4_idx, arg1_idx, co_opcache, PyTuple_GET_ITEM(Dst->co_names, oparg));
-                    emit_aot_func_call(Dst, 4, opcode, oparg, co_opcache != 0 /*= use op cache */);
+                    emit_call_ext_func(Dst, get_aot_func_addr(Dst, opcode, oparg, co_opcache != 0 /*= use op cache */));
                     break;
 
 
@@ -2642,36 +2698,61 @@ skip_sig_trace_check:
     | or res, 2
     | jmp ->return
 
-    |->handle_signal:
-    // we have to preserve res because it may be used by our deferred stack optimizations
-    | mov preserved_reg, res
+    |->handle_signal_res_in_use:
+    // we have to preserve res because it's used by our deferred stack optimizations
+    | mov tmp_preserved_reg, res
+    emit_call_ext_func(Dst, eval_breaker_jit_helper);
+    | test res_32b, res_32b
+    // on error we have to decref 'res' (which is now in 'tmp_preserved_reg')
+    | jnz ->error_decref_tmp_preserved_reg
+    // no error, restore 'res' and continue executing
+    | mov res, tmp_preserved_reg
+    | jmp ->handle_signal_jump_to_inst
+
+    |->handle_signal_res_not_in_use:
     emit_call_ext_func(Dst, eval_breaker_jit_helper);
     emit_if_res_32b_not_0_error(Dst);
-    | mov res, preserved_reg
-    emit_jmp_to_lasti(Dst, 1 /* skip signal and eval_breaker check*/);
+    // fall through
+
+    |->handle_signal_jump_to_inst:
+    | mov Rd(arg1_idx), [f + offsetof(PyFrameObject, f_lasti)]
+    emit_mov_inst_addr(Dst, tmp_idx, arg1_idx);
+    // tmp points now to the beginning of the bytecode implementation
+    // but we want to skip the signal check.
+    // We can't just directly jump after the signal check beause the jne instruction is variable size
+    // so instead jump before the conditional jump and set the flags so that we don't jump
+    // size of 'mov dword [lasti + offsetof(PyFrameObject, f_lasti)], inst_idx*2' = 8byte
+    //       + 'cmp qword [interrupt], 0' = 4byte (64bit cmp)
+    // Not that we are in the handle_signal label which can only be reached if we generated
+    // the code mentioned above.
+    | add tmp, 8 + 4
+    | cmp tmp, tmp // dummy to set the flags for 'jne ...' to fail
+    | jmp tmp
 
     |->handle_tracing_or_signal_no_deferred_stack:
+    // compares ceval->tracing_possible == 0 (32bit)
     | cmp dword [interrupt], 0
-    | je ->handle_signal
+    // there is no deferred stack so we don't have to jump to handle_signal_res_in_use
+    | je ->handle_signal_res_not_in_use
     | jmp ->deopt_return
 
     |->handle_tracing_or_signal_no_deferred_stack_new_line:
+    // compares ceval->tracing_possible == 0 (32bit)
     | cmp dword [interrupt], 0
-    | je ->handle_signal
+    // there is no deferred stack so we don't have to jump to handle_signal_res_in_use
+    | je ->handle_signal_res_not_in_use
     // falltrough
 
     |->deopt_return_new_line:
-    emit_mov_imm(Dst, res_idx, 1 << 3 /* this means first trace check for this line */ | 3 /*= deopt */);
+    emit_mov_imm(Dst, res_idx, (1 << 2) /* this means first trace check for this line */ | 3 /*= deopt */);
     | jmp ->return
 
     |->deopt_return:
     emit_mov_imm(Dst, res_idx, 3 /*= deopt */);
     | jmp ->return
 
-    |->deref_error: // assumes that oparg is in arg3!
-    | mov arg1, tstate
-    emit_mov_imm(Dst, arg2_idx, (unsigned long)co);
-    emit_call_ext_func(Dst, format_exc_unbound);
+    |->error_decref_tmp_preserved_reg:
+    emit_decref(Dst, tmp_preserved_reg_idx, 0 /*= don't preserve res */);
     | jmp ->error
 
     // we come here if the result of LOAD_FAST or DELETE_FAST is null
@@ -2682,7 +2763,7 @@ skip_sig_trace_check:
 
     |->error:
     // we have to decref all python object stored in the deferred stack array
-    | mov arg1, preserved_reg2
+    | mov arg1, vs_preserved_reg
     emit_xdecref_arg1(Dst);
     for (int i=0; i<Dst->num_deferred_stack_slots; ++i) {
         | mov arg1, [rsp + (NUM_MANUAL_STACK_SLOTS + i) * 8]
@@ -2705,8 +2786,8 @@ skip_sig_trace_check:
     | pop vsp
     | pop tstate
     | pop f
-    | pop preserved_reg
-    | pop preserved_reg2
+    | pop tmp_preserved_reg
+    | pop vs_preserved_reg
     | ret
 
 
@@ -2716,8 +2797,8 @@ skip_sig_trace_check:
     |.align 16
     |->entry:
     // callee saves
-    | push preserved_reg2
-    | push preserved_reg
+    | push vs_preserved_reg
+    | push tmp_preserved_reg
     | push f
     | push tstate
     | push vsp
@@ -2732,7 +2813,7 @@ skip_sig_trace_check:
     // allocate stack variables
     | sub rsp, num_stack_slots*8
 
-    // We store the address of _PyRuntime.ceval.tracing_possible and eval_break inside a register
+    // We store the address of _PyRuntime.ceval.tracing_possible and eval_breaker inside a register
     // this makes it possible to compare this two 4 byte variables at the same time to 0
     // via one 4 byte long (machine code size) 'cmp qword [interrupt], 0' instruction
     // (using the address as immediate instead of the reg would require 8/9bytes)
@@ -2747,13 +2828,13 @@ skip_sig_trace_check:
 
     // clear deferred stack space (skip manual stack slots because they don't need to be zero)
     // we clear it so in case of error we can just decref this space
-    emit_mov_imm(Dst, preserved_reg2_idx, 0);
+    emit_mov_imm(Dst, vs_preserved_reg_idx, 0);
     for (int i=0; i<Dst->num_deferred_stack_slots; ++i) {
         | mov qword [rsp + (NUM_MANUAL_STACK_SLOTS + i) * 8], 0
     }
 
     // jumps either to first opcode implementation or resumes a generator
-    emit_jmp_to_lasti(Dst, 0 /* don't skip signal and eval_breaker check */);
+    emit_jmp_to_lasti(Dst);
 
 
     ////////////////////////////////
@@ -2763,11 +2844,27 @@ skip_sig_trace_check:
     // used e.g. for continuing generators
     switch_section(Dst, SECTION_OPCODE_ADDR);
     |->opcode_addr_begin:
-    for (int inst_idx=0; inst_idx<num_opcodes; ++inst_idx) {
+    for (int inst_idx=0; inst_idx < Dst->num_opcodes; ++inst_idx) {
         // emit 4byte address to start of implementation of instruction with index 'inst_idx'
         // - this is fine our addresses are only 4 byte long not 8
         |.aword =>inst_idx
     }
+
+
+#if JIT_DEBUG
+    |->is_jmp_target:
+    for (int i=0; i<Dst->num_opcodes; ++i) {
+        |.byte jit.is_jmp_target[i]
+    }
+#endif
+
+#ifdef DASM_CHECKS
+    int dasm_err = dasm_checkstep(Dst, -1);
+    if (dasm_err) {
+        fprintf(stderr, "dynasm returned error %d", dasm_err);
+        JIT_ASSERT(0, "");
+    }
+#endif
 
     size_t size;
     dasm_link(Dst, &size);
@@ -2834,27 +2931,30 @@ skip_sig_trace_check:
 
         // write addr and opcode info into a file which tools/perf_jit.py uses
         // to annotate the 'perf report' output
-        for (int inst_idx = 0; inst_idx<num_opcodes; ++inst_idx) {
-            _Py_CODEUNIT word = first_instr[inst_idx];
+        for (int inst_idx = 0; inst_idx < Dst->num_opcodes; ++inst_idx) {
+            _Py_CODEUNIT word = Dst->first_instr[inst_idx];
             int opcode = _Py_OPCODE(word);
             int oparg = _Py_OPARG(word);
             void* addr = (void*)(unsigned long)opcode_addr_begin[inst_idx];
-            const char* jmp_dst = is_jmp_target[inst_idx] ? "->" : "  ";
+            const char* jmp_dst = Dst->is_jmp_target[inst_idx] ? "->" : "  ";
             fprintf(perf_map_opcode_map, "%p,%s %4d %-30s %d\n",
                     addr, jmp_dst, inst_idx*2, get_opcode_name(opcode), oparg);
         }
     }
 
     dasm_free(Dst);
-    free(is_jmp_target);
-    is_jmp_target = NULL;
-    free(known_defined);
-    known_defined = NULL;
+    free(Dst->is_jmp_target);
+    Dst->is_jmp_target = NULL;
+    free(Dst->known_defined);
+    Dst->known_defined = NULL;
+
+    ++jit_num_funcs;
 
     return labels[lbl_entry];
 }
 
 void show_jit_stats() {
+    fprintf(stderr, "jit: compiled %d functions\n", jit_num_funcs);
     fprintf(stderr, "jit: %ld bytes used (%.1f%% of allocated)\n", mem_bytes_used, 100.0 * mem_bytes_used / mem_bytes_allocated);
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_ATTR caches: %lu hits %lu misses\n", jit_stat_load_attr_inline, jit_stat_load_attr_total, jit_stat_load_attr_hit, jit_stat_load_attr_miss);
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_METHOD caches: %lu hits %lu misses\n", jit_stat_load_method_inline, jit_stat_load_method_total, jit_stat_load_method_hit, jit_stat_load_method_miss);
