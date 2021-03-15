@@ -4052,7 +4052,7 @@ fail:
 
 #if PYSTON_SPEEDUPS
 /* static */ void _Py_HOT_FUNCTION
-frame_dealloc(PyFrameObject *f);
+frame_dealloc_notrashcan(PyFrameObject *f);
 #endif
 
 /* This is gonna seem *real weird*, but if you put some other code between
@@ -4332,7 +4332,7 @@ fail: /* Jump here from prelude on failure */
 #if PYSTON_SPEEDUPS
         Py_REFCNT(f) = 0;
         assert(Py_TYPE(f) == &PyFrame_Type);
-        frame_dealloc(f);
+        frame_dealloc_notrashcan(f);
 #else
         Py_DECREF(f);
 #endif
