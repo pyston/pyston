@@ -99,6 +99,7 @@ PyAPI_FUNC(int) _Py_CheckRecursiveCall(const char *where);
    the stable ABI.  It should be removed therefrom when possible.
 */
 PyAPI_DATA(int) _Py_CheckRecursionLimit;
+PyAPI_DATA(int) _Py_RecursionLimitLowerWaterMark_Precomputed;
 
 #ifdef USE_STACKCHECK
 /* With USE_STACKCHECK, trigger stack checks in _Py_CheckRecursiveCall()
@@ -120,7 +121,7 @@ PyAPI_DATA(int) _Py_CheckRecursionLimit;
         : (3 * ((limit) >> 2)))
 
 #define _Py_MakeEndRecCheck(x) \
-    (--(x) < _Py_RecursionLimitLowerWaterMark(_Py_CheckRecursionLimit))
+    (--(x) < _Py_RecursionLimitLowerWaterMark_Precomputed)
 
 #define Py_ALLOW_RECURSION \
   do { unsigned char _old = PyThreadState_GET()->recursion_critical;\
