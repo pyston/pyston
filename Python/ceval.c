@@ -4051,7 +4051,7 @@ fail:
 }
 
 /* static */ void _Py_HOT_FUNCTION
-frame_dealloc(PyFrameObject *f);
+frame_dealloc_notrashcan(PyFrameObject *f);
 
 /* This is gonna seem *real weird*, but if you put some other code between
    PyEval_EvalFrame() and _PyEval_EvalFrameDefault() you will need to adjust
@@ -4329,7 +4329,7 @@ fail: /* Jump here from prelude on failure */
         ++tstate->recursion_depth;
         Py_REFCNT(f) = 0;
         assert(Py_TYPE(f) == &PyFrame_Type);
-        frame_dealloc(f);
+        frame_dealloc_notrashcan(f);
         --tstate->recursion_depth;
     }
     return retval;

@@ -428,7 +428,8 @@ frame_dealloc_notrashcan(PyFrameObject *f)
     if (_PyObject_GC_IS_TRACKED(f))
         _PyObject_GC_UNTRACK(f);
 
-    Py_TRASHCAN_SAFE_BEGIN(f)
+    //Py_TRASHCAN_SAFE_BEGIN(f)
+
     /* Kill all local variables */
     valuestack = f->f_valuestack;
     for (p = f->f_localsplus; p < valuestack; p++)
@@ -459,6 +460,16 @@ frame_dealloc_notrashcan(PyFrameObject *f)
         PyObject_GC_Del(f);
 
     Py_DECREF(co);
+    //Py_TRASHCAN_SAFE_END(f)
+}
+
+/* static */ void _Py_HOT_FUNCTION
+frame_dealloc(PyFrameObject *f)
+{
+    Py_TRASHCAN_SAFE_BEGIN(f)
+
+    frame_dealloc_notrashcan(f);
+
     Py_TRASHCAN_SAFE_END(f)
 }
 
