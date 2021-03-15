@@ -4050,6 +4050,9 @@ fail:
 
 }
 
+/* static */ void _Py_HOT_FUNCTION
+frame_dealloc(PyFrameObject *f);
+
 /* This is gonna seem *real weird*, but if you put some other code between
    PyEval_EvalFrame() and _PyEval_EvalFrameDefault() you will need to adjust
    the test in the if statements in Misc/gdbinit (pystack and pystackv). */
@@ -4324,7 +4327,9 @@ fail: /* Jump here from prelude on failure */
     }
     else {
         ++tstate->recursion_depth;
-        Py_DECREF(f);
+        Py_REFCNT(f) = 0;
+        assert(Py_TYPE(f) == &PyFrame_Type);
+        frame_dealloc(f);
         --tstate->recursion_depth;
     }
     return retval;

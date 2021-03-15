@@ -420,7 +420,7 @@ frame_settrace(PyFrameObject *f, PyObject* v, void *closure)
 #define PyFrame_MAXFREELIST 200
 
 /* static */ void _Py_HOT_FUNCTION
-frame_dealloc(PyFrameObject *f)
+frame_dealloc_notrashcan(PyFrameObject *f)
 {
     PyObject **p, **valuestack;
     PyCodeObject *co;
