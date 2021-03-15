@@ -4443,12 +4443,17 @@ continue_jit:
         JitRetVal ret = aot_extra->jit_code(f, tstate, stack_pointer);
         stack_pointer = ret.stack_pointer;
         int lower_bits = ret.ret_val & 3;
-        if (lower_bits == 1)
+        if (lower_bits == 0) {
+            retval = (PyObject*)ret.ret_val;
+            if (retval)
+                goto exit_returning;
+            goto error;
+        } else if (lower_bits == 1)
             goto exception_unwind;
         else if (lower_bits == 2) {
             retval = (PyObject*)(ret.ret_val & ~3);
             goto exit_yielding;
-        } else if (lower_bits == 3) {
+        } else { // lower_bits == 3
             // this is a deopt
 
             // we have to adjust back the last bytecode because the interpreter
@@ -4461,10 +4466,6 @@ continue_jit:
             int jit_first_trace_for_line = (PyObject*)(ret.ret_val & ~3) ? 1 : 0;
             return _PyEval_EvalFrame_AOT_Interpreter(f, 0 /* throwflag */, tstate, stack_pointer, aot_extra, 0 /*= can't use jit */, jit_first_trace_for_line);
         }
-        retval = (PyObject*)ret.ret_val;
-        if (retval)
-            goto exit_returning;
-        goto error;
     }
 
 error:
