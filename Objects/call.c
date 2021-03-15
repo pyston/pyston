@@ -251,6 +251,10 @@ PyObject_Call(PyObject *callable, PyObject *args, PyObject *kwargs)
     }
 }
 
+#if PYSTON_SPEEDUPS
+/* static */ void _Py_HOT_FUNCTION
+frame_dealloc(PyFrameObject *f);
+#endif
 
 /* --- PyFunction call functions ---------------------------------- */
 
@@ -289,7 +293,13 @@ function_code_fastcall(PyCodeObject *co, PyObject *const *args, Py_ssize_t nargs
     }
     else {
         ++tstate->recursion_depth;
+#if PYSTON_SPEEDUPS
+        Py_REFCNT(f) = 0;
+        assert(Py_TYPE(f) == &PyFrame_Type);
+        frame_dealloc(f);
+#else
         Py_DECREF(f);
+#endif
         --tstate->recursion_depth;
     }
     return result;
