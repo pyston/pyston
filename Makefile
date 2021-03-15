@@ -317,10 +317,10 @@ perf_%_unopt: %.py $(UNOPT_BENCH_ENV)
 perf_%_optnobolt: %.py $(OPTNOBOLT_BENCH_ENV)
 	JIT_PERF_MAP=1 perf record -g ./pyston/build/optnobolt_env/bin/python3 $< $(ARGS)
 	$(MAKE) perf_report
-perf_%_opt: %.py $(OPT_BENCH_ENV)
+perf_% perf_%_opt: %.py $(OPT_BENCH_ENV)
 	JIT_PERF_MAP=1 perf record -g ./pyston/build/opt_env/bin/python3 $< $(ARGS)
 	$(MAKE) perf_report
-perf_% perf_%_stock: %.py $(STOCK_BENCH_ENV)
+perf_%_stock: %.py $(STOCK_BENCH_ENV)
 	JIT_PERF_MAP=1 perf record -g ./pyston/build/stock_env/bin/python3 $< $(ARGS)
 	$(MAKE) perf_report
 perf_%_stockunopt: %.py $(STOCKUNOPT_BENCH_ENV)
