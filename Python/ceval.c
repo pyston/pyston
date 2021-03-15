@@ -646,12 +646,14 @@ Py_MakePendingCalls(void)
 #endif
 
 int _Py_CheckRecursionLimit = Py_DEFAULT_RECURSION_LIMIT;
+int _Py_RecursionLimitLowerWaterMark_Precomputed = _Py_RecursionLimitLowerWaterMark(Py_DEFAULT_RECURSION_LIMIT);
 
 void
 _PyEval_Initialize(struct _ceval_runtime_state *state)
 {
     state->recursion_limit = Py_DEFAULT_RECURSION_LIMIT;
     _Py_CheckRecursionLimit = Py_DEFAULT_RECURSION_LIMIT;
+    _Py_RecursionLimitLowerWaterMark_Precomputed = _Py_RecursionLimitLowerWaterMark(Py_DEFAULT_RECURSION_LIMIT);
     _gil_initialize(&state->gil);
 }
 
@@ -667,6 +669,7 @@ Py_SetRecursionLimit(int new_limit)
     struct _ceval_runtime_state *ceval = &_PyRuntime.ceval;
     ceval->recursion_limit = new_limit;
     _Py_CheckRecursionLimit = ceval->recursion_limit;
+    _Py_RecursionLimitLowerWaterMark_Precomputed = _Py_RecursionLimitLowerWaterMark(ceval->recursion_limit);
 }
 
 /* the macro Py_EnterRecursiveCall() only calls _Py_CheckRecursiveCall()
@@ -690,6 +693,7 @@ _Py_CheckRecursiveCall(const char *where)
     }
     /* Needed for ABI backwards-compatibility (see bpo-31857) */
     _Py_CheckRecursionLimit = recursion_limit;
+    _Py_RecursionLimitLowerWaterMark_Precomputed = _Py_RecursionLimitLowerWaterMark(ceval->recursion_limit);
 #endif
     if (tstate->recursion_critical)
         /* Somebody asked that we don't check for recursion. */
