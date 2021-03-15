@@ -436,7 +436,8 @@ frame_dealloc(PyFrameObject *f)
 
     /* Free stack */
     if (f->f_stacktop != NULL) {
-        for (p = valuestack; p < f->f_stacktop; p++)
+        PyObject** stacktop = f->f_stacktop;
+        for (p = valuestack; p < stacktop; p++)
             Py_XDECREF(*p);
     }
 
