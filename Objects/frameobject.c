@@ -466,10 +466,44 @@ frame_dealloc_notrashcan(PyFrameObject *f)
 /* static */ void _Py_HOT_FUNCTION
 frame_dealloc(PyFrameObject *f)
 {
+    PyObject **p, **valuestack;
+    PyCodeObject *co;
+
+    if (_PyObject_GC_IS_TRACKED(f))
+        _PyObject_GC_UNTRACK(f);
+
     Py_TRASHCAN_SAFE_BEGIN(f)
 
-    frame_dealloc_notrashcan(f);
+    /* Kill all local variables */
+    valuestack = f->f_valuestack;
+    for (p = f->f_localsplus; p < valuestack; p++)
+        Py_CLEAR(*p);
 
+    /* Free stack */
+    if (f->f_stacktop != NULL) {
+        PyObject** stacktop = f->f_stacktop;
+        for (p = valuestack; p < stacktop; p++)
+            Py_XDECREF(*p);
+    }
+
+    Py_XDECREF(f->f_back);
+    Py_DECREF(f->f_builtins);
+    Py_DECREF(f->f_globals);
+    Py_CLEAR(f->f_locals);
+    Py_CLEAR(f->f_trace);
+
+    co = f->f_code;
+    if (co->co_zombieframe == NULL)
+        co->co_zombieframe = f;
+    else if (numfree < PyFrame_MAXFREELIST) {
+        ++numfree;
+        f->f_back = free_list;
+        free_list = f;
+    }
+    else
+        PyObject_GC_Del(f);
+
+    Py_DECREF(co);
     Py_TRASHCAN_SAFE_END(f)
 }
 
