@@ -947,7 +947,7 @@ pyinit_main(_PyRuntimeState *runtime, PyInterpreterState *interp)
     }
 
 #ifdef ENABLE_AOT
-    PyInit_aot_ceval();
+    //PyInit_aot_ceval();
 #endif
 
     PyStatus status = init_importlib_external(interp);
@@ -1248,7 +1248,7 @@ Py_FinalizeEx(void)
     _PyEval_Fini();
 
 #ifdef ENABLE_AOT
-    aot_exit();
+    //aot_exit();
 #endif
 
     /* Flush sys.stdout and sys.stderr (again, in case more was printed) */

@@ -295,6 +295,47 @@ function_code_fastcall(PyCodeObject *co, PyObject *const *args, Py_ssize_t nargs
     return result;
 }
 
+static int initialized = 0;
+
+static long total = 0;
+static long fast_case1 = 0;
+static long fast_case2 = 0;
+
+static long kwonlyargcount = 0;
+static long kwargs = 0;
+static long flags = 0;
+static long argdefs_notall = 0;
+static long argdefs_all = 0;
+static long noargdefs_notall = 0;
+static long other_miss = 0;
+
+static long flags_varargs = 0;
+static long flags_varkeywords = 0;
+static long flags_nested = 0;
+static long flags_nestedonly = 0;
+static long flags_generator = 0;
+static long flags_coroutine = 0;
+static long flags_free = 0;
+
+
+static void showStats() {
+    printf("%ld total\n", total);
+    printf("%.1f case 1\n", 100.0 * fast_case1 / total);
+    printf("%.1f case 2\n", 100.0 * fast_case2 / total);
+    printf("%.1f kwonlyargcount\n", 100.0 * kwonlyargcount / total);
+    printf("%.1f kwargs\n", 100.0 * kwargs / total);
+    printf("%.1f flags\n", 100.0 * flags / total);
+    printf(" %.1f varargs\n", 100.0 * flags_varargs / total);
+    printf(" %.1f varkeywords\n", 100.0 * flags_varkeywords / total);
+    printf(" %.1f nested (%.1f only)\n", 100.0 * flags_nested / total, 100.0 * flags_nestedonly / total);
+    printf(" %.1f generator\n", 100.0 * flags_generator / total);
+    printf(" %.1f coroutine\n", 100.0 * flags_coroutine / total);
+    printf(" %.1f free\n", 100.0 * flags_free / total);
+    printf("%.1f argdefs_notall\n", 100.0 * argdefs_notall / total);
+    printf("%.1f argdefs_all\n", 100.0 * argdefs_all / total);
+    printf("%.1f noargdefs_notall\n", 100.0 * noargdefs_notall / total);
+    printf("%.1f other_miss\n", 100.0 * other_miss / total);
+}
 
 PyObject *
 _PyFunction_FastCallDict(PyObject *func, PyObject *const *args, Py_ssize_t nargs,
@@ -309,10 +350,46 @@ _PyFunction_FastCallDict(PyObject *func, PyObject *const *args, Py_ssize_t nargs
     Py_ssize_t nd, nk;
     PyObject *result;
 
+    //if (!initialized) {
+        //atexit(showStats);
+        //initialized = 1;
+    //}
+
     assert(func != NULL);
     assert(nargs >= 0);
     assert(nargs == 0 || args != NULL);
     assert(kwargs == NULL || PyDict_Check(kwargs));
+
+#if 0
+    total++;
+    if (co->co_kwonlyargcount != 0)
+        kwonlyargcount++;
+    else if (kwargs != NULL && PyDict_GET_SIZE(kwargs) != 0)
+        kwargs++;
+    else if ((co->co_flags & ~PyCF_MASK) != (CO_OPTIMIZED | CO_NEWLOCALS | CO_NOFREE)) {
+        flags++;
+        if (co->co_flags & CO_VARARGS)
+            flags_varargs++;
+        if (co->co_flags & CO_VARKEYWORDS)
+            flags_varkeywords++;
+        if (co->co_flags & CO_NESTED)
+            flags_nested++;
+        if (co->co_flags & CO_GENERATOR)
+            flags_generator++;
+        if (co->co_flags & CO_COROUTINE)
+            flags_coroutine++;
+    }
+    else if (argdefs != NULL) {
+        if (co->co_argcount == nargs)
+            argdefs_all++;
+        else
+            argdefs_notall++;
+    }
+    else if (co->co_argcount != nargs)
+        noargdefs_notall++;
+    else if (!(nargs == 0 && argdefs != NULL && co->co_argcount == PyTuple_GET_SIZE(argdefs)))
+        other_miss++;
+#endif
 
     if (co->co_kwonlyargcount == 0 &&
         (kwargs == NULL || PyDict_GET_SIZE(kwargs) == 0) &&
@@ -320,10 +397,12 @@ _PyFunction_FastCallDict(PyObject *func, PyObject *const *args, Py_ssize_t nargs
     {
         /* Fast paths */
         if (argdefs == NULL && co->co_argcount == nargs) {
+            //fast_case1++;
             return function_code_fastcall(co, args, nargs, globals);
         }
         else if (nargs == 0 && argdefs != NULL
                  && co->co_argcount == PyTuple_GET_SIZE(argdefs)) {
+            //fast_case2++;
             /* function called with no arguments, but all parameters have
                a default value: use default values as arguments .*/
             args = _PyTuple_ITEMS(argdefs);
@@ -396,6 +475,11 @@ _PyFunction_Vectorcall(PyObject *func, PyObject* const* stack,
     Py_ssize_t nkwargs = (kwnames == NULL) ? 0 : PyTuple_GET_SIZE(kwnames);
     Py_ssize_t nd;
 
+    if (!initialized) {
+        atexit(showStats);
+        initialized = 1;
+    }
+
     assert(PyFunction_Check(func));
     Py_ssize_t nargs = PyVectorcall_NARGS(nargsf);
     assert(nargs >= 0);
@@ -404,14 +488,49 @@ _PyFunction_Vectorcall(PyObject *func, PyObject* const* stack,
     /* kwnames must only contains str strings, no subclass, and all keys must
        be unique */
 
+    total++;
+    if (co->co_kwonlyargcount != 0)
+        kwonlyargcount++;
+    else if (nkwargs != 0)
+        kwargs++;
+    else if ((co->co_flags & ~(PyCF_MASK | CO_NESTED)) != (CO_OPTIMIZED | CO_NEWLOCALS | CO_NOFREE)) {
+        flags++;
+        if (co->co_flags & CO_VARARGS)
+            flags_varargs++;
+        if (co->co_flags & CO_VARKEYWORDS)
+            flags_varkeywords++;
+        if (co->co_flags & CO_NESTED)
+            flags_nested++;
+        if (co->co_flags & CO_GENERATOR)
+            flags_generator++;
+        if (co->co_flags & CO_COROUTINE)
+            flags_coroutine++;
+        if (!(co->co_flags & CO_NOFREE))
+            flags_free++;
+    }
+    else if (argdefs == NULL && co->co_argcount == nargs) {
+    }
+    else if (argdefs != NULL) {
+        if (co->co_argcount == nargs)
+            argdefs_all++;
+        else
+            argdefs_notall++;
+    }
+    else if (co->co_argcount != nargs)
+        noargdefs_notall++;
+    else if (!(nargs == 0 && argdefs != NULL && co->co_argcount == PyTuple_GET_SIZE(argdefs)))
+        other_miss++;
+
     if (co->co_kwonlyargcount == 0 && nkwargs == 0 &&
-        (co->co_flags & ~PyCF_MASK) == (CO_OPTIMIZED | CO_NEWLOCALS | CO_NOFREE))
+        (co->co_flags & ~(PyCF_MASK | CO_NESTED)) == (CO_OPTIMIZED | CO_NEWLOCALS | CO_NOFREE))
     {
-        if (argdefs == NULL && co->co_argcount == nargs) {
+        if (/*argdefs == NULL &&*/ co->co_argcount == nargs) {
+            fast_case1++;
             return function_code_fastcall(co, stack, nargs, globals);
         }
         else if (nargs == 0 && argdefs != NULL
                  && co->co_argcount == PyTuple_GET_SIZE(argdefs)) {
+            fast_case2++;
             /* function called with no arguments, but all parameters have
                a default value: use default values as arguments .*/
             stack = _PyTuple_ITEMS(argdefs);
