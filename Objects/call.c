@@ -326,10 +326,18 @@ _PyFunction_FastCallDict(PyObject *func, PyObject *const *args, Py_ssize_t nargs
 
     if (co->co_kwonlyargcount == 0 &&
         (kwargs == NULL || PyDict_GET_SIZE(kwargs) == 0) &&
+#if PYSTON_SPEEDUPS
+        (co->co_flags & ~(PyCF_MASK | CO_NESTED)) == (CO_OPTIMIZED | CO_NEWLOCALS | CO_NOFREE))
+#else
         (co->co_flags & ~PyCF_MASK) == (CO_OPTIMIZED | CO_NEWLOCALS | CO_NOFREE))
+#endif
     {
         /* Fast paths */
-        if (argdefs == NULL && co->co_argcount == nargs) {
+        if (
+#if !PYSTON_SPEEDUPS
+                argdefs == NULL &&
+#endif
+                co->co_argcount == nargs) {
             return function_code_fastcall(co, args, nargs, globals);
         }
         else if (nargs == 0 && argdefs != NULL
@@ -415,9 +423,17 @@ _PyFunction_Vectorcall(PyObject *func, PyObject* const* stack,
        be unique */
 
     if (co->co_kwonlyargcount == 0 && nkwargs == 0 &&
+#if PYSTON_SPEEDUPS
+        (co->co_flags & ~(PyCF_MASK | CO_NESTED)) == (CO_OPTIMIZED | CO_NEWLOCALS | CO_NOFREE))
+#else
         (co->co_flags & ~PyCF_MASK) == (CO_OPTIMIZED | CO_NEWLOCALS | CO_NOFREE))
+#endif
     {
-        if (argdefs == NULL && co->co_argcount == nargs) {
+        if (
+#if !PYSTON_SPEEDUPS
+                argdefs == NULL &&
+#endif
+                co->co_argcount == nargs) {
             return function_code_fastcall(co, stack, nargs, globals);
         }
         else if (nargs == 0 && argdefs != NULL
