@@ -903,6 +903,7 @@ class ArgsTestCase(BaseTestCase):
             self.assertIn(line2, reflog)
 
     @unittest.skipUnless(Py_DEBUG, 'need a debug build')
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), 'pyston doesnt maintain the global refcount')
     def test_huntrleaks(self):
         # test --huntrleaks
         code = textwrap.dedent("""
