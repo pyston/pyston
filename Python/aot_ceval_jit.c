@@ -201,6 +201,9 @@ void format_exc_unbound(PyThreadState *tstate, PyCodeObject *co, int oparg);
 
 Py_ssize_t lookdict_split(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject **value_addr);
 
+PyObject* _Py_HOT_FUNCTION
+_PyEval_EvalFrame_AOT_EntryInterpreter(PyFrameObject *f, int throwflag, PyThreadState * const tstate, PyObject** stack_pointer);
+
 static int is_immortal(PyObject* obj) {
     return obj->ob_refcnt > (1L<<59);
 }
@@ -946,38 +949,30 @@ static void emit_mov_inst_addr(Jit* Dst, int r_dst, int r_inst_idx) {
     | mov Rd(r_dst), [Rq(r_inst_idx)*2 + ->opcode_addr_begin]
 }
 
-static void emit_jmp_to_inst_idx(Jit* Dst, int r_idx) {
-    JIT_ASSERT(r_idx != tmp_idx, "can't be tmp");
-
-    emit_mov_inst_addr(Dst, tmp_idx, r_idx);
-    | jmp tmp
-}
-
 #if JIT_DEBUG
 static void debug_error_not_a_jump_target(PyFrameObject* f) {
     fprintf(stderr, "ERROR: jit entry points to f->f_lasti %d which is not a jump target\n", f->f_lasti);
     JIT_ASSERT(0, "");
 }
 #endif
+static void emit_jmp_to_inst_idx(Jit* Dst, int r_idx) {
+    JIT_ASSERT(r_idx != tmp_idx, "can't be tmp");
 
-// warning this will overwrite tmp and arg1
-static void emit_jmp_to_lasti(Jit* Dst) {
-    | mov Rd(arg1_idx), [f + offsetof(PyFrameObject, f_lasti)]
-
+    // jumps either to first opcode implementation or resumes a generator
 #if JIT_DEBUG
     // generate code to check that the instruction we jump to had 'is_jmp_target' set
-    | mov tmp, arg1
+    | mov tmp, Rq(r_idx)
     | shr tmp, 1 // divide by 2, because f_lasti is offset into bytecode array and every bytecode is 2bytes
     | add tmp, ->is_jmp_target
     | cmp byte [tmp], 0
     | jne >9
     | mov arg1, f
     emit_call_ext_func(Dst, debug_error_not_a_jump_target);
-
     |9:
 #endif
 
-    emit_jmp_to_inst_idx(Dst, arg1_idx);
+    emit_mov_inst_addr(Dst, tmp_idx, r_idx);
+    | jmp tmp
 }
 
 static int get_fastlocal_offset(int fastlocal_idx) {
@@ -1809,12 +1804,20 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     Dst->old_line_number = -1;
     Dst->emitted_trace_check_for_line = 0;
 
+    // align first instruction for faster jumps
+    |.align 16
+
     // this is used for the special EXTENDED_ARG opcode
     int oldoparg = 0;
     for (int inst_idx = 0; inst_idx < Dst->num_opcodes; ++inst_idx) {
         _Py_CODEUNIT word = Dst->first_instr[inst_idx];
         int opcode = _Py_OPCODE(word);
         int oparg = _Py_OPARG(word);
+
+#if 0
+        const char* jmp_dst = Dst->is_jmp_target[inst_idx] ? "->" : "  ";
+        fprintf(stderr, "%s %4d %-30s %d\n", jmp_dst, inst_idx*2, get_opcode_name(opcode), oparg);
+#endif
 
         // this is used for the special EXTENDED_ARG opcode
         oparg |= oldoparg;
@@ -2048,7 +2051,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         case RETURN_VALUE:
             deferred_vs_pop1_owned(Dst, res_idx);
             deferred_vs_apply(Dst);
-            | jmp ->return
+            | jmp ->exit_returning
             break;
 
         case BINARY_MULTIPLY:
@@ -2658,7 +2661,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                     // res is the PyObject* returned
                     // res == 0 means error
                     // res == 1 means execute next opcode (=fallthrough)
-                    // res == 2 means goto exit_yielding
+                    // else     means goto exit_yielding res=return value (Python Object)
                     emit_if_res_0_error(Dst);
                     | cmp res, 1
                     | jne ->exit_yielding
@@ -2722,6 +2725,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             }
         }
     }
+    JIT_ASSERT(Dst->deferred_vs_next == 0, "must be empty");
 
     ////////////////////////////////
     // CALCULATE NUMBER OF STACK VARIABLES
@@ -2736,13 +2740,11 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     // EPILOG OF EMITTED CODE: jump target to different exit path
     |->epilog:
     // TODO: only emit a label if we actually generated an instruction which needs it
-    |->exception_unwind:
-    emit_mov_imm(Dst, res_idx, 1);
-    | jmp ->return
 
-    |->exit_yielding:
-    // to differentiate from a normal return we set the second lowest bit
-    | or res, 2
+    |->interp_entry:
+    // used if globals or builtins is not a dict!
+    // warnings args must have been setup!
+    emit_call_ext_func(Dst, _PyEval_EvalFrame_AOT_EntryInterpreter);
     | jmp ->return
 
     |->handle_signal_res_in_use:
@@ -2791,11 +2793,13 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     // falltrough
 
     |->deopt_return_new_line:
-    emit_mov_imm(Dst, res_idx, (1 << 2) /* this means first trace check for this line */ | 3 /*= deopt */);
+    emit_mov_imm(Dst, arg1_idx, 1 /* this means first trace check for this line */);
+    emit_call_ext_func(Dst, JIT_HELPER_DEOPT);
     | jmp ->return
 
     |->deopt_return:
-    emit_mov_imm(Dst, res_idx, 3 /*= deopt */);
+    emit_mov_imm(Dst, arg1_idx, 0);
+    emit_call_ext_func(Dst, JIT_HELPER_DEOPT);
     | jmp ->return
 
     |->error_decref_tmp_preserved_reg:
@@ -2812,18 +2816,59 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     // we have to decref all python object stored in the deferred stack array
     | mov arg1, vs_preserved_reg
     emit_xdecref_arg1(Dst);
+    emit_mov_imm(Dst, arg1_idx, 0);
     for (int i=0; i<Dst->num_deferred_stack_slots; ++i) {
         | mov arg1, [rsp + (NUM_MANUAL_STACK_SLOTS + i) * 8]
         emit_xdecref_arg1(Dst);
+        | mov qword [rsp + (NUM_MANUAL_STACK_SLOTS + i) * 8], 0
     }
+    | mov arg1, f
+    emit_call_ext_func(Dst, PyTraceBack_Here);
+    | cmp qword [tstate + offsetof(PyThreadState, c_tracefunc)], 0
+    | je >1
+    emit_call_ext_func(Dst, JIT_HELPER_TRACEFUNC);
+    |1:
+    // fallthrough to exception_unwind
 
+    |->exception_unwind:
+    | cmp dword [f + offsetof(PyFrameObject, f_iblock)], 0
+    | jle >1
+    emit_call_ext_func(Dst, JIT_HELPER_EXCEPTION_UNWIND);
+    | cmp res, 1
+    | jne >1
+    | mov Rd(arg1_idx), [f + offsetof(PyFrameObject, f_lasti)]
+    emit_jmp_to_inst_idx(Dst, arg1_idx); // continuing execution
+    |1:
     emit_mov_imm(Dst, res_idx, 0);
+#if JIT_DEBUG
+    // tstate->curexc_type must be set!
+    // verify by dereferencing tstate->curexc_type->ob_type
+    | mov tmp, [tstate + offsetof(PyThreadState, curexc_type)]
+    | mov tmp, [tmp + offsetof(PyObject, ob_type)]
+#endif
+    // fallthrough to exit_returning
+
+    |->exit_returning:
+    | cmp vsp, qword [f + offsetof(PyFrameObject, f_valuestack)]
+    | jz >2
+    | mov tmp_preserved_reg, res
+    |1:
+    emit_pop_v(Dst, arg1_idx);
+    emit_xdecref_arg1(Dst);
+    | cmp vsp, qword [f + offsetof(PyFrameObject, f_valuestack)]
+    | jnz <1
+    | mov res, tmp_preserved_reg
+    |2:
+    // fallthrough to exit_yielding
+
+    |->exit_yielding:
+    | cmp dword [tstate + offsetof(PyThreadState, use_tracing)], 0
+    | je ->return
+    | mov arg1, res
+    emit_call_ext_func(Dst, JIT_HELPER_USE_TRACING);
+    // fallthrough to return
 
     |->return:
-    // ret value one must already be set
-    // second is the value stackpointer
-    | mov res2, vsp
-
 
     // remove stack variable
     | add rsp, num_stack_slots*8
@@ -2852,13 +2897,25 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     | push interrupt
 
     // Signature:
-    // (PyFrameObject* f, PyThread* tstate, PyObject** sp){
+    // (PyFrameObject* f, int throwflag, PyThread* tstate, PyObject** sp){
     | mov f, arg1
-    | mov tstate, arg2
-    | mov vsp, arg3
+    | mov tstate, arg3
+    | mov vsp, arg4
 
     // allocate stack variables
     | sub rsp, num_stack_slots*8
+
+    // The jit assumes that globals and builtins are dicts so that it doesn't have to check them.
+    // It looks like they are not changeable for a given frame, so we only have to check once
+    // at the beginning, but they're not fixed for a code object so we can't just check at jit time.
+    // PyDict_CheckExact(f->f_globals)
+    | mov tmp, qword [f + offsetof(PyFrameObject, f_globals)]
+    | cmp qword [tmp + offsetof(PyObject, ob_type)], (unsigned long)&PyDict_Type
+    | jne ->interp_entry
+    // PyDict_CheckExact(f->f_builtins)
+    | mov tmp, qword [f + offsetof(PyFrameObject, f_builtins)]
+    | cmp qword [tmp + offsetof(PyObject, ob_type)], (unsigned long)&PyDict_Type
+    | jne ->interp_entry
 
     // We store the address of _PyRuntime.ceval.tracing_possible and eval_breaker inside a register
     // this makes it possible to compare this two 4 byte variables at the same time to 0
@@ -2880,8 +2937,22 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         | mov qword [rsp + (NUM_MANUAL_STACK_SLOTS + i) * 8], 0
     }
 
+    // if (throwflag) /* support for generator.throw() */
+    //     goto error;
+    | test Rd(arg2_idx), Rd(arg2_idx)
+    | jne ->error
+
+    | mov Rd(arg1_idx), [f + offsetof(PyFrameObject, f_lasti)]
+    // our generated code dispatches based on f_lasti so we need to adjust it
+    // if (f->f_lasti < 0)
+    | cmp Rd(arg1_idx), 0
+    | jl => 0 // jump to first opcode
+    // e.g. continuing a generator. increase by one instruction
+    //f->f_lasti += 2;
+    | add Rd(arg1_idx), 2
+
     // jumps either to first opcode implementation or resumes a generator
-    emit_jmp_to_lasti(Dst);
+    emit_jmp_to_inst_idx(Dst, arg1_idx);
 
 
     ////////////////////////////////

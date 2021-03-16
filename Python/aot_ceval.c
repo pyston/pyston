@@ -1222,12 +1222,7 @@ static void update_opcode_profile(PyObject* func_entry, const char* opcode) {
 }
 #endif
 
-typedef struct {
-    unsigned long ret_val;
-    PyObject** stack_pointer;
-} JitRetVal;
-
-typedef JitRetVal (*JitFunc)(PyFrameObject* frame, PyThreadState * const tstate, PyObject** sp);
+typedef PyObject* (*JitFunc)(PyFrameObject* frame, int throwflag, PyThreadState * const tstate, PyObject** sp);
 
 JitFunc jit_func(PyCodeObject* co, PyThreadState* tstate);
 void jit_start();
@@ -1235,12 +1230,10 @@ void jit_finish();
 static long opcache_min_runs = OPCACHE_MIN_RUNS;
 static long jit_min_runs = JIT_MIN_RUNS;
 
-#define JIT_FUNC_FAILED ((JitFunc*)0x1)
-
+__attribute__((noinline)) PyObject* _Py_HOT_FUNCTION
+_PyEval_EvalFrame_AOT_EntryInterpreter(PyFrameObject *f, int throwflag, PyThreadState * const tstate, PyObject** stack_pointer);
 static PyObject* _Py_HOT_FUNCTION
-_PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObject** stack_pointer, JitFunc jit_code);
-__attribute__((noinline)) static PyObject* _Py_HOT_FUNCTION
-_PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState * const tstate, PyObject** stack_pointer, int can_use_jit, int jit_first_trace_for_line);
+_PyEval_EvalFrame_AOT_EntryJitFailed(PyFrameObject *f, int throwflag, PyThreadState * const tstate, PyObject** stack_pointer);
 
 PyObject* _Py_HOT_FUNCTION
 _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState * const tstate, PyObject** stack_pointer, int can_use_jit, int jit_first_trace_for_line)
@@ -1620,7 +1613,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 
     co = f->f_code;
 
-    if (can_use_jit && co->co_jit_code == 0 && co->co_opcache_flag >= jit_min_runs /* jit after that many calls or gen yields */) {
+    if (can_use_jit && co->co_jit_code == _PyEval_EvalFrame_AOT_EntryInterpreter && co->co_opcache_flag >= jit_min_runs /* jit after that many calls or gen yields */) {
         // JIT assumes opcache is always on
         if (co->co_opcache_map == NULL) {
             _PyCode_InitOpcache(co);
@@ -1639,10 +1632,10 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
         co->co_jit_code = jit_func(co, tstate);
 #endif
         if (co->co_jit_code) {
-            return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)co->co_jit_code);
+            return ((JitFunc)co->co_jit_code)(f, throwflag, tstate, stack_pointer);
         } else {
             // never try again to JIT compile this python function
-            co->co_jit_code = JIT_FUNC_FAILED;
+            co->co_jit_code = _PyEval_EvalFrame_AOT_EntryJitFailed;
             can_use_jit = 0;
         }
     }
@@ -3718,7 +3711,7 @@ la_common:
             OPCACHE_INIT_IF_HIT_THRESHOLD();
 
             // check if we should switch over to the JIT (OSR)
-            if (co->co_opcache_flag > jit_min_runs && can_use_jit && co->co_jit_code == NULL
+            if (co->co_opcache_flag > jit_min_runs && can_use_jit && co->co_jit_code == _PyEval_EvalFrame_AOT_EntryInterpreter
                 && !_Py_TracingPossible(ceval)) { // don't OSR if tracing is enabled because we seem to skip a line
                 co->co_jit_code = jit_func(co, tstate);
                 if (co->co_jit_code) {
@@ -3727,10 +3720,10 @@ la_common:
                     // update f->f_lasti manually like DISPATCH() would do because
                     // we can only enter the machine code at jump targets.
                     f->f_lasti = INSTR_OFFSET() - 2; // -2 because our JIT entry is always adding two
-                    return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)co->co_jit_code);
+                    return ((JitFunc)co->co_jit_code)(f, 0 /* throwflag*/, tstate, stack_pointer);
                 } else {
                     // never try again to JIT compile this python function
-                    co->co_jit_code = JIT_FUNC_FAILED;
+                    co->co_jit_code = _PyEval_EvalFrame_AOT_EntryJitFailed;
                     can_use_jit = 0;
                 }
             }
@@ -4443,152 +4436,17 @@ exit_yielding:
 }
 
 static PyObject* _Py_HOT_FUNCTION
-_PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObject** stack_pointer, JitFunc jit_code)
-{
-    PyObject* retval = NULL;
-
-    // our generated code dispatches based on f_lasti so we need to adjust it
-    if (f->f_lasti < 0)
-        f->f_lasti = 0;
-    else // e.g. continuing a generator. increase by one instruction
-        f->f_lasti += 2;
-
-
-continue_jit:
-    {
-        JitRetVal ret = jit_code(f, tstate, stack_pointer);
-        stack_pointer = ret.stack_pointer;
-        int lower_bits = ret.ret_val & 3;
-        if (lower_bits == 0) {
-            retval = (PyObject*)ret.ret_val;
-            if (retval)
-                goto exit_returning;
-            goto error;
-        } else if (lower_bits == 1)
-            goto exception_unwind;
-        else if (lower_bits == 2) {
-            retval = (PyObject*)(ret.ret_val & ~3);
-            goto exit_yielding;
-        } else { // lower_bits == 3
-            // this is a deopt
-
-            // we have to adjust back the last bytecode because the interpreter
-            // will start at the next bytecode after f_lasti (so would skip one)
-            if (f->f_lasti == 0)
-                f->f_lasti = -1; // special case: we deopted on the first opcode, set it to -1 which is the func entry
-            else
-                f->f_lasti -= 2; // normal case: decrement one opcode
-
-            int jit_first_trace_for_line = (PyObject*)(ret.ret_val & ~3) ? 1 : 0;
-            return _PyEval_EvalFrame_AOT_Interpreter(f, 0 /* throwflag */, tstate, stack_pointer, 0 /*= can't use jit */, jit_first_trace_for_line);
-        }
-    }
-
-error:
-    /* Double-check exception status. */
-#ifdef NDEBUG
-    if (!_PyErr_Occurred(tstate)) {
-        _PyErr_SetString(tstate, PyExc_SystemError,
-                            "error return without exception set");
-    }
-#else
-    assert(_PyErr_Occurred(tstate));
-#endif
-
-    /* Log traceback info. */
-    PyTraceBack_Here(f);
-
-    if (tstate->c_tracefunc != NULL)
-        call_exc_trace(tstate->c_tracefunc, tstate->c_traceobj,
-                        tstate, f);
-
-exception_unwind:
-    /* Unwind stacks if an exception occurred */
-    while (f->f_iblock > 0) {
-        /* Pop the current block. */
-        PyTryBlock *b = &f->f_blockstack[--f->f_iblock];
-
-        if (b->b_type == EXCEPT_HANDLER) {
-            UNWIND_EXCEPT_HANDLER(b);
-            continue;
-        }
-        UNWIND_BLOCK(b);
-        if (b->b_type == SETUP_FINALLY) {
-            PyObject *exc, *val, *tb;
-            int handler = b->b_handler;
-            _PyErr_StackItem *exc_info = tstate->exc_info;
-            /* Beware, this invalidates all b->b_* fields */
-            PyFrame_BlockSetup(f, EXCEPT_HANDLER, -1, STACK_LEVEL());
-            PUSH(exc_info->exc_traceback);
-            PUSH(exc_info->exc_value);
-            if (exc_info->exc_type != NULL) {
-                PUSH(exc_info->exc_type);
-            }
-            else {
-                Py_INCREF_IMMORTAL(Py_None);
-                PUSH(Py_None);
-            }
-            _PyErr_Fetch(tstate, &exc, &val, &tb);
-            /* Make the raw exception data
-                available to the handler,
-                so a program can emulate the
-                Python main loop. */
-            _PyErr_NormalizeException(tstate, &exc, &val, &tb);
-            if (tb != NULL)
-                PyException_SetTraceback(val, tb);
-            else
-                PyException_SetTraceback(val, Py_None);
-            Py_INCREF(exc);
-            exc_info->exc_type = exc;
-            Py_INCREF(val);
-            exc_info->exc_value = val;
-            exc_info->exc_traceback = tb;
-            if (tb == NULL) {
-                tb = Py_None;
-                Py_INCREF_IMMORTAL(tb);
-            } else {
-                Py_INCREF(tb);
-            }
-            PUSH(tb);
-            PUSH(val);
-            PUSH(exc);
-
-            f->f_lasti = handler;
-            /* Resume normal execution */
-            goto continue_jit;
-        }
-    } /* unwind stack */
-
-
-
-    assert(retval == NULL);
-    assert(_PyErr_Occurred(tstate));
-
-exit_returning:
-
-    /* Pop remaining stack entries. */
-    while (!EMPTY()) {
-        PyObject *o = POP();
-        Py_XDECREF(o);
-    }
-
-exit_yielding:
-    if (tstate->use_tracing) {
-        if (tstate->c_tracefunc) {
-            if (call_trace_protected(tstate->c_tracefunc, tstate->c_traceobj,
-                                     tstate, f, PyTrace_RETURN, retval)) {
-                Py_CLEAR(retval);
-            }
-        }
-        if (tstate->c_profilefunc) {
-            if (call_trace_protected(tstate->c_profilefunc, tstate->c_profileobj,
-                                     tstate, f, PyTrace_RETURN, retval)) {
-                Py_CLEAR(retval);
-            }
-        }
-    }
-
-    return retval;
+_PyEval_EvalFrame_AOT_EntryJitFailed(PyFrameObject *f, int throwflag, PyThreadState * const tstate, PyObject** stack_pointer) {
+    return _PyEval_EvalFrame_AOT_Interpreter(f, throwflag, tstate, stack_pointer, 0 /* can't use jit*/, 0 /* jit_first_trace_for_line*/);
+}
+__attribute__((noinline)) PyObject* _Py_HOT_FUNCTION
+_PyEval_EvalFrame_AOT_EntryInterpreter(PyFrameObject *f, int throwflag, PyThreadState * const tstate, PyObject** stack_pointer) {
+    // The jit assumes that globals and builtins are dicts so that it doesn't have to check them.
+    // It looks like they are not changeable for a given frame, so we only have to check once
+    // at the beginning, but they're not fixed for a code object so we can't just check at jit time.
+    // Also don't enter the jit if the throwflag is set which skips the main code path and goes to error path.
+    int can_use_jit = PyDict_CheckExact(f->f_globals) && PyDict_CheckExact(f->f_builtins) && !throwflag;
+    return _PyEval_EvalFrame_AOT_Interpreter(f, throwflag, tstate, stack_pointer, can_use_jit, 0 /* jit_first_trace_for_line*/);
 }
 
 // Entry point when executing a python function.
@@ -4606,7 +4464,7 @@ _PyEval_EvalFrame_AOT(PyFrameObject *f, int throwflag)
 
     tstate->frame = f;
 
-    if (tstate->use_tracing) {
+    if (unlikely(tstate->use_tracing)) {
         if (tstate->c_tracefunc != NULL) {
             /* tstate->c_tracefunc, if defined, is a
                function that will be called on *every* entry
@@ -4649,20 +4507,7 @@ _PyEval_EvalFrame_AOT(PyFrameObject *f, int throwflag)
     f->f_executing = 1;
 
     JitFunc jit_code = f->f_code->co_jit_code;
-
-    // The jit assumes that globals and builtins are dicts so that it doesn't have to check them.
-    // It looks like they are not changeable for a given frame, so we only have to check once
-    // at the beginning, but they're not fixed for a code object so we can't just check at jit time.
-    // Also don't enter the jit if the throwflag is set which skips the main code path and goes to error path.
-    int can_use_jit = PyDict_CheckExact(f->f_globals) && PyDict_CheckExact(f->f_builtins) && !throwflag;
-    if (jit_code == JIT_FUNC_FAILED) {
-        can_use_jit = 0;
-    }
-    if (jit_code != NULL && can_use_jit) {
-        retval = _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, jit_code);
-    } else {
-        retval = _PyEval_EvalFrame_AOT_Interpreter(f, throwflag, tstate, stack_pointer, can_use_jit, 0);
-    }
+    retval = jit_code(f, throwflag, tstate, stack_pointer);
 
 exit_eval_frame:
     if (PyDTrace_FUNCTION_RETURN_ENABLED())
