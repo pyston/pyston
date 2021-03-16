@@ -81,9 +81,12 @@ typedef struct {
     // Caches the last lookup.
     uint64_t co_builtins_cache_ver;
     PyObject* co_builtins_cache_obj; // borrowed reference
+
+    void* co_jit_code; // if we jit compile this func this point to the entry of machine code
 #else
     uint64_t _data1;
     void* _data2;
+    void* _data3;
 #endif
 #endif
 } PyCodeObject;

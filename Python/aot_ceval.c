@@ -1214,9 +1214,6 @@ typedef struct {
 
 typedef JitRetVal (*JitFunc)(PyFrameObject* frame, PyThreadState * const tstate, PyObject** sp);
 
-typedef struct AOTExtra {
-    JitFunc jit_code;
-} AOTExtra;
 JitFunc jit_func(PyCodeObject* co, PyThreadState* tstate);
 void jit_start();
 void jit_finish();
@@ -1226,12 +1223,12 @@ static long jit_min_runs = JIT_MIN_RUNS;
 #define JIT_FUNC_FAILED ((JitFunc*)0x1)
 
 static PyObject* _Py_HOT_FUNCTION
-_PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObject** stack_pointer, AOTExtra* aot_extra);
+_PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObject** stack_pointer, JitFunc jit_code);
 __attribute__((noinline)) static PyObject* _Py_HOT_FUNCTION
-_PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState * const tstate, PyObject** stack_pointer, AOTExtra* aot_extra, int can_use_jit, int jit_first_trace_for_line);
+_PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState * const tstate, PyObject** stack_pointer, int can_use_jit, int jit_first_trace_for_line);
 
 PyObject* _Py_HOT_FUNCTION
-_PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState * const tstate, PyObject** stack_pointer, AOTExtra* aot_extra, int can_use_jit, int jit_first_trace_for_line)
+_PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState * const tstate, PyObject** stack_pointer, int can_use_jit, int jit_first_trace_for_line)
 {
 #ifdef DXPAIRS
     int lastopcode = 0;
@@ -1608,7 +1605,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 
     co = f->f_code;
 
-    if (can_use_jit && aot_extra->jit_code == 0 && co->co_opcache_flag >= jit_min_runs /* jit after that many calls or gen yields */) {
+    if (can_use_jit && co->co_jit_code == 0 && co->co_opcache_flag >= jit_min_runs /* jit after that many calls or gen yields */) {
         // JIT assumes opcache is always on
         if (co->co_opcache_map == NULL) {
             _PyCode_InitOpcache(co);
@@ -1616,7 +1613,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 #if 0
         struct timespec start, end;
         clock_gettime(CLOCK_REALTIME, &start);
-        aot_extra->jit_code = jit_func(co, tstate);
+        co->co_jit_code = jit_func(co, tstate);
         clock_gettime(CLOCK_REALTIME, &end);
         long time = 1000*1000 * (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1000;
         static long totaltime = 0;
@@ -1624,13 +1621,13 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
         printf("Took %ldus to jit %s (totaltime: %ld us)\n",
                 time, PyUnicode_AsUTF8(co->co_name), totaltime);
 #else
-        aot_extra->jit_code = jit_func(co, tstate);
+        co->co_jit_code = jit_func(co, tstate);
 #endif
-        if (aot_extra->jit_code) {
-            return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, aot_extra);
+        if (co->co_jit_code) {
+            return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)co->co_jit_code);
         } else {
             // never try again to JIT compile this python function
-            aot_extra->jit_code = JIT_FUNC_FAILED;
+            co->co_jit_code = JIT_FUNC_FAILED;
             can_use_jit = 0;
         }
     }
@@ -3706,19 +3703,19 @@ la_common:
             OPCACHE_INIT_IF_HIT_THRESHOLD();
 
             // check if we should switch over to the JIT (OSR)
-            if (co->co_opcache_flag > jit_min_runs && can_use_jit && aot_extra->jit_code == NULL
+            if (co->co_opcache_flag > jit_min_runs && can_use_jit && co->co_jit_code == NULL
                 && !_Py_TracingPossible(ceval)) { // don't OSR if tracing is enabled because we seem to skip a line
-                aot_extra->jit_code = jit_func(co, tstate);
-                if (aot_extra->jit_code) {
+                co->co_jit_code = jit_func(co, tstate);
+                if (co->co_jit_code) {
                     // JUMPTO() did not update f->f_lasti
                     // (it still points to the JUMP_ABSOLUTE - not the destination of the jump)
                     // update f->f_lasti manually like DISPATCH() would do because
                     // we can only enter the machine code at jump targets.
                     f->f_lasti = INSTR_OFFSET() - 2; // -2 because our JIT entry is always adding two
-                    return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, aot_extra);
+                    return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)co->co_jit_code);
                 } else {
                     // never try again to JIT compile this python function
-                    aot_extra->jit_code = JIT_FUNC_FAILED;
+                    co->co_jit_code = JIT_FUNC_FAILED;
                     can_use_jit = 0;
                 }
             }
@@ -4431,7 +4428,7 @@ exit_yielding:
 }
 
 static PyObject* _Py_HOT_FUNCTION
-_PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObject** stack_pointer, AOTExtra* aot_extra)
+_PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObject** stack_pointer, JitFunc jit_code)
 {
     PyObject* retval = NULL;
 
@@ -4444,7 +4441,7 @@ _PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObje
 
 continue_jit:
     {
-        JitRetVal ret = aot_extra->jit_code(f, tstate, stack_pointer);
+        JitRetVal ret = jit_code(f, tstate, stack_pointer);
         stack_pointer = ret.stack_pointer;
         int lower_bits = ret.ret_val & 3;
         if (lower_bits == 0) {
@@ -4468,7 +4465,7 @@ continue_jit:
                 f->f_lasti -= 2; // normal case: decrement one opcode
 
             int jit_first_trace_for_line = (PyObject*)(ret.ret_val & ~3) ? 1 : 0;
-            return _PyEval_EvalFrame_AOT_Interpreter(f, 0 /* throwflag */, tstate, stack_pointer, aot_extra, 0 /*= can't use jit */, jit_first_trace_for_line);
+            return _PyEval_EvalFrame_AOT_Interpreter(f, 0 /* throwflag */, tstate, stack_pointer, 0 /*= can't use jit */, jit_first_trace_for_line);
         }
     }
 
@@ -4636,34 +4633,20 @@ _PyEval_EvalFrame_AOT(PyFrameObject *f, int throwflag)
     f->f_stacktop = NULL;       /* remains NULL unless yield suspends frame */
     f->f_executing = 1;
 
-    // inline _PyCode_GetExtra((PyObject*)co, 0, (void*)&aot_extra);
-    // with assumption that extra jit args are enabled because otherwise we would not
-    // have reached this function.
-    // Because this function is really hot and even small thing add up.
-    typedef struct {
-        Py_ssize_t ce_size;
-        void *ce_extras[1];
-    } _PyCodeObjectExtra;
-    AOTExtra* aot_extra;
-    _PyCodeObjectExtra *co_extra = (_PyCodeObjectExtra*)f->f_code->co_extra;
-    if (unlikely(!co_extra || (aot_extra = co_extra->ce_extras[0]) == 0)) {
-        aot_extra = malloc(sizeof(AOTExtra));
-        memset(aot_extra, 0, sizeof(AOTExtra));
-        _PyCode_SetExtra((PyObject*)f->f_code, 0, aot_extra);
-    }
+    JitFunc jit_code = f->f_code->co_jit_code;
 
     // The jit assumes that globals and builtins are dicts so that it doesn't have to check them.
     // It looks like they are not changeable for a given frame, so we only have to check once
     // at the beginning, but they're not fixed for a code object so we can't just check at jit time.
     // Also don't enter the jit if the throwflag is set which skips the main code path and goes to error path.
     int can_use_jit = PyDict_CheckExact(f->f_globals) && PyDict_CheckExact(f->f_builtins) && !throwflag;
-    if (aot_extra->jit_code == JIT_FUNC_FAILED) {
+    if (jit_code == JIT_FUNC_FAILED) {
         can_use_jit = 0;
     }
-    if (aot_extra->jit_code != NULL && can_use_jit) {
-        retval = _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, aot_extra);
+    if (jit_code != NULL && can_use_jit) {
+        retval = _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, jit_code);
     } else {
-        retval = _PyEval_EvalFrame_AOT_Interpreter(f, throwflag, tstate, stack_pointer, aot_extra, can_use_jit, 0);
+        retval = _PyEval_EvalFrame_AOT_Interpreter(f, throwflag, tstate, stack_pointer, can_use_jit, 0);
     }
 
 exit_eval_frame:
@@ -6564,13 +6547,6 @@ static struct PyModuleDef aot_cevalmodule = {
     aot_cevalMethods
 };
 
-void free_aot_extra(void* d) {
-    AOTExtra* aot_extra = (AOTExtra*)d;
-    if (!aot_extra)
-        return;
-    free(aot_extra);
-}
-
 PyMODINIT_FUNC
 PyInit_aot_ceval(void)
 {
@@ -6582,8 +6558,6 @@ PyInit_aot_ceval(void)
 
     jit_start();
 
-    int idx = _PyEval_RequestCodeExtraIndex(free_aot_extra);
-    assert(idx == 0);
     PyThreadState_Get()->interp->eval_frame = _PyEval_EvalFrame_AOT;
 
 

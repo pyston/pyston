@@ -241,6 +241,7 @@ PyCode_NewWithPosOnlyArgs(int argcount, int posonlyargcount, int kwonlyargcount,
     co->co_opcache_size = 0;
 #if PYSTON_SPEEDUPS
     co->co_builtins_cache_ver = 0;
+    co->co_jit_code = 0;
 #endif
     return co;
 }
