@@ -1074,6 +1074,7 @@ class NUL:
         pass
     writelines = write
 
+@unittest.skipIf(hasattr(sys, "pyston_version_info"), 'pyston doesnt maintain the global refcount')
 @unittest.skipUnless(hasattr(sys, "gettotalrefcount"),
                      'requires sys.gettotalrefcount()')
 class TestLeaks(unittest.TestCase):
