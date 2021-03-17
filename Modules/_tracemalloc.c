@@ -5,6 +5,7 @@
 #include "pythread.h"
 #include "osdefs.h"
 
+#if PY_DEBUGGING_FEATURES
 #include "clinic/_tracemalloc.c.h"
 /*[clinic input]
 module _tracemalloc
@@ -1768,3 +1769,16 @@ _PyTraceMalloc_GetTraceback(unsigned int domain, uintptr_t ptr)
 
     return traceback_to_pyobject(traceback, NULL);
 }
+#else //#if PY_DEBUGGING_FEATURES
+
+// Hack: it would be nice to eliminate this module entirely, but makesetup assumes that
+// every .c file in Modules will compile to a module with an init function, so just
+// provide this stub:
+PyMODINIT_FUNC
+PyInit__tracemalloc(void)
+{
+    PyErr_SetString(PyExc_ImportError,
+                    "Pyston disables tracemalloc");
+    return NULL;
+}
+#endif

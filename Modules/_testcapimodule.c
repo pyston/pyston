@@ -4590,6 +4590,7 @@ pyobject_malloc_without_gil(PyObject *self, PyObject *args)
     Py_RETURN_NONE;
 }
 
+#if PY_DEBUGGING_FEATURES
 static PyObject *
 tracemalloc_track(PyObject *self, PyObject *args)
 {
@@ -4661,6 +4662,7 @@ tracemalloc_get_traceback(PyObject *self, PyObject *args)
 
     return _PyTraceMalloc_GetTraceback(domain, (uintptr_t)ptr);
 }
+#endif
 
 static PyObject *
 dict_get_version(PyObject *self, PyObject *args)
@@ -5318,9 +5320,11 @@ static PyMethodDef TestMethods[] = {
     {"check_pyobject_forbidden_bytes_is_freed", check_pyobject_forbidden_bytes_is_freed, METH_NOARGS},
     {"check_pyobject_freed_is_freed", check_pyobject_freed_is_freed, METH_NOARGS},
     {"pyobject_malloc_without_gil", pyobject_malloc_without_gil, METH_NOARGS},
+#if PY_DEBUGGING_FEATURES
     {"tracemalloc_track", tracemalloc_track, METH_VARARGS},
     {"tracemalloc_untrack", tracemalloc_untrack, METH_VARARGS},
     {"tracemalloc_get_traceback", tracemalloc_get_traceback, METH_VARARGS},
+#endif
     {"dict_get_version", dict_get_version, METH_VARARGS},
     {"raise_SIGINT_then_send_None", raise_SIGINT_then_send_None, METH_VARARGS},
     {"pyobject_fastcall", test_pyobject_fastcall, METH_VARARGS},

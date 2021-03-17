@@ -81,10 +81,12 @@ static void* _PyObject_Realloc(void *ctx, void *ptr, size_t size);
 #endif
 
 
+#if PY_DEBUGGING_FEATURES
 /* bpo-35053: Declare tracemalloc configuration here rather than
    Modules/_tracemalloc.c because _tracemalloc can be compiled as dynamic
    library, whereas _Py_NewReference() requires it. */
 struct _PyTraceMalloc_Config _Py_tracemalloc_config = _PyTraceMalloc_Config_INIT;
+#endif
 
 
 static void *
@@ -2489,7 +2491,9 @@ _PyObject_DebugDumpAddress(const void *p)
     fputc('\n', stderr);
 
     fflush(stderr);
+#if PY_DEBUGGING_FEATURES
     _PyMem_DumpTraceback(fileno(stderr), p);
+#endif
 }
 
 

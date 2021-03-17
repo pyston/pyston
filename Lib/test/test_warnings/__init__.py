@@ -926,6 +926,7 @@ class CWarningsDisplayTests(WarningsDisplayTests, unittest.TestCase):
 class PyWarningsDisplayTests(WarningsDisplayTests, unittest.TestCase):
     module = py_warnings
 
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables tracemalloc")
     def test_tracemalloc(self):
         self.addCleanup(support.unlink, support.TESTFN)
 

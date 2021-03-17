@@ -2016,6 +2016,12 @@ list_builtin_module_names(void)
     if (list == NULL)
         return NULL;
     for (i = 0; PyImport_Inittab[i].name != NULL; i++) {
+#if !PY_DEBUGGING_FEATURES
+        // It's easier to blacklist _tracemalloc here than update Modules/makesetup
+        // to not include it in the first place
+        if (!strcmp(PyImport_Inittab[i].name, "_tracemalloc"))
+            continue;
+#endif
         PyObject *name = PyUnicode_FromString(
             PyImport_Inittab[i].name);
         if (name == NULL)
