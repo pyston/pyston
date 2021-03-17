@@ -694,6 +694,10 @@ class PyMemDebugTests(unittest.TestCase):
                  r"Enable tracemalloc to get the memory block allocation traceback\n"
                  r"\n"
                  r"Fatal Python error: bad trailing pad byte")
+        if hasattr(sys, "pyston_version_info"):
+            regex = regex.split('\\n')
+            del regex[-3:-1]
+            regex = '\\n'.join(regex)
         regex = regex.format(ptr=self.PTR_REGEX)
         regex = re.compile(regex, flags=re.DOTALL)
         self.assertRegex(out, regex)
@@ -710,6 +714,10 @@ class PyMemDebugTests(unittest.TestCase):
                  r"Enable tracemalloc to get the memory block allocation traceback\n"
                  r"\n"
                  r"Fatal Python error: bad ID: Allocated using API 'm', verified using API 'r'\n")
+        if hasattr(sys, "pyston_version_info"):
+            regex = regex.split('\\n')
+            del regex[-4:-2]
+            regex = '\\n'.join(regex)
         regex = regex.format(ptr=self.PTR_REGEX)
         self.assertRegex(out, regex)
 

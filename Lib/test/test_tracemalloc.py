@@ -1,7 +1,8 @@
 import contextlib
 import os
 import sys
-import tracemalloc
+if not hasattr(sys, "pyston_version_info"):
+    import tracemalloc
 import unittest
 from unittest.mock import patch
 from test.support.script_helper import (assert_python_ok, assert_python_failure,
@@ -84,6 +85,7 @@ def traceback_filename(filename):
     return traceback_lineno(filename, 0)
 
 
+@unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables tracemalloc")
 class TestTracemallocEnabled(unittest.TestCase):
     def setUp(self):
         if tracemalloc.is_tracing():
@@ -317,6 +319,7 @@ class TestTracemallocEnabled(unittest.TestCase):
             self.assertEqual(exitcode, 0)
 
 
+@unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables tracemalloc")
 class TestSnapshot(unittest.TestCase):
     maxDiff = 4000
 
@@ -626,6 +629,7 @@ class TestSnapshot(unittest.TestCase):
                               '    <b.py, 4>'])
 
 
+@unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables tracemalloc")
 class TestFilters(unittest.TestCase):
     maxDiff = 2048
 
@@ -837,6 +841,7 @@ class TestFilters(unittest.TestCase):
         self.assertFalse(f._match_traceback(unknown))
 
 
+@unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables tracemalloc")
 class TestCommandLine(unittest.TestCase):
     def test_env_var_disabled_by_default(self):
         # not tracing by default
@@ -929,6 +934,7 @@ class TestCommandLine(unittest.TestCase):
         assert_python_ok('-X', 'tracemalloc', '-c', code)
 
 
+@unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables tracemalloc")
 @unittest.skipIf(_testcapi is None, 'need _testcapi')
 class TestCAPI(unittest.TestCase):
     maxDiff = 80 * 20
