@@ -422,12 +422,6 @@ JIT_HELPER(POP_EXCEPT) {
     DISPATCH();
 }
 
-JIT_HELPER(POP_BLOCK) {
-    PREDICTED(POP_BLOCK);
-    PyFrame_BlockPop(f);
-    DISPATCH();
-}
-
 JIT_HELPER_WITH_OPARG(POP_FINALLY) {
     /* If oparg is 0 at the top of the stack are 1 or 6 values:
         Either:
@@ -477,14 +471,6 @@ JIT_HELPER_WITH_OPARG(POP_FINALLY) {
         PUSH(res);
     }
     DISPATCH();
-}
-
-JIT_HELPER(BEGIN_FINALLY) {
-    /* Push NULL onto the stack for using it in END_FINALLY,
-        POP_FINALLY, WITH_CLEANUP_START and WITH_CLEANUP_FINISH.
-        */
-    PUSH(NULL);
-    FAST_DISPATCH();
 }
 
 JIT_HELPER1(END_ASYNC_FOR, exc) {
@@ -767,92 +753,67 @@ JIT_HELPER_WITH_NAME(LOAD_NAME) {
 }
 
 JIT_HELPER_WITH_NAME_OPCACHE_AOT(LOAD_GLOBAL) {
+    // assumes PyDict_CheckExact(f->f_globals) && PyDict_CheckExact(f->f_builtins))
+    // otherwise we would not enter the JIT
+
     //PyObject *name;
     PyObject *v;
-    if (PyDict_CheckExact(f->f_globals)
-        && PyDict_CheckExact(f->f_builtins))
-    {
-        OPCACHE_CHECK();
-        if (co_opcache != NULL && co_opcache->optimized > 0) {
-            _PyOpcache_LoadGlobal *lg = &co_opcache->u.lg;
+    OPCACHE_CHECK();
+    if (co_opcache != NULL && co_opcache->optimized > 0) {
+        _PyOpcache_LoadGlobal *lg = &co_opcache->u.lg;
 
-            if (lg->globals_ver ==
-                    ((PyDictObject *)f->f_globals)->ma_version_tag
-                && lg->builtins_ver ==
-                    ((PyDictObject *)f->f_builtins)->ma_version_tag)
-            {
-                PyObject *ptr = lg->ptr;
-                OPCACHE_STAT_GLOBAL_HIT();
-                assert(ptr != NULL);
-                Py_INCREF(ptr);
-                //PUSH(ptr);
-                //DISPATCH();
-                return ptr;
-            }
-        }
-
-        //name = GETITEM(names, oparg);
-        // Note: unlike the interpreter, we don't do the "was this from the
-        // globals" optimization here.  The interpreter keeps track of this
-        // so that we can jit out a better inline cache, but other than that
-        // it is just slightly extra work.
-        v = _PyDict_LoadGlobal((PyDictObject *)f->f_globals,
-                                (PyDictObject *)f->f_builtins,
-                                name);
-        if (v == NULL) {
-            if (!_PyErr_OCCURRED()) {
-                /* _PyDict_LoadGlobal() returns NULL without raising
-                    * an exception if the key doesn't exist */
-                format_exc_check_arg(tstate, PyExc_NameError,
-                                        NAME_ERROR_MSG, name);
-            }
-            goto_error;
-        }
-
-        if (co_opcache != NULL) {
-            _PyOpcache_LoadGlobal *lg = &co_opcache->u.lg;
-
-            if (co_opcache->optimized == 0) {
-                /* Wasn't optimized before. */
-                OPCACHE_STAT_GLOBAL_OPT();
-            } else {
-                OPCACHE_STAT_GLOBAL_MISS();
-            }
-
-            co_opcache->optimized = 1;
-            lg->globals_ver =
-                ((PyDictObject *)f->f_globals)->ma_version_tag;
-            lg->builtins_ver =
-                ((PyDictObject *)f->f_builtins)->ma_version_tag;
-            lg->ptr = v; /* borrowed */
-        }
-
-        Py_INCREF(v);
-    }
-    else {
-        /* Slow-path if globals or builtins is not a dict */
-
-        /* namespace 1: globals */
-        //name = GETITEM(names, oparg);
-        v = PyObject_GetItem(f->f_globals, name);
-        if (v == NULL) {
-            if (!_PyErr_ExceptionMatches(tstate, PyExc_KeyError)) {
-                goto_error;
-            }
-            _PyErr_Clear(tstate);
-
-            /* namespace 2: builtins */
-            v = PyObject_GetItem(f->f_builtins, name);
-            if (v == NULL) {
-                if (_PyErr_ExceptionMatches(tstate, PyExc_KeyError)) {
-                    format_exc_check_arg(
-                                tstate, PyExc_NameError,
-                                NAME_ERROR_MSG, name);
-                }
-                goto_error;
-            }
+        if (lg->globals_ver ==
+                ((PyDictObject *)f->f_globals)->ma_version_tag
+            && lg->builtins_ver ==
+                ((PyDictObject *)f->f_builtins)->ma_version_tag)
+        {
+            PyObject *ptr = lg->ptr;
+            OPCACHE_STAT_GLOBAL_HIT();
+            assert(ptr != NULL);
+            Py_INCREF(ptr);
+            //PUSH(ptr);
+            //DISPATCH();
+            return ptr;
         }
     }
+
+    //name = GETITEM(names, oparg);
+    // Note: unlike the interpreter, we don't do the "was this from the
+    // globals" optimization here.  The interpreter keeps track of this
+    // so that we can jit out a better inline cache, but other than that
+    // it is just slightly extra work.
+    v = _PyDict_LoadGlobal((PyDictObject *)f->f_globals,
+                            (PyDictObject *)f->f_builtins,
+                            name);
+    if (v == NULL) {
+        if (!_PyErr_OCCURRED()) {
+            /* _PyDict_LoadGlobal() returns NULL without raising
+                * an exception if the key doesn't exist */
+            format_exc_check_arg(tstate, PyExc_NameError,
+                                    NAME_ERROR_MSG, name);
+        }
+        goto_error;
+    }
+
+    if (co_opcache != NULL) {
+        _PyOpcache_LoadGlobal *lg = &co_opcache->u.lg;
+
+        if (co_opcache->optimized == 0) {
+            /* Wasn't optimized before. */
+            OPCACHE_STAT_GLOBAL_OPT();
+        } else {
+            OPCACHE_STAT_GLOBAL_MISS();
+        }
+
+        co_opcache->optimized = 1;
+        lg->globals_ver =
+            ((PyDictObject *)f->f_globals)->ma_version_tag;
+        lg->builtins_ver =
+            ((PyDictObject *)f->f_builtins)->ma_version_tag;
+        lg->ptr = v; /* borrowed */
+    }
+
+    Py_INCREF(v);
     //PUSH(v);
     //DISPATCH();
     return v;
@@ -1375,17 +1336,6 @@ JIT_HELPER(FOR_ITER_SECOND_PART) {
     DISPATCH();
 }
 
-JIT_HELPER_WITH_OPARG(SETUP_FINALLY) {
-    /* NOTE: If you add any new block-setup opcodes that
-        are not try/except/finally handlers, you may need
-        to update the PyGen_NeedsFinalizing() function.
-        */
-
-    PyFrame_BlockSetup(f, SETUP_FINALLY, INSTR_OFFSET() + oparg,
-                        STACK_LEVEL());
-    DISPATCH();
-}
-
 JIT_HELPER(BEFORE_ASYNC_WITH) {
     _Py_IDENTIFIER(__aexit__);
     _Py_IDENTIFIER(__aenter__);
@@ -1407,17 +1357,6 @@ JIT_HELPER(BEFORE_ASYNC_WITH) {
     //    goto_error;
     //PUSH(res);
     //PREDICT(GET_AWAITABLE);
-    //DISPATCH();
-    return res;
-}
-
-JIT_HELPER_WITH_OPARG1(SETUP_ASYNC_WITH, res) {
-    //PyObject *res = POP();
-    /* Setup the finally block before pushing the result
-        of __aenter__ on the stack. */
-    PyFrame_BlockSetup(f, SETUP_FINALLY, INSTR_OFFSET() + oparg,
-                        STACK_LEVEL());
-    //PUSH(res);
     //DISPATCH();
     return res;
 }
