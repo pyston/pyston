@@ -4059,6 +4059,15 @@ fail:
 frame_dealloc_notrashcan(PyFrameObject *f);
 #endif
 
+#if PYSTON_SPEEDUPS
+#define INITLOCAL(i, value)      do { assert(!GETLOCAL(i)); \
+                                      GETLOCAL(i) = value; \
+                                 } while (0)
+#else
+#define INITLOCAL SETLOCAL
+#endif
+
+
 /* This is gonna seem *real weird*, but if you put some other code between
    PyEval_EvalFrame() and _PyEval_EvalFrameDefault() you will need to adjust
    the test in the if statements in Misc/gdbinit (pystack and pystackv). */
@@ -4107,7 +4116,7 @@ _PyEval_EvalCodeWithName(PyObject *_co, PyObject *globals, PyObject *locals,
         if (co->co_flags & CO_VARARGS) {
             i++;
         }
-        SETLOCAL(i, kwdict);
+        INITLOCAL(i, kwdict);
     }
     else {
         kwdict = NULL;
@@ -4123,7 +4132,7 @@ _PyEval_EvalCodeWithName(PyObject *_co, PyObject *globals, PyObject *locals,
     for (j = 0; j < n; j++) {
         x = args[j];
         Py_INCREF(x);
-        SETLOCAL(j, x);
+        INITLOCAL(j, x);
     }
 
     /* Pack other positional arguments into the *args argument */
@@ -4132,7 +4141,7 @@ _PyEval_EvalCodeWithName(PyObject *_co, PyObject *globals, PyObject *locals,
         if (u == NULL) {
             goto fail;
         }
-        SETLOCAL(total_args, u);
+        INITLOCAL(total_args, u);
     }
 
     /* Handle keyword arguments passed as two strided arrays */
@@ -4201,7 +4210,7 @@ _PyEval_EvalCodeWithName(PyObject *_co, PyObject *globals, PyObject *locals,
             goto fail;
         }
         Py_INCREF(value);
-        SETLOCAL(j, value);
+        INITLOCAL(j, value);
     }
 
     /* Check the number of positional arguments */
@@ -4231,7 +4240,7 @@ _PyEval_EvalCodeWithName(PyObject *_co, PyObject *globals, PyObject *locals,
             if (GETLOCAL(m+i) == NULL) {
                 PyObject *def = defs[i];
                 Py_INCREF(def);
-                SETLOCAL(m+i, def);
+                INITLOCAL(m+i, def);
             }
         }
     }
@@ -4248,7 +4257,7 @@ _PyEval_EvalCodeWithName(PyObject *_co, PyObject *globals, PyObject *locals,
                 PyObject *def = PyDict_GetItemWithError(kwdefs, name);
                 if (def) {
                     Py_INCREF(def);
-                    SETLOCAL(i, def);
+                    INITLOCAL(i, def);
                     continue;
                 }
                 else if (_PyErr_Occurred(tstate)) {
@@ -4273,6 +4282,7 @@ _PyEval_EvalCodeWithName(PyObject *_co, PyObject *globals, PyObject *locals,
             (arg = co->co_cell2arg[i]) != CO_CELL_NOT_AN_ARG) {
             c = PyCell_New(GETLOCAL(arg));
             /* Clear the local copy. */
+            // Pyston note: this can't be INITLOCAL
             SETLOCAL(arg, NULL);
         }
         else {
@@ -4280,7 +4290,7 @@ _PyEval_EvalCodeWithName(PyObject *_co, PyObject *globals, PyObject *locals,
         }
         if (c == NULL)
             goto fail;
-        SETLOCAL(co->co_nlocals + i, c);
+        INITLOCAL(co->co_nlocals + i, c);
     }
 
     /* Copy closure variables to free variables */
