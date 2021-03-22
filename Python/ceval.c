@@ -4274,7 +4274,12 @@ _PyEval_EvalCodeWithName(PyObject *_co, PyObject *globals, PyObject *locals,
 
     /* Allocate and initialize storage for cell vars, and copy free
        vars into frame. */
+#if PYSTON_SPEEDUPS
+    Py_ssize_t ncellvars = PyTuple_GET_SIZE(co->co_cellvars);
+    for (i = 0; i < ncellvars; ++i) {
+#else
     for (i = 0; i < PyTuple_GET_SIZE(co->co_cellvars); ++i) {
+#endif
         PyObject *c;
         Py_ssize_t arg;
         /* Possibly account for the cell variable being an argument. */
@@ -4294,7 +4299,12 @@ _PyEval_EvalCodeWithName(PyObject *_co, PyObject *globals, PyObject *locals,
     }
 
     /* Copy closure variables to free variables */
+#if PYSTON_SPEEDUPS
+    Py_ssize_t nfreevars = PyTuple_GET_SIZE(co->co_freevars);
+    for (i = 0; i < nfreevars; ++i) {
+#else
     for (i = 0; i < PyTuple_GET_SIZE(co->co_freevars); ++i) {
+#endif
         PyObject *o = PyTuple_GET_ITEM(closure, i);
         Py_INCREF(o);
         freevars[PyTuple_GET_SIZE(co->co_cellvars) + i] = o;
