@@ -22,11 +22,11 @@ set -ex
 make package
 apt-get install -y patchelf
 make pyston/build/opt_env/bin/python3
-pyston/build/opt_env/bin/python3 pyston/tools/make_portable_dir.py ../pyston_${VERSION}_amd64.deb /src/pyston_${VERSION}_${DIST}
-chown -R $(id -u):$(id -g) /src/pyston_${VERSION}_amd64.deb
-chown -R $(id -u):$(id -g) /src/pyston_${VERSION}_${DIST}
-cp -ar /src/pyston_${VERSION}_amd64.deb /host-volume/pyston_${VERSION}_${DIST}.deb
-cp -ar /src/pyston_${VERSION}_${DIST} /host-volume/pyston_${VERSION}_${DIST}
+pyston/build/opt_env/bin/python3 pyston/tools/make_portable_dir.py pyston_${VERSION}_amd64.deb pyston_${VERSION}_${DIST}
+chown -R $(id -u):$(id -g) pyston_${VERSION}_amd64.deb
+chown -R $(id -u):$(id -g) pyston_${VERSION}_${DIST}
+cp -ar pyston_${VERSION}_amd64.deb /host-volume/pyston_${VERSION}_${DIST}.deb
+cp -ar pyston_${VERSION}_${DIST} /host-volume/pyston_${VERSION}_${DIST}
 # create archive of portable dir
 cd /host-volume/pyston_${VERSION}_${DIST}
 tar -czf ../pyston_${VERSION}_${DIST}.tar.gz *
