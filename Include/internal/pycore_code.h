@@ -9,6 +9,11 @@ typedef struct {
     uint64_t builtins_ver; /* ma_version of builtin dict */
 } _PyOpcache_LoadGlobal;
 
+// This is a special value for the builtins_ver field
+// that specifies that the LOAD_GLOBAL hit came from the globals
+// and thus the builtins version doesn't matter.
+#define LOADGLOBAL_WAS_GLOBAL -1
+
 #ifndef PYSTON_CLEANUP
 #if PYSTON_SPEEDUPS
 struct PyDictKeysObject;

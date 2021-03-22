@@ -1338,9 +1338,11 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             | mov arg3, [f + offsetof(PyFrameObject, f_globals)]
             | cmp_imm_mem [arg3 + offsetof(PyDictObject, ma_version_tag)], lg->globals_ver
             | jne >1
-            | mov arg3, [f + offsetof(PyFrameObject, f_builtins)]
-            | cmp_imm_mem [arg3 + offsetof(PyDictObject, ma_version_tag)], lg->builtins_ver
-            | jne >1
+            if (lg->builtins_ver != LOADGLOBAL_WAS_GLOBAL) {
+                | mov arg3, [f + offsetof(PyFrameObject, f_builtins)]
+                | cmp_imm_mem [arg3 + offsetof(PyDictObject, ma_version_tag)], lg->builtins_ver
+                | jne >1
+            }
             emit_mov_imm(Dst, res_idx, (unsigned long)lg->ptr);
             emit_incref(Dst, res_idx);
             if (jit_stats_enabled) {

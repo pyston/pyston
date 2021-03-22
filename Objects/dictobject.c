@@ -1608,7 +1608,11 @@ _PyDict_GetItemStringWithError(PyObject *v, const char *key)
  * exist. Return the value if the key exists.
  */
 PyObject *
+#if PYSTON_SPEEDUPS
+_PyDict_LoadGlobalEx(PyDictObject *globals, PyDictObject *builtins, PyObject *key, int *out_wasglobal)
+#else
 _PyDict_LoadGlobal(PyDictObject *globals, PyDictObject *builtins, PyObject *key)
+#endif
 {
     Py_ssize_t ix;
     Py_hash_t hash;
@@ -1626,15 +1630,33 @@ _PyDict_LoadGlobal(PyDictObject *globals, PyDictObject *builtins, PyObject *key)
     ix = globals->ma_keys->dk_lookup(globals, key, hash, &value);
     if (ix == DKIX_ERROR)
         return NULL;
-    if (ix != DKIX_EMPTY && value != NULL)
+    if (ix != DKIX_EMPTY && value != NULL) {
+#if PYSTON_SPEEDUPS
+        *out_wasglobal = 1;
+#endif
         return value;
+    }
 
     /* namespace 2: builtins */
     ix = builtins->ma_keys->dk_lookup(builtins, key, hash, &value);
     if (ix < 0)
         return NULL;
+
+#if PYSTON_SPEEDUPS
+    *out_wasglobal = 0;
+#endif
+
     return value;
 }
+
+#if PYSTON_SPEEDUPS
+PyObject *
+_PyDict_LoadGlobal(PyDictObject *globals, PyDictObject *builtins, PyObject *key)
+{
+    int wasglobal;
+    return _PyDict_LoadGlobalEx(globals, builtins, key, &wasglobal);
+}
+#endif
 
 /* CAUTION: PyDict_SetItem() must guarantee that it won't resize the
  * dictionary if it's merely replacing the value for an existing key.

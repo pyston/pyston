@@ -3010,8 +3010,8 @@ sa_common:
 
                     if (lg->globals_ver ==
                             ((PyDictObject *)f->f_globals)->ma_version_tag
-                        && lg->builtins_ver ==
-                           ((PyDictObject *)f->f_builtins)->ma_version_tag)
+                        && (lg->builtins_ver == LOADGLOBAL_WAS_GLOBAL ||
+                            lg->builtins_ver == ((PyDictObject *)f->f_builtins)->ma_version_tag))
                     {
 #if OPCACHE_STATS
                         loadglobal_hits++;
@@ -3035,9 +3035,10 @@ sa_common:
 #endif
 
                 name = GETITEM(names, oparg);
-                v = _PyDict_LoadGlobal((PyDictObject *)f->f_globals,
+                int wasglobal;
+                v = _PyDict_LoadGlobalEx((PyDictObject *)f->f_globals,
                                        (PyDictObject *)f->f_builtins,
-                                       name);
+                                       name, &wasglobal);
                 if (v == NULL) {
                     if (!_PyErr_OCCURRED()) {
                         /* _PyDict_LoadGlobal() returns NULL without raising
@@ -3061,8 +3062,11 @@ sa_common:
                     co_opcache->optimized = 1;
                     lg->globals_ver =
                         ((PyDictObject *)f->f_globals)->ma_version_tag;
-                    lg->builtins_ver =
-                        ((PyDictObject *)f->f_builtins)->ma_version_tag;
+                    if (wasglobal)
+                        lg->builtins_ver = LOADGLOBAL_WAS_GLOBAL;
+                    else
+                        lg->builtins_ver =
+                            ((PyDictObject *)f->f_builtins)->ma_version_tag;
                     lg->ptr = v; /* borrowed */
                 }
 
