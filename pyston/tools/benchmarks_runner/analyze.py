@@ -68,6 +68,9 @@ def analyze(bench, normalized=False, p99=False):
         except FailedException:
             print("Failed")
             continue
+        except FileNotFoundError:
+            print("na")
+            continue
 
         window = calculateWindow(timings)
         warmup_done_idx = determineWarmup(timings, window)
@@ -173,7 +176,7 @@ if __name__ == "__main__":
         for type in "mean", "p99", "maxrss":
             t = 1.0
             for bench in averaged_benches:
-                if bench not in all_quantiles:
+                if bench not in all_quantiles or build not in all_quantiles[bench]:
                     t *= float('nan')
                 else:
                     t *= all_quantiles[bench]['system'][type] / all_quantiles[bench][build][type]

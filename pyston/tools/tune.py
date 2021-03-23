@@ -31,7 +31,7 @@ def write_to_sys_file(path, value):
 
 def tune():
     ret = subprocess.call(["sudo", PYPERF, "system", "tune"], stdout=open("/dev/null", "w"))
-    
+
     # 'pyperf system tune' will report an error on AMD systems because it can't do intel specific changes
     # but it will still execute the non intel ones.
     if IS_AMD:
@@ -40,6 +40,9 @@ def tune():
         for f in glob("/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"):
             write_to_sys_file(f, b"performance")
     else:
+        if ret != 0:
+            ret = subprocess.call(["sudo", PYPERF, "system", "tune"])
+            assert 0
         assert ret == 0
 
     if PIN_FREQ:

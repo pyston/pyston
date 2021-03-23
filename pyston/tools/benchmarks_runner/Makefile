@@ -6,7 +6,7 @@
 
 .DEFAULT_GOAL:=analyze
 
-# .NOTPARALLEL:
+.NOTPARALLEL:
 
 results:
 	mkdir -p $@
@@ -24,9 +24,9 @@ ENV_DIR:=../../build/
 #    if len(errors) > 0:
 #        raise errors[-1]
 results/pypybench-%.json: | $(ENV_DIR)%_env/bin/python pypy-benchmarks results
-	PYTHONPATH=../tester:$(PYTHONPATH) python3 -c "import tune; tune.tune()"
+	PYTHONPATH=..:$(PYTHONPATH) python3 -c "import tune; tune.tune()"
 	/usr/bin/time --verbose --output=$(patsubst %.json,%.time,$@) $(ENV_DIR)system_env/bin/python3 pypy-benchmarks/runner.py --changed=$(firstword $|) -o $@
-	PYTHONPATH=../tester:$(PYTHONPATH) python3 -c "import tune; tune.untune()"
+	PYTHONPATH=..:$(PYTHONPATH) python3 -c "import tune; tune.untune()"
 pypybench_results: $(patsubst %,results/pypybench-%.json,$(BUILDS))
 
 # Usage: make_benchmark,NAME,NITERS
@@ -57,6 +57,9 @@ $(call make_benchmark,thrift_bench,10000)
 
 .PHONY: analyze
 analyze: all_results # pypybench_results
+	python3 analyze.py
+
+quick_analyze: results/djangocms-system.json results/djangocms-opt.json results/flaskblogging-system.json results/flaskblogging-opt.json
 	python3 analyze.py
 
 clean:

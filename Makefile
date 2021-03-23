@@ -483,4 +483,4 @@ else
 endif
 
 bench: $(OPT_BENCH_ENV) $(SYSTEM_BENCH_ENV) $(PYPY_BENCH_ENV)
-	$(MAKE) -C pyston/tools/benchmarks_runner analyze
+	$(MAKE) -C pyston/tools/benchmarks_runner quick_analyze
