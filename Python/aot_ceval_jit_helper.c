@@ -792,6 +792,10 @@ JIT_HELPER_WITH_NAME_OPCACHE_AOT(LOAD_GLOBAL) {
         }
 
         //name = GETITEM(names, oparg);
+        // Note: unlike the interpreter, we don't do the "was this from the
+        // globals" optimization here.  The interpreter keeps track of this
+        // so that we can jit out a better inline cache, but other than that
+        // it is just slightly extra work.
         v = _PyDict_LoadGlobal((PyDictObject *)f->f_globals,
                                 (PyDictObject *)f->f_builtins,
                                 name);

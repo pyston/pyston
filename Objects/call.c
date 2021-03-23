@@ -251,6 +251,10 @@ PyObject_Call(PyObject *callable, PyObject *args, PyObject *kwargs)
     }
 }
 
+#if PYSTON_SPEEDUPS
+/* static */ void _Py_HOT_FUNCTION
+frame_dealloc_notrashcan(PyFrameObject *f);
+#endif
 
 /* --- PyFunction call functions ---------------------------------- */
 
@@ -289,7 +293,13 @@ function_code_fastcall(PyCodeObject *co, PyObject *const *args, Py_ssize_t nargs
     }
     else {
         ++tstate->recursion_depth;
+#if PYSTON_SPEEDUPS
+        Py_REFCNT(f) = 0;
+        assert(Py_TYPE(f) == &PyFrame_Type);
+        frame_dealloc_notrashcan(f);
+#else
         Py_DECREF(f);
+#endif
         --tstate->recursion_depth;
     }
     return result;
@@ -316,10 +326,18 @@ _PyFunction_FastCallDict(PyObject *func, PyObject *const *args, Py_ssize_t nargs
 
     if (co->co_kwonlyargcount == 0 &&
         (kwargs == NULL || PyDict_GET_SIZE(kwargs) == 0) &&
+#if PYSTON_SPEEDUPS
+        (co->co_flags & ~(PyCF_MASK | CO_NESTED)) == (CO_OPTIMIZED | CO_NEWLOCALS | CO_NOFREE))
+#else
         (co->co_flags & ~PyCF_MASK) == (CO_OPTIMIZED | CO_NEWLOCALS | CO_NOFREE))
+#endif
     {
         /* Fast paths */
-        if (argdefs == NULL && co->co_argcount == nargs) {
+        if (
+#if !PYSTON_SPEEDUPS
+                argdefs == NULL &&
+#endif
+                co->co_argcount == nargs) {
             return function_code_fastcall(co, args, nargs, globals);
         }
         else if (nargs == 0 && argdefs != NULL
@@ -405,9 +423,17 @@ _PyFunction_Vectorcall(PyObject *func, PyObject* const* stack,
        be unique */
 
     if (co->co_kwonlyargcount == 0 && nkwargs == 0 &&
+#if PYSTON_SPEEDUPS
+        (co->co_flags & ~(PyCF_MASK | CO_NESTED)) == (CO_OPTIMIZED | CO_NEWLOCALS | CO_NOFREE))
+#else
         (co->co_flags & ~PyCF_MASK) == (CO_OPTIMIZED | CO_NEWLOCALS | CO_NOFREE))
+#endif
     {
-        if (argdefs == NULL && co->co_argcount == nargs) {
+        if (
+#if !PYSTON_SPEEDUPS
+                argdefs == NULL &&
+#endif
+                co->co_argcount == nargs) {
             return function_code_fastcall(co, stack, nargs, globals);
         }
         else if (nargs == 0 && argdefs != NULL

@@ -2615,6 +2615,7 @@ class CTask_CFuture_Tests(BaseTaskTests, SetMethodsTest,
     Future = getattr(futures, '_CFuture', None)
 
     @support.refcount_test
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "pyston doesn't preserve refcounts")
     def test_refleaks_in_task___init__(self):
         gettotalrefcount = support.get_attribute(sys, 'gettotalrefcount')
         async def coro():

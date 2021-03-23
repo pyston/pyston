@@ -3010,8 +3010,8 @@ sa_common:
 
                     if (lg->globals_ver ==
                             ((PyDictObject *)f->f_globals)->ma_version_tag
-                        && lg->builtins_ver ==
-                           ((PyDictObject *)f->f_builtins)->ma_version_tag)
+                        && (lg->builtins_ver == LOADGLOBAL_WAS_GLOBAL ||
+                            lg->builtins_ver == ((PyDictObject *)f->f_builtins)->ma_version_tag))
                     {
 #if OPCACHE_STATS
                         loadglobal_hits++;
@@ -3035,9 +3035,10 @@ sa_common:
 #endif
 
                 name = GETITEM(names, oparg);
-                v = _PyDict_LoadGlobal((PyDictObject *)f->f_globals,
+                int wasglobal;
+                v = _PyDict_LoadGlobalEx((PyDictObject *)f->f_globals,
                                        (PyDictObject *)f->f_builtins,
-                                       name);
+                                       name, &wasglobal);
                 if (v == NULL) {
                     if (!_PyErr_OCCURRED()) {
                         /* _PyDict_LoadGlobal() returns NULL without raising
@@ -3061,8 +3062,11 @@ sa_common:
                     co_opcache->optimized = 1;
                     lg->globals_ver =
                         ((PyDictObject *)f->f_globals)->ma_version_tag;
-                    lg->builtins_ver =
-                        ((PyDictObject *)f->f_builtins)->ma_version_tag;
+                    if (wasglobal)
+                        lg->builtins_ver = LOADGLOBAL_WAS_GLOBAL;
+                    else
+                        lg->builtins_ver =
+                            ((PyDictObject *)f->f_builtins)->ma_version_tag;
                     lg->ptr = v; /* borrowed */
                 }
 
@@ -4443,12 +4447,17 @@ continue_jit:
         JitRetVal ret = aot_extra->jit_code(f, tstate, stack_pointer);
         stack_pointer = ret.stack_pointer;
         int lower_bits = ret.ret_val & 3;
-        if (lower_bits == 1)
+        if (lower_bits == 0) {
+            retval = (PyObject*)ret.ret_val;
+            if (retval)
+                goto exit_returning;
+            goto error;
+        } else if (lower_bits == 1)
             goto exception_unwind;
         else if (lower_bits == 2) {
             retval = (PyObject*)(ret.ret_val & ~3);
             goto exit_yielding;
-        } else if (lower_bits == 3) {
+        } else { // lower_bits == 3
             // this is a deopt
 
             // we have to adjust back the last bytecode because the interpreter
@@ -4461,10 +4470,6 @@ continue_jit:
             int jit_first_trace_for_line = (PyObject*)(ret.ret_val & ~3) ? 1 : 0;
             return _PyEval_EvalFrame_AOT_Interpreter(f, 0 /* throwflag */, tstate, stack_pointer, aot_extra, 0 /*= can't use jit */, jit_first_trace_for_line);
         }
-        retval = (PyObject*)ret.ret_val;
-        if (retval)
-            goto exit_returning;
-        goto error;
     }
 
 error:

@@ -78,6 +78,11 @@ PyAPI_FUNC(void) _PyDict_DebugMallocStats(FILE *out);
 
 int _PyObjectDict_SetItem(PyTypeObject *tp, PyObject **dictptr, PyObject *name, PyObject *value);
 PyObject *_PyDict_LoadGlobal(PyDictObject *, PyDictObject *, PyObject *);
+#if PYSTON_SPEEDUPS
+// Same as _PyDict_LoadGlobal but also returns (via out_wasglobal) whether the found
+// result was via the globals or builtins.
+PyObject *_PyDict_LoadGlobalEx(PyDictObject *, PyDictObject *, PyObject *, int *out_wasglobal);
+#endif
 
 /* _PyDictView */
 
