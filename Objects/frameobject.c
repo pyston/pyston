@@ -674,22 +674,36 @@ _PyFrame_New_NoTrack(PyThreadState *tstate, PyCodeObject *code,
 #if PYSTON_SPEEDUPS
         if (((PyDictObject*)globals)->ma_version_tag == code->co_builtins_cache_ver) {
             builtins = code->co_builtins_cache_obj;
+            Py_INCREF(builtins);
         } else {
             builtins = _PyDict_GetItemIdWithError(globals, &PyId___builtins__);
 
-            code->co_builtins_cache_ver = ((PyDictObject*)globals)->ma_version_tag;
-            code->co_builtins_cache_obj = builtins;
+            if (builtins) {
+                if (Py_TYPE(builtins) != &PyDict_Type && PyModule_Check(builtins)) {
+                    builtins = PyModule_GetDict(builtins);
+                    assert(builtins != NULL);
+                } else {
+                    code->co_builtins_cache_ver = ((PyDictObject*)globals)->ma_version_tag;
+                    code->co_builtins_cache_obj = builtins;
+                }
+                Py_INCREF(builtins);
+            } else if (builtins == NULL) {
+                if (PyErr_Occurred()) {
+                    return NULL;
+                }
+                /* No builtins!              Make up a minimal one
+                   Give them 'None', at least. */
+                builtins = PyDict_New();
+                if (builtins == NULL ||
+                    PyDict_SetItemString(
+                        builtins, "None", Py_None) < 0)
+                    return NULL;
+            }
         }
 #else
         builtins = _PyDict_GetItemIdWithError(globals, &PyId___builtins__);
-#endif
-
         if (builtins) {
-            if (
-#if PYSTON_SPEEDUPS
-                    Py_TYPE(builtins) != &PyDict_Type &&
-#endif
-                    PyModule_Check(builtins)) {
+            if (PyModule_Check(builtins)) {
                 builtins = PyModule_GetDict(builtins);
                 assert(builtins != NULL);
             }
@@ -708,7 +722,7 @@ _PyFrame_New_NoTrack(PyThreadState *tstate, PyCodeObject *code,
         }
         else
             Py_INCREF(builtins);
-
+#endif
     }
     else {
         /* If we share the globals, we share the builtins.
