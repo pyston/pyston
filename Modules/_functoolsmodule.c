@@ -846,7 +846,7 @@ infinite_lru_cache_wrapper(lru_cache_object *self, PyObject *args, PyObject *kwd
         Py_DECREF(key);
         return NULL;
     }
-    result = _PyDict_GetItem_KnownHash(self->cache, key, hash);
+    result = _PyDict_GetItem_KnownHashKnownDict(self->cache, key, hash);
     if (result) {
         Py_INCREF(result);
         self->hits++;
@@ -947,7 +947,7 @@ bounded_lru_cache_wrapper(lru_cache_object *self, PyObject *args, PyObject *kwds
         Py_DECREF(key);
         return NULL;
     }
-    link  = (lru_list_elem *)_PyDict_GetItem_KnownHash(self->cache, key, hash);
+    link  = (lru_list_elem *)_PyDict_GetItem_KnownHashKnownDict(self->cache, key, hash);
     if (link != NULL) {
         lru_cache_extract_link(link);
         lru_cache_append_link(self, link);
@@ -967,7 +967,7 @@ bounded_lru_cache_wrapper(lru_cache_object *self, PyObject *args, PyObject *kwds
         Py_DECREF(key);
         return NULL;
     }
-    testresult = _PyDict_GetItem_KnownHash(self->cache, key, hash);
+    testresult = _PyDict_GetItem_KnownHashKnownDict(self->cache, key, hash);
     if (testresult != NULL) {
         /* Getting here means that this same key was added to the cache
            during the PyObject_Call().  Since the link update is already

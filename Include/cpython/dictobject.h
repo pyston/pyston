@@ -33,6 +33,12 @@ typedef struct {
 
 PyAPI_FUNC(PyObject *) _PyDict_GetItem_KnownHash(PyObject *mp, PyObject *key,
                                        Py_hash_t hash);
+#if PYSTON_SPEEDUPS
+PyAPI_FUNC(PyObject *) _PyDict_GetItem_KnownHashKnownDict(PyObject *mp, PyObject *key,
+                                       Py_hash_t hash);
+#else
+#define _PyDict_GetItem_KnownHashKnownDict _PyDict_GetItem_KnownHash
+#endif
 PyAPI_FUNC(PyObject *) _PyDict_GetItemIdWithError(PyObject *dp,
                                                   struct _Py_Identifier *key);
 PyAPI_FUNC(PyObject *) _PyDict_GetItemStringWithError(PyObject *, const char *);

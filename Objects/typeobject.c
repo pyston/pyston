@@ -3173,7 +3173,7 @@ find_name_in_mro(PyTypeObject *type, PyObject *name, int *error)
         assert(PyType_Check(base));
         dict = ((PyTypeObject *)base)->tp_dict;
         assert(dict && PyDict_Check(dict));
-        res = _PyDict_GetItem_KnownHash(dict, name, hash);
+        res = _PyDict_GetItem_KnownHashKnownDict(dict, name, hash);
         if (res != NULL)
             break;
         if (PyErr_Occurred()) {

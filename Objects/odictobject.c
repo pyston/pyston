@@ -1045,7 +1045,7 @@ _odict_popkey_hash(PyObject *od, PyObject *key, PyObject *failobj,
     /* Now delete the value from the dict. */
     if (PyODict_CheckExact(od)) {
         if (node != NULL) {
-            value = _PyDict_GetItem_KnownHash(od, key, hash);  /* borrowed */
+            value = _PyDict_GetItem_KnownHashKnownDict(od, key, hash);  /* borrowed */
             if (value != NULL) {
                 Py_INCREF(value);
                 if (_PyDict_DelItem_KnownHash(od, key, hash) < 0) {

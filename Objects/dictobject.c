@@ -1422,7 +1422,32 @@ PyDict_GetItem(PyObject *op, PyObject *key)
    This returns NULL *with* an exception set if an exception occurred.
    It returns NULL *without* an exception set if the key wasn't present.
 */
+#if PYSTON_SPEEDUPS
 PyObject *
+_PyDict_GetItem_KnownHashKnownDict(PyObject *op, PyObject *key, Py_hash_t hash)
+{
+    Py_ssize_t ix;
+    PyDictObject *mp = (PyDictObject *)op;
+    PyObject *value;
+
+    ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &value);
+    if (ix < 0) {
+        return NULL;
+    }
+    return value;
+}
+
+PyObject *
+_PyDict_GetItem_KnownHash(PyObject *op, PyObject *key, Py_hash_t hash)
+{
+    if (!PyDict_Check(op)) {
+        PyErr_BadInternalCall();
+        return NULL;
+    }
+
+    return _PyDict_GetItem_KnownHashKnownDict(op, key, hash);
+}
+#else
 _PyDict_GetItem_KnownHash(PyObject *op, PyObject *key, Py_hash_t hash)
 {
     Py_ssize_t ix;
@@ -1440,6 +1465,7 @@ _PyDict_GetItem_KnownHash(PyObject *op, PyObject *key, Py_hash_t hash)
     }
     return value;
 }
+#endif
 
 /* Variant of PyDict_GetItem() that doesn't suppress exceptions.
    This returns NULL *with* an exception set if an exception occurred.
@@ -2666,7 +2692,7 @@ dict_merge(PyObject *a, PyObject *b, int override)
                 Py_INCREF(value);
                 if (override == 1)
                     err = insertdict(mp, key, hash, value);
-                else if (_PyDict_GetItem_KnownHash(a, key, hash) == NULL) {
+                else if (_PyDict_GetItem_KnownHashKnownDict(a, key, hash) == NULL) {
                     if (PyErr_Occurred()) {
                         Py_DECREF(value);
                         Py_DECREF(key);
