@@ -1431,6 +1431,8 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 | test res, res
                 | jz >3
                 emit_load_attr_res_0_helper = 1; // makes sure we emit label 3
+            } else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
+                // nothing todo
             } else {
                 // _PyObject_GetDictPtr
                 // arg2 = PyType(obj)->tp_dictoffset
@@ -1493,6 +1495,14 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
 
                 // res = ep->me_value;
                 | mov res, [arg3 + offsetof(PyDictKeyEntry, me_value)]
+                emit_incref(Dst, res_idx);
+            } else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
+                | mov res, [arg1 + la->u.slot_cache.offset]
+                // attr can be NULL
+                | test res, res
+                // we can't just jump to label 3 because it would output a different exception message
+                // instead jump to the slow path
+                | jz >1
                 emit_incref(Dst, res_idx);
             } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
                 if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {

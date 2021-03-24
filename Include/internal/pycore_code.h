@@ -39,7 +39,7 @@ enum _PyOpcache_LoadAttr_Types {
     // caching an index inside instance splitdict, guarded by the splitdict keys version (dict->ma_keys->dk_version_tag)
     LA_CACHE_IDX_SPLIT_DICT = 1,
 
-    // caching a data descriptor object, guarded by data descripor types version
+    // caching a data descriptor object, guarded by data descriptor types version
     LA_CACHE_DATA_DESCR = 2,
 
     // caching an object from the type, guarded by instance splitdict keys version (dict->ma_keys->dk_version_tag)
@@ -51,6 +51,12 @@ enum _PyOpcache_LoadAttr_Types {
     // so only gets used if the lookups miss frequently.
     // Has the advantage that even with modifications to the dict the cache will mostly hit.
     LA_CACHE_OFFSET_CACHE = 4,
+
+    // caching the offset to attribute slot inside a python object.
+    // used for __slots__
+    // LA_CACHE_DATA_DESCR works too but is slower because it needs extra guarding
+    // and emits a call to the decriptor function
+    LA_CACHE_SLOT_CACHE = 5,
 };
 typedef struct {
     uint64_t type_ver;  /* tp_version_tag of type */
@@ -74,6 +80,9 @@ typedef struct {
             Py_ssize_t dk_size; /* dk_size of the dict */
             int64_t offset; /* offset in bytes from ma_keys->dk_indices to the item in the hash table */
         } offset_cache;
+        struct {
+            int64_t offset; /* offset in bytes from the start of the PyObject to the slot */
+        } slot_cache;
     } u;
     char cache_type;
     char meth_found; // used by LOAD_METHOD: can we do the method descriptor optimization or not
