@@ -610,7 +610,7 @@ func_repr(PyFunctionObject *op)
                                op->func_qualname, op);
 }
 
-static int
+/*static*/ int
 func_traverse(PyFunctionObject *f, visitproc visit, void *arg)
 {
     Py_VISIT(f->func_code);
