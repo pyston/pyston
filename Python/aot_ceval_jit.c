@@ -217,9 +217,7 @@ static void* __attribute__ ((const)) get_addr_of_helper_func(int opcode, int opa
         JIT_HELPER_ADDR(YIELD_FROM);
         JIT_HELPER_ADDR(YIELD_VALUE);
         JIT_HELPER_ADDR(POP_EXCEPT);
-        JIT_HELPER_ADDR(POP_BLOCK);
         JIT_HELPER_ADDR(POP_FINALLY);
-        JIT_HELPER_ADDR(BEGIN_FINALLY);
         JIT_HELPER_ADDR(END_ASYNC_FOR);
         JIT_HELPER_ADDR(LOAD_BUILD_CLASS);
         JIT_HELPER_ADDR(STORE_NAME);
@@ -241,9 +239,7 @@ static void* __attribute__ ((const)) get_addr_of_helper_func(int opcode, int opa
         JIT_HELPER_ADDR(BUILD_MAP_UNPACK_WITH_CALL);
         JIT_HELPER_ADDR(IMPORT_STAR);
         JIT_HELPER_ADDR(GET_YIELD_FROM_ITER);
-        JIT_HELPER_ADDR(SETUP_FINALLY);
         JIT_HELPER_ADDR(BEFORE_ASYNC_WITH);
-        JIT_HELPER_ADDR(SETUP_ASYNC_WITH);
         JIT_HELPER_ADDR(SETUP_WITH);
         JIT_HELPER_ADDR(WITH_CLEANUP_START);
         JIT_HELPER_ADDR(WITH_CLEANUP_FINISH);
@@ -1171,6 +1167,15 @@ static void deferred_vs_remove(Jit* Dst, int num_to_remove) {
     }
 }
 
+// pushes a register to the top of the value stack and afterwards calls deferred_vs_apply.
+// this allowes the use of any register not only 'res'.
+static void deferred_vs_push_reg_and_apply(Jit* Dst, int r_idx) {
+    // in this special case (=instant call to deferred_vs_apply) it's safe to
+    // use any register so skip the assert.
+    deferred_vs_push_no_assert(Dst, REGISTER, r_idx);
+    deferred_vs_apply(Dst);
+}
+
 // peeks the top stack entry into register r_idx_top and afterwards calls deferred_vs_apply
 // generates better code than doing it split
 static void deferred_vs_peek_top_and_apply(Jit* Dst, int r_idx_top) {
@@ -1185,10 +1190,7 @@ static void deferred_vs_peek_top_and_apply(Jit* Dst, int r_idx_top) {
         // owned because deferred_vs_apply will consume one ref
         deferred_vs_peek_owned(Dst, r_idx_top, 1 /*=top*/);
         deferred_vs_remove(Dst, 1);
-        // in this special case (=instant call to deferred_vs_apply) it's safe to
-        // use any register so skip the assert.
-        deferred_vs_push_no_assert(Dst, REGISTER, r_idx_top);
-        deferred_vs_apply(Dst);
+        deferred_vs_push_reg_and_apply(Dst, r_idx_top);
     } else {
         deferred_vs_peek(Dst, r_idx_top, 1 /*=top*/);
     }
@@ -2427,6 +2429,41 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             }
             break;
 
+        case SETUP_FINALLY:
+        case SETUP_ASYNC_WITH:
+            deferred_vs_apply(Dst);
+            // PyFrame_BlockSetup(f, SETUP_FINALLY, INSTR_OFFSET() + oparg, STACK_LEVEL());
+            | mov arg1, f
+            emit_mov_imm(Dst, arg2_idx, SETUP_FINALLY);
+            emit_mov_imm(Dst, arg3_idx, (inst_idx + 1)*2 + oparg);
+            // STACK_LEVEL()
+            if (opcode == SETUP_ASYNC_WITH) {
+                // the interpreter pops the top value and pushes it afterwards
+                // we instead just calculate the stack level with the vsp minus one value.
+                | lea arg4, [vsp - 8]
+            } else {
+                | mov arg4, vsp
+            }
+            | sub arg4, [f + offsetof(PyFrameObject, f_valuestack)]
+            | sar arg4, 3 // divide by 8 = sizeof(void*)
+            emit_call_ext_func(Dst, PyFrame_BlockSetup);
+            break;
+
+        case POP_BLOCK:
+            deferred_vs_convert_reg_to_stack(Dst);
+            | mov arg1, f
+            emit_call_ext_func(Dst, PyFrame_BlockPop);
+            break;
+
+        case BEGIN_FINALLY:
+            /* Push NULL onto the stack for using it in END_FINALLY,
+            POP_FINALLY, WITH_CLEANUP_START and WITH_CLEANUP_FINISH.
+            */
+            // PUSH(NULL);
+            emit_mov_imm(Dst, arg1_idx, 0);
+            deferred_vs_push_reg_and_apply(Dst, arg1_idx);
+            break;
+
         default:
             // compiler complains if the first line after a label is a declaration and not a statement:
             (void)0;
@@ -2461,7 +2498,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 case UNPACK_EX:
                 case IMPORT_STAR:
                 case GET_YIELD_FROM_ITER:
-                case SETUP_ASYNC_WITH:
                 case CALL_FUNCTION_KW:
                 // JIT_HELPER_WITH_NAME1
                 case STORE_NAME:
@@ -2501,7 +2537,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 case PRINT_EXPR:
                 case GET_AITER:
                 case GET_AWAITABLE:
-                case POP_BLOCK:
                 case LOAD_BUILD_CLASS:
                 case STORE_NAME:
                 case DELETE_NAME:
@@ -2556,8 +2591,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 case BUILD_CONST_KEY_MAP:
                 case BUILD_MAP_UNPACK:
                 case BUILD_MAP_UNPACK_WITH_CALL:
-                case SETUP_FINALLY:
-                case SETUP_ASYNC_WITH:
                 case SETUP_WITH:
                 case CALL_FUNCTION_KW:
                 case CALL_FUNCTION_EX:
@@ -2655,7 +2688,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 case LOAD_ATTR:
                 case GET_YIELD_FROM_ITER:
                 case BEFORE_ASYNC_WITH:
-                case SETUP_ASYNC_WITH:
                 case SETUP_WITH:
                 case WITH_CLEANUP_START:
                 case LOAD_METHOD:
