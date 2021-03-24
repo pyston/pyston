@@ -843,7 +843,8 @@ int __attribute__((always_inline)) storeAttrCache(PyObject* owner, PyObject* nam
     _PyOpcache_StoreAttr *as = &co_opcache->u.sa;
     PyTypeObject *tp = Py_TYPE(owner);
 
-    if (unlikely(!PyType_HasFeature(tp, Py_TPFLAGS_VALID_VERSION_TAG)))
+    // do we have a valid cache entry?
+    if (!co_opcache->optimized)
         return -1;
 
     if (unlikely(as->type_ver != tp->tp_version_tag))
@@ -945,7 +946,8 @@ PyObject* _PyDict_GetItemByOffset(PyDictObject *mp, PyObject *key, Py_ssize_t dk
 int __attribute__((always_inline)) loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject** res, int *meth_found) {
     _PyOpcache_LoadAttr *la = &co_opcache->u.la;
 
-    if (unlikely(!PyType_HasFeature(Py_TYPE(owner), Py_TPFLAGS_VALID_VERSION_TAG)))
+    // do we have a valid cache entry?
+    if (!co_opcache->optimized)
         return -1;
 
     if (unlikely(Py_TYPE(owner)->tp_version_tag != la->type_ver))
@@ -1002,9 +1004,6 @@ int __attribute__((always_inline)) loadAttrCache(PyObject* owner, PyObject* name
             Py_INCREF(*res);
     } else {
         PyObject* descr = la->u.descr_cache.descr;
-        if (unlikely(!PyType_HasFeature(Py_TYPE(descr), Py_TPFLAGS_VALID_VERSION_TAG)))
-            return -1;
-
         if (unlikely(Py_TYPE(descr)->tp_version_tag != la->u.descr_cache.descr_type_ver))
             return -1;
 

@@ -300,6 +300,10 @@ PyType_Modified(PyTypeObject *type)
         }
     }
     type->tp_flags &= ~Py_TPFLAGS_VALID_VERSION_TAG;
+#if PYSTON_SPEEDUPS
+    // our caches assume that we also invalid tp_version_tag
+    type->tp_version_tag = 0;
+#endif
 }
 
 /* static */ void
@@ -359,6 +363,10 @@ type_mro_modified(PyTypeObject *type, PyObject *bases) {
     Py_XDECREF(type_mro_meth);
     type->tp_flags &= ~(Py_TPFLAGS_HAVE_VERSION_TAG|
                         Py_TPFLAGS_VALID_VERSION_TAG);
+#if PYSTON_SPEEDUPS
+    // our caches assume that we also invalid tp_version_tag
+    type->tp_version_tag = 0;
+#endif
 }
 
 /* static */ int
