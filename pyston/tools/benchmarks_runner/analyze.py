@@ -157,7 +157,10 @@ if __name__ == "__main__":
 
     for build in BUILDS:
         print(build)
-        subprocess.check_call([os.path.join(os.path.dirname(__file__), "../../build/%s_env/bin/python" % build), "-c", "import sys; print(sys.version)"])
+        try:
+            subprocess.check_call([os.path.join(os.path.dirname(__file__), "../../build/%s_env/bin/python" % build), "-c", "import sys; print(sys.version)"])
+        except FileNotFoundError:
+            print("not found")
         print()
 
     all_quantiles = {}
