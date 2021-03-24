@@ -1309,17 +1309,20 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
     || }
     |.endmacro
 
-    // checks if type object in r_type has the valid version tag set and compares tp_version_tag with type_ver
+    // compares tp_version_tag with type_ver
     // branches to false_branch on inequality else continues
     |.macro type_version_check, r_type, type_ver, false_branch
-    || _Static_assert(Py_TPFLAGS_VALID_VERSION_TAG == (1UL << 19),  "test needs to be modified");
-    || // !PyType_HasFeature(Py_TYPE(obj), Py_TPFLAGS_VALID_VERSION_TAG)
-    |  test byte [r_type + offsetof(PyTypeObject, tp_flags) + 2], 8
-    |  je false_branch
     || // Py_TYPE(obj)->tp_version_tag == type_ver
     |  cmp_imm_mem [r_type + offsetof(PyTypeObject, tp_version_tag)], type_ver
     |  jne false_branch
     |.endmacro
+
+    if (co_opcache == NULL)
+        return 1;
+
+    // do we have a valid cache entry?
+    if (!co_opcache->optimized)
+        return 1;
 
     if (opcode == LOAD_GLOBAL)  {
         ++jit_stat_load_global_total;
@@ -1330,7 +1333,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
         // I think it's still worth leaving it in to reduce potential downside in bad cases,
         // as it definitely helps with the other opcodes.
         // globals_ver != 0 makes sure we don't write out an always-failing inline cache
-        if (co_opcache != NULL && co_opcache->num_failed == 0 && co_opcache->u.lg.globals_ver != 0) {
+        if (co_opcache->num_failed == 0 && co_opcache->u.lg.globals_ver != 0) {
             _PyOpcache_LoadGlobal *lg = &co_opcache->u.lg;
 
             ++jit_stat_load_global_inline;
@@ -1375,7 +1378,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             ++jit_stat_load_attr_total;
         else
             ++jit_stat_load_method_total;
-        if (co_opcache != NULL && co_opcache->num_failed == 0 && co_opcache->u.la.type_ver != 0) {
+        if (co_opcache->num_failed == 0 && co_opcache->u.la.type_ver != 0) {
             if (opcode == LOAD_ATTR)
                 ++jit_stat_load_attr_inline;
             else
@@ -1433,6 +1436,8 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 | test res, res
                 | jz >3
                 emit_load_attr_res_0_helper = 1; // makes sure we emit label 3
+            } else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
+                // nothing todo
             } else {
                 // _PyObject_GetDictPtr
                 // arg2 = PyType(obj)->tp_dictoffset
@@ -1495,6 +1500,14 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
 
                 // res = ep->me_value;
                 | mov res, [arg3 + offsetof(PyDictKeyEntry, me_value)]
+                emit_incref(Dst, res_idx);
+            } else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
+                | mov res, [arg1 + la->u.slot_cache.offset]
+                // attr can be NULL
+                | test res, res
+                // we can't just jump to label 3 because it would output a different exception message
+                // instead jump to the slow path
+                | jz >1
                 emit_incref(Dst, res_idx);
             } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
                 if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {

@@ -843,7 +843,8 @@ int __attribute__((always_inline)) storeAttrCache(PyObject* owner, PyObject* nam
     _PyOpcache_StoreAttr *as = &co_opcache->u.sa;
     PyTypeObject *tp = Py_TYPE(owner);
 
-    if (unlikely(!PyType_HasFeature(tp, Py_TPFLAGS_VALID_VERSION_TAG)))
+    // do we have a valid cache entry?
+    if (!co_opcache->optimized)
         return -1;
 
     if (unlikely(as->type_ver != tp->tp_version_tag))
@@ -945,7 +946,8 @@ PyObject* _PyDict_GetItemByOffset(PyDictObject *mp, PyObject *key, Py_ssize_t dk
 int __attribute__((always_inline)) loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject** res, int *meth_found) {
     _PyOpcache_LoadAttr *la = &co_opcache->u.la;
 
-    if (unlikely(!PyType_HasFeature(Py_TYPE(owner), Py_TPFLAGS_VALID_VERSION_TAG)))
+    // do we have a valid cache entry?
+    if (!co_opcache->optimized)
         return -1;
 
     if (unlikely(Py_TYPE(owner)->tp_version_tag != la->type_ver))
@@ -966,8 +968,13 @@ int __attribute__((always_inline)) loadAttrCache(PyObject* owner, PyObject* name
             return -1;
 
         Py_INCREF(*res);
-    }
-    else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT)
+    } else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
+        char* addr = (char*)owner + la->u.slot_cache.offset;
+        *res = *(PyObject**)addr;
+        if (*res == NULL)
+            return -1;
+        Py_INCREF(*res);
+    } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT)
     {
         if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
             if (la->u.value_cache.dict_ver != getSplitDictKeysVersionFromDictPtr(dictptr))
@@ -997,9 +1004,6 @@ int __attribute__((always_inline)) loadAttrCache(PyObject* owner, PyObject* name
             Py_INCREF(*res);
     } else {
         PyObject* descr = la->u.descr_cache.descr;
-        if (unlikely(!PyType_HasFeature(Py_TYPE(descr), Py_TPFLAGS_VALID_VERSION_TAG)))
-            return -1;
-
         if (unlikely(Py_TYPE(descr)->tp_version_tag != la->u.descr_cache.descr_type_ver))
             return -1;
 
@@ -1062,16 +1066,27 @@ int __attribute__((always_inline)) setupLoadAttrCache(PyObject* obj, PyObject* n
             PyType_HasFeature(Py_TYPE(descr), Py_TPFLAGS_METHOD_DESCRIPTOR)) {
             meth_found = 1;
         } else {
-            if (descr->ob_type->tp_descr_get) {
+            PyTypeObject *dtype = Py_TYPE(descr);
+            if (dtype == &PyMemberDescr_Type) {  // It's a slot
+                PyMemberDescrObject *member = (PyMemberDescrObject*)descr;
+                struct PyMemberDef *dmem = member->d_member;
+                if (dmem->type == T_OBJECT_EX) {
+                    la->cache_type = LA_CACHE_SLOT_CACHE;
+                    la->u.slot_cache.offset = dmem->offset;
+                    goto common_cached;
+                }
+            }
+
+            if (dtype->tp_descr_get) {
                 if (PyDescr_IsData(descr)) {
-                    if (!PyType_HasFeature(Py_TYPE(descr), Py_TPFLAGS_VALID_VERSION_TAG))
+                    if (!PyType_HasFeature(dtype, Py_TPFLAGS_VALID_VERSION_TAG))
                         return -1;
 
                     // we can cache this
                     la->cache_type = LA_CACHE_DATA_DESCR;
-                    la->guard_tp_descr_get = 0; // we don't guard on this because we guard on Py_TYPE(descr)->tp_version_tag
+                    la->guard_tp_descr_get = 0; // we don't guard on this because we guard on dtype->tp_version_tag
                     la->u.descr_cache.descr = descr;
-                    la->u.descr_cache.descr_type_ver = Py_TYPE(descr)->tp_version_tag;
+                    la->u.descr_cache.descr_type_ver = dtype->tp_version_tag;
 
                     goto common_cached;
                 }
