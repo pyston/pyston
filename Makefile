@@ -482,5 +482,8 @@ else
 	cd pyston; DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage --build=binary --no-sign --jobs=auto -d
 endif
 
-bench: $(OPT_BENCH_ENV) $(SYSTEM_BENCH_ENV) $(PYPY_BENCH_ENV)
+bench: $(OPT_BENCH_ENV) $(SYSTEM_BENCH_ENV)
 	$(MAKE) -C pyston/tools/benchmarks_runner quick_analyze
+
+full_bench: $(OPT_BENCH_ENV) $(SYSTEM_BENCH_ENV) $(PYPY_BENCH_ENV)
+	$(MAKE) -C pyston/tools/benchmarks_runner analyze
