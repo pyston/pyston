@@ -541,6 +541,7 @@ class DictTest(unittest.TestCase):
         d = {1: BadRepr()}
         self.assertRaises(Exc, repr, d)
 
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables these checks")
     def test_repr_deep(self):
         d = {}
         for i in range(sys.getrecursionlimit() + 100):

@@ -241,11 +241,13 @@ class TestIsInstanceIsSubclass(unittest.TestCase):
         self.assertEqual(True, issubclass(int, (int, (float, int))))
         self.assertEqual(True, issubclass(str, (str, (Child, str))))
 
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables recursion checking")
     def test_subclass_recursion_limit(self):
         # make sure that issubclass raises RecursionError before the C stack is
         # blown
         self.assertRaises(RecursionError, blowstack, issubclass, str, str)
 
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables recursion checking")
     def test_isinstance_recursion_limit(self):
         # make sure that issubclass raises RecursionError before the C stack is
         # blown
@@ -271,6 +273,7 @@ class TestIsInstanceIsSubclass(unittest.TestCase):
 
         self.assertEqual(True, issubclass(B(), int))
 
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables recursion checking")
     def test_infinite_recursion_in_bases(self):
         class X:
             @property

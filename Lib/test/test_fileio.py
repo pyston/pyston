@@ -176,6 +176,7 @@ class AutoFileTests:
         finally:
             os.close(fd)
 
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables recursion checking")
     def testRecursiveRepr(self):
         # Issue #25455
         with swap_attr(self.f, 'name', self.f):

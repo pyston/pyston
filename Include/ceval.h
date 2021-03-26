@@ -86,6 +86,10 @@ PyAPI_FUNC(int) Py_MakePendingCalls(void);
 PyAPI_FUNC(void) Py_SetRecursionLimit(int);
 PyAPI_FUNC(int) Py_GetRecursionLimit(void);
 
+#if !PY_DEBUGGING_CHECKS
+#define Py_EnterRecursiveCall(where) (0)
+#define Py_LeaveRecursiveCall(where) ((void)0)
+#else
 #define Py_EnterRecursiveCall(where)  \
             (_Py_MakeRecCheck(PyThreadState_GET()->recursion_depth) &&  \
              _Py_CheckRecursiveCall(where))
@@ -93,6 +97,7 @@ PyAPI_FUNC(int) Py_GetRecursionLimit(void);
     do{ if(_Py_MakeEndRecCheck(PyThreadState_GET()->recursion_depth))  \
       PyThreadState_GET()->overflowed = 0;  \
     } while(0)
+#endif
 PyAPI_FUNC(int) _Py_CheckRecursiveCall(const char *where);
 
 /* Due to the macros in which it's used, _Py_CheckRecursionLimit is in
