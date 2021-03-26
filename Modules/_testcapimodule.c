@@ -831,6 +831,7 @@ static PyObject *
 test_long_as_unsigned_long_long_mask(PyObject *self,
                                      PyObject *Py_UNUSED(ignored))
 {
+#if PY_DEBUGGING_CHECKS
     unsigned long long res = PyLong_AsUnsignedLongLongMask(NULL);
 
     if (res != (unsigned long long)-1 || !PyErr_Occurred()) {
@@ -844,6 +845,7 @@ test_long_as_unsigned_long_long_mask(PyObject *self,
                               "something other than SystemError");
     }
     PyErr_Clear();
+#endif
     Py_RETURN_NONE;
 }
 
