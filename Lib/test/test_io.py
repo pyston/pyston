@@ -1126,6 +1126,7 @@ class CommonBufferedTests:
         raw.name = b"dummy"
         self.assertRegex(repr(b), "<%s name=b'dummy'>" % clsname)
 
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables recursion checking")
     def test_recursive_repr(self):
         # Issue #25455
         raw = self.MockRawIO()
@@ -2628,6 +2629,7 @@ class TextIOWrapperTest(unittest.TestCase):
         t.buffer.detach()
         repr(t)  # Should not raise an exception
 
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables recursion checking")
     def test_recursive_repr(self):
         # Issue #25455
         raw = self.BytesIO()

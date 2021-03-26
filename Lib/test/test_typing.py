@@ -2469,7 +2469,8 @@ class ForwardRefTests(BaseTestCase):
         r1 = namespace1()
         r2 = namespace2()
         self.assertIsNot(r1, r2)
-        self.assertRaises(RecursionError, cmp, r1, r2)
+        if not hasattr(sys, "pyston_version_info"):
+            self.assertRaises(RecursionError, cmp, r1, r2)
 
     def test_union_forward_recursion(self):
         ValueList = List['Value']
