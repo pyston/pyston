@@ -183,6 +183,7 @@ class CAPITest(unittest.TestCase):
         self.assertEqual(o.__ipow__(1), (1, None))
         self.assertEqual(o.__ipow__(2, 2), (2, 2))
 
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disabled this check")
     def test_return_null_without_error(self):
         # Issue #23571: A function must not return NULL without setting an
         # error
@@ -212,6 +213,7 @@ class CAPITest(unittest.TestCase):
                              'return_null_without_error.* '
                              'returned NULL without setting an error')
 
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disabled this check")
     def test_return_result_with_error(self):
         # Issue #23571: A function must not return a result with an error set
         if Py_DEBUG:

@@ -55,9 +55,13 @@ PyAPI_FUNC(int) _PyStack_UnpackDict(
    40 bytes on the stack. */
 #define _PY_FASTCALL_SMALL_STACK 5
 
+#if !PY_DEBUGGING_CHECKS
+#define _Py_CheckFunctionResult(callable, result, where) (result)
+#else
 PyAPI_FUNC(PyObject *) _Py_CheckFunctionResult(PyObject *callable,
                                                PyObject *result,
                                                const char *where);
+#endif
 
 /* === Vectorcall protocol (PEP 590) ============================= */
 
