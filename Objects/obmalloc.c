@@ -27,7 +27,9 @@ static void _PyMem_DebugFree(void *ctx, void *p);
 static void _PyObject_DebugDumpAddress(const void *p);
 static void _PyMem_DebugCheckAddress(char api_id, const void *p);
 
+#if PY_DEBUGGING_FEATURES
 static void _PyMem_SetupDebugHooksDomain(PyMemAllocatorDomain domain);
+#endif
 
 #if defined(__has_feature)  /* Clang */
 #  if __has_feature(address_sanitizer) /* is ASAN enabled? */
@@ -129,6 +131,7 @@ _PyMem_RawFree(void *ctx, void *ptr)
     free(ptr);
 }
 
+#if PY_DEBUGGING_FEATURES
 
 #ifdef MS_WINDOWS
 static void *
@@ -631,52 +634,6 @@ PyMem_Free(void *ptr)
     _PyMem.free(_PyMem.ctx, ptr);
 }
 
-
-wchar_t*
-_PyMem_RawWcsdup(const wchar_t *str)
-{
-    assert(str != NULL);
-
-    size_t len = wcslen(str);
-    if (len > (size_t)PY_SSIZE_T_MAX / sizeof(wchar_t) - 1) {
-        return NULL;
-    }
-
-    size_t size = (len + 1) * sizeof(wchar_t);
-    wchar_t *str2 = PyMem_RawMalloc(size);
-    if (str2 == NULL) {
-        return NULL;
-    }
-
-    memcpy(str2, str, size);
-    return str2;
-}
-
-char *
-_PyMem_RawStrdup(const char *str)
-{
-    assert(str != NULL);
-    size_t size = strlen(str) + 1;
-    char *copy = PyMem_RawMalloc(size);
-    if (copy == NULL) {
-        return NULL;
-    }
-    memcpy(copy, str, size);
-    return copy;
-}
-
-char *
-_PyMem_Strdup(const char *str)
-{
-    assert(str != NULL);
-    size_t size = strlen(str) + 1;
-    char *copy = PyMem_Malloc(size);
-    if (copy == NULL) {
-        return NULL;
-    }
-    memcpy(copy, str, size);
-    return copy;
-}
 
 void *
 PyObject_Malloc(size_t size)
@@ -2497,56 +2454,6 @@ _PyObject_DebugDumpAddress(const void *p)
 }
 
 
-static size_t
-printone(FILE *out, const char* msg, size_t value)
-{
-    int i, k;
-    char buf[100];
-    size_t origvalue = value;
-
-    fputs(msg, out);
-    for (i = (int)strlen(msg); i < 35; ++i)
-        fputc(' ', out);
-    fputc('=', out);
-
-    /* Write the value with commas. */
-    i = 22;
-    buf[i--] = '\0';
-    buf[i--] = '\n';
-    k = 3;
-    do {
-        size_t nextvalue = value / 10;
-        unsigned int digit = (unsigned int)(value - nextvalue * 10);
-        value = nextvalue;
-        buf[i--] = (char)(digit + '0');
-        --k;
-        if (k == 0 && value && i >= 0) {
-            k = 3;
-            buf[i--] = ',';
-        }
-    } while (value && i >= 0);
-
-    while (i >= 0)
-        buf[i--] = ' ';
-    fputs(buf, out);
-
-    return origvalue;
-}
-
-void
-_PyDebugAllocatorStats(FILE *out,
-                       const char *block_name, int num_blocks, size_t sizeof_block)
-{
-    char buf1[128];
-    char buf2[128];
-    PyOS_snprintf(buf1, sizeof(buf1),
-                  "%d %ss * %" PY_FORMAT_SIZE_T "d bytes each",
-                  num_blocks, block_name, sizeof_block);
-    PyOS_snprintf(buf2, sizeof(buf2),
-                  "%48s ", buf1);
-    (void)printone(out, buf2, num_blocks * sizeof_block);
-}
-
 
 #ifdef WITH_PYMALLOC
 
@@ -2724,3 +2631,208 @@ _PyObject_DebugMallocStats(FILE *out)
 }
 
 #endif /* #ifdef WITH_PYMALLOC */
+
+#else // !PY_DEBUGGING_FEATURES
+
+void *
+PyMem_RawMalloc(size_t size)
+{
+    /*
+     * Limit ourselves to PY_SSIZE_T_MAX bytes to prevent security holes.
+     * Most python internals blindly use a signed Py_ssize_t to track
+     * things without checking for overflows or negatives.
+     * As size_t is unsigned, checking for size < 0 is not required.
+     */
+    if (size > (size_t)PY_SSIZE_T_MAX)
+        return NULL;
+    return _PyMem_RawMalloc(NULL, size);
+}
+
+void *
+PyMem_RawCalloc(size_t nelem, size_t elsize)
+{
+    /* see PyMem_RawMalloc() */
+    if (elsize != 0 && nelem > (size_t)PY_SSIZE_T_MAX / elsize)
+        return NULL;
+    return _PyMem_RawCalloc(NULL, nelem, elsize);
+}
+
+void*
+PyMem_RawRealloc(void *ptr, size_t new_size)
+{
+    /* see PyMem_RawMalloc() */
+    if (new_size > (size_t)PY_SSIZE_T_MAX)
+        return NULL;
+    return _PyMem_RawRealloc(NULL, ptr, new_size);
+}
+
+void PyMem_RawFree(void *ptr)
+{
+    _PyMem_RawFree(NULL, ptr);
+}
+
+
+void *
+PyMem_Malloc(size_t size)
+{
+    /* see PyMem_RawMalloc() */
+    if (size > (size_t)PY_SSIZE_T_MAX)
+        return NULL;
+    return _PyMem_RawMalloc(NULL, size);
+}
+
+void *
+PyMem_Calloc(size_t nelem, size_t elsize)
+{
+    /* see PyMem_RawMalloc() */
+    if (elsize != 0 && nelem > (size_t)PY_SSIZE_T_MAX / elsize)
+        return NULL;
+    return _PyMem_RawCalloc(NULL, nelem, elsize);
+}
+
+void *
+PyMem_Realloc(void *ptr, size_t new_size)
+{
+    /* see PyMem_RawMalloc() */
+    if (new_size > (size_t)PY_SSIZE_T_MAX)
+        return NULL;
+    return _PyMem_RawRealloc(NULL, ptr, new_size);
+}
+
+void
+PyMem_Free(void *ptr)
+{
+    _PyMem_RawFree(NULL, ptr);
+}
+
+void *
+PyObject_Malloc(size_t size)
+{
+    /* see PyMem_RawMalloc() */
+    if (size > (size_t)PY_SSIZE_T_MAX)
+        return NULL;
+    return _PyMem_RawMalloc(NULL, size);
+}
+
+void *
+PyObject_Calloc(size_t nelem, size_t elsize)
+{
+    /* see PyMem_RawMalloc() */
+    if (elsize != 0 && nelem > (size_t)PY_SSIZE_T_MAX / elsize)
+        return NULL;
+    return _PyMem_RawCalloc(NULL, nelem, elsize);
+}
+
+void *
+PyObject_Realloc(void *ptr, size_t new_size)
+{
+    /* see PyMem_RawMalloc() */
+    if (new_size > (size_t)PY_SSIZE_T_MAX)
+        return NULL;
+    return _PyMem_RawRealloc(NULL, ptr, new_size);
+}
+
+void
+PyObject_Free(void *ptr)
+{
+    _PyMem_RawFree(NULL, ptr);
+}
+
+#endif // PY_DEBUGGING_FEATURES
+
+wchar_t*
+_PyMem_RawWcsdup(const wchar_t *str)
+{
+    assert(str != NULL);
+
+    size_t len = wcslen(str);
+    if (len > (size_t)PY_SSIZE_T_MAX / sizeof(wchar_t) - 1) {
+        return NULL;
+    }
+
+    size_t size = (len + 1) * sizeof(wchar_t);
+    wchar_t *str2 = PyMem_RawMalloc(size);
+    if (str2 == NULL) {
+        return NULL;
+    }
+
+    memcpy(str2, str, size);
+    return str2;
+}
+
+char *
+_PyMem_RawStrdup(const char *str)
+{
+    assert(str != NULL);
+    size_t size = strlen(str) + 1;
+    char *copy = PyMem_RawMalloc(size);
+    if (copy == NULL) {
+        return NULL;
+    }
+    memcpy(copy, str, size);
+    return copy;
+}
+
+char *
+_PyMem_Strdup(const char *str)
+{
+    assert(str != NULL);
+    size_t size = strlen(str) + 1;
+    char *copy = PyMem_Malloc(size);
+    if (copy == NULL) {
+        return NULL;
+    }
+    memcpy(copy, str, size);
+    return copy;
+}
+
+static size_t
+printone(FILE *out, const char* msg, size_t value)
+{
+    int i, k;
+    char buf[100];
+    size_t origvalue = value;
+
+    fputs(msg, out);
+    for (i = (int)strlen(msg); i < 35; ++i)
+        fputc(' ', out);
+    fputc('=', out);
+
+    /* Write the value with commas. */
+    i = 22;
+    buf[i--] = '\0';
+    buf[i--] = '\n';
+    k = 3;
+    do {
+        size_t nextvalue = value / 10;
+        unsigned int digit = (unsigned int)(value - nextvalue * 10);
+        value = nextvalue;
+        buf[i--] = (char)(digit + '0');
+        --k;
+        if (k == 0 && value && i >= 0) {
+            k = 3;
+            buf[i--] = ',';
+        }
+    } while (value && i >= 0);
+
+    while (i >= 0)
+        buf[i--] = ' ';
+    fputs(buf, out);
+
+    return origvalue;
+}
+
+void
+_PyDebugAllocatorStats(FILE *out,
+                       const char *block_name, int num_blocks, size_t sizeof_block)
+{
+    char buf1[128];
+    char buf2[128];
+    PyOS_snprintf(buf1, sizeof(buf1),
+                  "%d %ss * %" PY_FORMAT_SIZE_T "d bytes each",
+                  num_blocks, block_name, sizeof_block);
+    PyOS_snprintf(buf2, sizeof(buf2),
+                  "%48s ", buf1);
+    (void)printone(out, buf2, num_blocks * sizeof_block);
+}
+

@@ -294,15 +294,19 @@ _PyImport_Fini(void)
 void
 _PyImport_Fini2(void)
 {
+#if PY_DEBUGGING_FEATURES
     /* Use the same memory allocator than PyImport_ExtendInittab(). */
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     /* Free memory allocated by PyImport_ExtendInittab() */
     PyMem_RawFree(inittab_copy);
     inittab_copy = NULL;
 
+#if PY_DEBUGGING_FEATURES
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 }
 
 /* Helper for sys */
@@ -2408,10 +2412,12 @@ PyImport_ExtendInittab(struct _inittab *newtab)
     for (i = 0; PyImport_Inittab[i].name != NULL; i++)
         ;
 
+#if PY_DEBUGGING_FEATURES
     /* Force default raw memory allocator to get a known allocator to be able
        to release the memory in _PyImport_Fini2() */
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     /* Allocate new memory for the combined table */
     p = NULL;
@@ -2433,7 +2439,9 @@ PyImport_ExtendInittab(struct _inittab *newtab)
     PyImport_Inittab = inittab_copy = p;
 
 done:
+#if PY_DEBUGGING_FEATURES
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
     return res;
 }
 

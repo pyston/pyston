@@ -22,6 +22,7 @@ _Py_IDENTIFIER(__dir__);
 _Py_IDENTIFIER(__isabstractmethod__);
 
 
+#if PY_DEBUGGING_FEATURES
 int
 _PyObject_CheckConsistency(PyObject *op, int check_content)
 {
@@ -44,6 +45,7 @@ _PyObject_CheckConsistency(PyObject *op, int check_content)
 
 #undef CHECK
 }
+#endif
 
 
 #ifdef Py_REF_DEBUG
@@ -449,6 +451,7 @@ _Py_BreakPoint(void)
 }
 
 
+#if PY_DEBUGGING_FEATURES
 /* Heuristic checking if the object memory is uninitialized or deallocated.
    Rely on the debug hooks on Python memory allocators:
    see _PyMem_IsPtrFreed().
@@ -473,6 +476,7 @@ _PyObject_IsFreed(PyObject *op)
 #endif
     return 0;
 }
+#endif
 
 
 /* For debugging convenience.  See Misc/gdbinit for some useful gdb hooks */

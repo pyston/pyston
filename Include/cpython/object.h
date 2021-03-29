@@ -325,7 +325,11 @@ struct _Py_Identifier;
 PyAPI_FUNC(int) PyObject_Print(PyObject *, FILE *, int);
 PyAPI_FUNC(void) _Py_BreakPoint(void);
 PyAPI_FUNC(void) _PyObject_Dump(PyObject *);
+#if !PY_DEBUGGING_FEATURES
+#define _PyObject_IsFreed(x) (0)
+#else
 PyAPI_FUNC(int) _PyObject_IsFreed(PyObject *);
+#endif
 
 PyAPI_FUNC(int) _PyObject_IsAbstract(PyObject *);
 PyAPI_FUNC(PyObject *) _PyObject_GetAttrId(PyObject *, struct _Py_Identifier *);
@@ -471,6 +475,9 @@ PyAPI_FUNC(void) _PyObject_AssertFailed(
     int line,
     const char *function);
 
+#if !PY_DEBUGGING_FEATURES
+#define _PyObject_CheckConsistency(op, check_content) (1)
+#else
 /* Check if an object is consistent. For example, ensure that the reference
    counter is greater than or equal to 1, and ensure that ob_type is not NULL.
 
@@ -485,6 +492,7 @@ PyAPI_FUNC(void) _PyObject_AssertFailed(
 PyAPI_FUNC(int) _PyObject_CheckConsistency(
     PyObject *op,
     int check_content);
+#endif
 
 #ifdef __cplusplus
 }

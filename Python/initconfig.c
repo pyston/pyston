@@ -443,11 +443,13 @@ Py_SetStandardStreamEncoding(const char *encoding, const char *errors)
 
     int res = 0;
 
+#if PY_DEBUGGING_FEATURES
     /* Py_SetStandardStreamEncoding() can be called before Py_Initialize(),
        but Py_Initialize() can change the allocator. Use a known allocator
        to be able to release the memory later. */
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     /* Can't call PyErr_NoMemory() on errors, as Python hasn't been
      * initialised yet.
@@ -482,7 +484,9 @@ Py_SetStandardStreamEncoding(const char *encoding, const char *errors)
 #endif
 
 done:
+#if PY_DEBUGGING_FEATURES
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     return res;
 }
@@ -491,9 +495,11 @@ done:
 void
 _Py_ClearStandardStreamEncoding(void)
 {
+#if PY_DEBUGGING_FEATURES
     /* Use the same allocator than Py_SetStandardStreamEncoding() */
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     /* We won't need them anymore. */
     if (_Py_StandardStreamEncoding) {
@@ -505,7 +511,9 @@ _Py_ClearStandardStreamEncoding(void)
         _Py_StandardStreamErrors = NULL;
     }
 
+#if PY_DEBUGGING_FEATURES
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 }
 
 
@@ -518,12 +526,16 @@ static PyWideStringList orig_argv = {.length = 0, .items = NULL};
 void
 _Py_ClearArgcArgv(void)
 {
+#if PY_DEBUGGING_FEATURES
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     _PyWideStringList_Clear(&orig_argv);
 
+#if PY_DEBUGGING_FEATURES
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 }
 
 
@@ -533,12 +545,16 @@ _Py_SetArgcArgv(Py_ssize_t argc, wchar_t * const *argv)
     const PyWideStringList argv_list = {.length = argc, .items = (wchar_t **)argv};
     int res;
 
+#if PY_DEBUGGING_FEATURES
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     res = _PyWideStringList_Copy(&orig_argv, &argv_list);
 
+#if PY_DEBUGGING_FEATURES
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
     return res;
 }
 

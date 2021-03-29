@@ -25,7 +25,7 @@ PyAPI_FUNC(char *) _PyMem_Strdup(const char *str);
 /* wcsdup() using PyMem_RawMalloc() */
 PyAPI_FUNC(wchar_t*) _PyMem_RawWcsdup(const wchar_t *str);
 
-
+#if PY_DEBUGGING_FEATURES
 typedef enum {
     /* PyMem_RawMalloc(), PyMem_RawRealloc() and PyMem_RawFree() */
     PYMEM_DOMAIN_RAW,
@@ -102,6 +102,7 @@ PyAPI_FUNC(void) PyMem_SetAllocator(PyMemAllocatorDomain domain,
 
    The function does nothing if Python is not compiled is debug mode. */
 PyAPI_FUNC(void) PyMem_SetupDebugHooks(void);
+#endif
 
 #ifdef __cplusplus
 }

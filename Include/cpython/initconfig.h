@@ -115,9 +115,11 @@ typedef struct {
 
     int dev_mode;           /* Development mode. PYTHONDEVMODE, -X dev */
 
+#if PY_DEBUGGING_FEATURES
     /* Memory allocator: PYTHONMALLOC env var.
        See PyMemAllocatorName for valid values. */
     int allocator;
+#endif
 } PyPreConfig;
 
 PyAPI_FUNC(void) PyPreConfig_InitPythonConfig(PyPreConfig *config);

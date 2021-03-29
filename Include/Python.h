@@ -8,6 +8,10 @@
 #include "pyconfig.h"
 #include "pymacconfig.h"
 
+#if !PY_DEBUGGING_FEATURES
+#undef WITH_PYMALLOC
+#endif
+
 #include <limits.h>
 
 #ifndef UCHAR_MAX

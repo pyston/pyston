@@ -99,7 +99,7 @@ pyston/build/cpython_stockdbg_build/Makefile: $(MAKEFILE_DEPENDENCIES)
 	mkdir -p pyston/build/cpython_stockdbg_build
 	cd pyston/build/cpython_stockdbg_build; CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=/usr --disable-pyston --with-pydebug
 
-pyston/build/cpython_bc_build/pyston: pyston/build/cpython_bc_build/Makefile $(filter-out $(wildcard Python/aot*.c),$(wildcard */*.c))
+pyston/build/cpython_bc_build/pyston: pyston/build/cpython_bc_build/Makefile $(filter-out $(wildcard Modules/*.c) $(wildcard Python/aot*.c),$(wildcard */*.c))
 	cd pyston/build/cpython_bc_build; WRAPPER_REALCC=$(realpath $(CLANG)) WRAPPER_OUTPUT_PREFIX=../cpython_bc $(MAKE)
 	touch $@ # some cpython .c files don't affect the python executable
 pyston/build/cpython_unopt_build/pyston: pyston/build/cpython_unopt_build/Makefile $(wildcard */*.c) pyston/aot/aot_all.bc
@@ -201,9 +201,9 @@ find_similar_traces: $(patsubst %.bc,%.normalized_ll,$(wildcard pyston/aot/*.bc)
 pyston/aot/aot_pre_trace.c: pyston/aot/aot_gen.py pyston/build/cpython_bc_install/usr/bin/python3
 	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../build/Release/nitrous/:`pwd`/../build/Release/pystol/" ../build/cpython_bc_install/usr/bin/python3 aot_gen.py --action=pretrace
 pyston/aot/aot_pre_trace.bc: pyston/aot/aot_pre_trace.c
-	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $< -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/ -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/internal/ -Ipyston/nitrous/ -emit-llvm -c -o $@
+	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $< -Ipyston/build/cpython_bc_install/usr/include/pyston3.8o/ -Ipyston/build/cpython_bc_install/usr/include/pyston3.8o/internal/ -Ipyston/nitrous/ -emit-llvm -c -o $@
 pyston/aot/aot_pre_trace.so: pyston/aot/aot_pre_trace.c pyston/build/Release/nitrous/libinterp.so
-	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $< -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/ -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/internal/ -Ipyston/nitrous/ -shared -Lpyston/build/Release/nitrous -linterp -o $@
+	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $< -Ipyston/build/cpython_bc_install/usr/include/pyston3.8o/ -Ipyston/build/cpython_bc_install/usr/include/pyston3.8o/internal/ -Ipyston/nitrous/ -shared -Lpyston/build/Release/nitrous -linterp -o $@
 
 pyston/aot/all.bc: pyston/build/cpython_bc_build/pyston $(LLVM_TOOLS) pyston/aot/aot_pre_trace.bc
 	pyston/build/Release/llvm/bin/llvm-link $(filter-out %_testembed.o.bc %frozenmain.o.bc pyston/build/cpython_bc/Modules/%,$(wildcard pyston/build/cpython_bc/*/*.bc)) pyston/build/cpython_bc/Modules/gcmodule.o.bc pyston/build/cpython_bc/Modules/getpath.o.bc pyston/build/cpython_bc/Modules/main.o.bc pyston/build/cpython_bc/Modules/config.o.bc pyston/aot/aot_pre_trace.bc -o=$@
