@@ -533,7 +533,7 @@ complex_divmod(PyObject *v, PyObject *w)
     return NULL;
 }
 
-static PyObject *
+/*static*/ PyObject *
 complex_pow(PyObject *v, PyObject *w, PyObject *z)
 {
     Py_complex p;
