@@ -23,8 +23,8 @@
 
 #define LOCFOR(type, name) Location(offsetof(type, name), sizeof(type::name))
 
-#define MARKCONST(ptr, size) addJitConst((ptr), (size), JIT_IS_CONST)
-#define MARKNOTZERO(ptr, size) addJitConst((ptr), (size), JIT_NOT_ZERO)
+#define MARKCONST(ptr, size) addJitConst((char*)(ptr), (size), JIT_IS_CONST)
+#define MARKNOTZERO(ptr, size) addJitConst((char*)(ptr), (size), JIT_NOT_ZERO)
 
 using namespace llvm;
 using namespace nitrous;
@@ -1004,16 +1004,77 @@ void pystolAddConstObj(PyObject* x) {
 }
 
 void pystolAddConstType(PyTypeObject* x) {
-    int offset = offsetof(PyObject, ob_type); /* skip refcount */
-    MARKNOTZERO((char*)x, offset); /* refcount is never zero but not const! */
-    MARKCONST(((char*)x) + offset, sizeof(*x) - offset);
-    if (x->tp_as_number)
-        MARKCONST(((char*)x->tp_as_number), sizeof(*x->tp_as_number));
-    if (x->tp_as_sequence)
-        MARKCONST(((char*)x->tp_as_sequence), sizeof(*x->tp_as_sequence));
-    if (x->tp_as_mapping)
-        MARKCONST(((char*)x->tp_as_mapping), sizeof(*x->tp_as_mapping));
+    // refcount is never zero but not const!
+    MARKNOTZERO(&x->ob_base.ob_base.ob_refcnt, sizeof(x->ob_base.ob_base.ob_refcnt));
 
-    addImmortalTuple(x->tp_mro);
+    MARKCONST(&x->tp_name, sizeof(x->tp_name));
+    MARKCONST(&x->tp_basicsize, sizeof(x->tp_basicsize));
+    MARKCONST(&x->tp_itemsize, sizeof(x->tp_itemsize));
+    MARKCONST(&x->tp_dealloc, sizeof(x->tp_dealloc));
+    MARKCONST(&x->tp_vectorcall_offset, sizeof(x->tp_vectorcall_offset));
+    MARKCONST(&x->tp_getattr, sizeof(x->tp_getattr));
+    MARKCONST(&x->tp_setattr, sizeof(x->tp_setattr));
+    MARKCONST(&x->tp_as_async, sizeof(x->tp_as_async));
+    if (x->tp_as_async)
+        MARKCONST(x->tp_as_async, sizeof(*x->tp_as_async));
+    MARKCONST(&x->tp_repr, sizeof(x->tp_repr));
+    MARKCONST(&x->tp_as_number, sizeof(x->tp_as_number));
+    if (x->tp_as_number)
+        MARKCONST(x->tp_as_number, sizeof(*x->tp_as_number));
+    MARKCONST(&x->tp_as_sequence, sizeof(x->tp_as_sequence));
+    if (x->tp_as_sequence)
+        MARKCONST(x->tp_as_sequence, sizeof(*x->tp_as_sequence));
+    MARKCONST(&x->tp_as_mapping, sizeof(x->tp_as_mapping));
+    if (x->tp_as_mapping)
+        MARKCONST(x->tp_as_mapping, sizeof(*x->tp_as_mapping));
+    MARKCONST(&x->tp_hash, sizeof(x->tp_hash));
+    MARKCONST(&x->tp_call, sizeof(x->tp_call));
+    MARKCONST(&x->tp_str, sizeof(x->tp_str));
+    MARKCONST(&x->tp_getattro, sizeof(x->tp_getattro));
+    MARKCONST(&x->tp_setattro, sizeof(x->tp_setattro));
+    MARKCONST(&x->tp_as_buffer, sizeof(x->tp_as_buffer));
+    if (x->tp_as_buffer)
+        MARKCONST(x->tp_as_buffer, sizeof(*x->tp_as_buffer));
+    MARKCONST(&x->tp_flags, sizeof(x->tp_flags)); // not sure if this should be const
+    MARKCONST(&x->tp_doc, sizeof(x->tp_doc));
+    MARKCONST(&x->tp_traverse, sizeof(x->tp_traverse));
+    MARKCONST(&x->tp_clear, sizeof(x->tp_clear));
+    MARKCONST(&x->tp_richcompare, sizeof(x->tp_richcompare));
+    MARKCONST(&x->tp_weaklistoffset, sizeof(x->tp_weaklistoffset));
+    MARKCONST(&x->tp_iter, sizeof(x->tp_iter));
+    MARKCONST(&x->tp_iternext, sizeof(x->tp_iternext));
+    MARKCONST(&x->tp_methods, sizeof(x->tp_methods));
+    MARKCONST(&x->tp_members, sizeof(x->tp_members));
+    MARKCONST(&x->tp_getset, sizeof(x->tp_getset));
+    MARKCONST(&x->tp_base, sizeof(x->tp_base)); // not sure if this should be const
+
+    // not const in AOT mode:
+    // PyObject *tp_dict;
+
+    MARKCONST(&x->tp_descr_get, sizeof(x->tp_descr_get));
+    MARKCONST(&x->tp_descr_set, sizeof(x->tp_descr_set));
+    MARKCONST(&x->tp_dictoffset, sizeof(x->tp_dictoffset));
+    MARKCONST(&x->tp_init, sizeof(x->tp_init));
+    MARKCONST(&x->tp_alloc, sizeof(x->tp_alloc));
+    MARKCONST(&x->tp_new, sizeof(x->tp_new));
+    MARKCONST(&x->tp_free, sizeof(x->tp_free));
+    MARKCONST(&x->tp_is_gc, sizeof(x->tp_is_gc));
+
+    // not const in AOT mode:
+    // PyObject *tp_bases;
+    // PyObject *tp_mro;
+    // PyObject *tp_cache;
+    // PyObject *tp_subclasses;
+    // PyObject *tp_weaklist;
+
+    MARKCONST(&x->tp_del, sizeof(x->tp_del));
+
+    // not const in AOT mode:
+    // unsigned long tp_version_tag;
+
+    MARKCONST(&x->tp_finalize, sizeof(x->tp_finalize));
+
+    // not const in AOT mode:
+    // addImmortalTuple(x->tp_mro);
 }
 }
