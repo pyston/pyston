@@ -347,8 +347,7 @@ public:
         if (function_name == "long_and" || function_name == "long_xor" || function_name == "long_or")
             return false;
 
-        // can't find ternary_op
-        if (function_name == "PyNumber_Power" || function_name == "PyNumber_InPlacePower")
+        if (function_name == "complex_pow")
             return false;
 
         // can't find this function

@@ -147,8 +147,15 @@ class NormalHandler(Handler):
             print(f"{self._get_ret_type()} {name}({', '.join(parameters)})", "{", file=f)
             print(f"  if (unlikely(!({signature.getGuard(arg_names)})))", "{", file=f)
             print(f"    SET_JIT_AOT_FUNC({unspecialized_name});", file=f)
-            print(f"    return {unspecialized_name}({pass_args});", file=f)
+            print(f"    PyObject* ret = {unspecialized_name}({pass_args});", file=f)
+            # this makes sure the compiler is not merging the two calls into a single one
+            print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
+            print(f"    return ret;",  file=f)
             print("  }", file=f)
+
+            for arg in arg_names:
+                print(f"  __builtin_assume({arg} != NULL);", file=f)
+
             print(f"  return {unspecialized_name}({pass_args});", file=f)
             print("}", file=f)
 
@@ -233,12 +240,18 @@ class CallableHandler(Handler):
                 f"PyObject* {name}(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg)", "{", file=f)
             print(f"  if (unlikely(oparg != {nargs-1}))", "{" , file=f)
             print(f"    SET_JIT_AOT_FUNC({self.case.unspecialized_name});", file=f)
-            print(f"    return {self.case.unspecialized_name}(tstate, pp_stack, oparg);", file=f)
+            print(f"    PyObject* ret = {self.case.unspecialized_name}(tstate, pp_stack, oparg);", file=f)
+            # this makes sure the compiler is not merging the calls into a single one
+            print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
+            print(f"    return ret;", file=f)
             print("  }", file=f)
             print(f"  PyObject* f = *((*pp_stack) - oparg - 1);", file=f)
             print(f"  if (unlikely(!({signature.getGuard(arg_names)})))", "{", file=f)
             print(f"    SET_JIT_AOT_FUNC({self.case.unspecialized_name});", file=f)
-            print(f"    return {self.case.unspecialized_name}(tstate, pp_stack, oparg);", file=f)
+            print(f"    PyObject* ret = {self.case.unspecialized_name}(tstate, pp_stack, oparg);", file=f)
+            # this makes sure the compiler is not merging the calls into a single one
+            print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
+            print(f"    return ret;", file=f)
             print("  }", file=f)
             print(f"  return {self.case.unspecialized_name}(tstate, pp_stack, oparg);", file=f)
             print("}", file=f)
