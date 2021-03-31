@@ -15,6 +15,7 @@ PyAPI_FUNC(int) _PyObject_DebugMallocStats(FILE *out);
 #endif
 
 
+#if PY_DEBUGGING_FEATURES
 typedef struct {
     /* user context passed as the first argument to the 2 functions */
     void *ctx;
@@ -31,6 +32,7 @@ PyAPI_FUNC(void) PyObject_GetArenaAllocator(PyObjectArenaAllocator *allocator);
 
 /* Set the arena allocator. */
 PyAPI_FUNC(void) PyObject_SetArenaAllocator(PyObjectArenaAllocator *allocator);
+#endif
 
 
 PyAPI_FUNC(Py_ssize_t) _PyGC_CollectNoFail(void);

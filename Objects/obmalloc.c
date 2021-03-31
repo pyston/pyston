@@ -437,6 +437,7 @@ _PyMem_GetCurrentAllocatorName(void)
 #undef PYDBGOBJ_ALLOC
 
 
+#if PY_DEBUGGING_FEATURES
 static PyObjectArenaAllocator _PyObject_Arena = {NULL,
 #ifdef MS_WINDOWS
     _PyObject_ArenaVirtualAlloc, _PyObject_ArenaVirtualFree
@@ -446,6 +447,7 @@ static PyObjectArenaAllocator _PyObject_Arena = {NULL,
     _PyObject_ArenaMalloc, _PyObject_ArenaFree
 #endif
     };
+#endif
 
 #ifdef WITH_PYMALLOC
 #if PY_DEBUGGING_FEATURES
@@ -558,7 +560,6 @@ PyMem_SetAllocator(PyMemAllocatorDomain domain, PyMemAllocatorEx *allocator)
     /* ignore unknown domain */
     }
 }
-#endif
 
 void
 PyObject_GetArenaAllocator(PyObjectArenaAllocator *allocator)
@@ -571,6 +572,7 @@ PyObject_SetArenaAllocator(PyObjectArenaAllocator *allocator)
 {
     _PyObject_Arena = *allocator;
 }
+#endif
 
 void *
 PyMem_RawMalloc(size_t size)
@@ -1344,7 +1346,11 @@ new_arena(void)
     arenaobj = unused_arena_objects;
     unused_arena_objects = arenaobj->nextarena;
     assert(arenaobj->address == 0);
+#if PY_DEBUGGING_FEATURES
     address = _PyObject_Arena.alloc(_PyObject_Arena.ctx, ARENA_SIZE);
+#else
+    address = _PyObject_ArenaMmap(NULL, ARENA_SIZE);
+#endif
     if (address == NULL) {
         /* The allocation failed: return NULL after putting the
          * arenaobj back.
@@ -1861,8 +1867,13 @@ pymalloc_free(void *ctx, void *p)
         unused_arena_objects = ao;
 
         /* Free the entire arena. */
+#if PY_DEBUGGING_FEATURES
         _PyObject_Arena.free(_PyObject_Arena.ctx,
                              (void *)ao->address, ARENA_SIZE);
+#else
+        _PyObject_ArenaMunmap(NULL,
+                             (void *)ao->address, ARENA_SIZE);
+#endif
         ao->address = 0;                        /* mark unassociated */
         --narenas_currently_allocated;
 
