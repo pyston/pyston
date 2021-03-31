@@ -259,6 +259,8 @@ class CAPITest(unittest.TestCase):
         _opcache_thresh = int(os.environ["OPCACHE_MIN_RUNS"])
     else:
         _opcache_thresh = int(os.environ.get("JIT_MIN_RUNS", "2000")) / 2
+
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables memory hooks")
     @unittest.skipIf(_opcache_thresh < 200, "We might allocate an opcache in the middle of this test")
     def test_set_nomemory(self):
         code = """if 1:
@@ -668,6 +670,7 @@ class Test_testcapi(unittest.TestCase):
                     if name.startswith('test_') and not name.endswith('_code'))
 
 
+@unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables memory hooks")
 class PyMemDebugTests(unittest.TestCase):
     PYTHONMALLOC = 'debug'
     # '0x04c06e0' or '04C06E0'

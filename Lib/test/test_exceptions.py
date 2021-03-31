@@ -1062,6 +1062,7 @@ class ExceptionTests(unittest.TestCase):
                       b'while normalizing an exception', err)
         self.assertIn(b'Done.', out)
 
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables memory hooks")
     @cpython_only
     def test_recursion_normalizing_with_no_memory(self):
         # Issue #30697. Test that in the abort that occurs when there is no
@@ -1229,6 +1230,7 @@ class ExceptionTests(unittest.TestCase):
                     self.assertIn("test message", report)
                 self.assertTrue(report.endswith("\n"))
 
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables memory hooks")
     @cpython_only
     def test_memory_error_in_PyErr_PrintEx(self):
         code = """if 1:

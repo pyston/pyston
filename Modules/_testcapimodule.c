@@ -3675,6 +3675,7 @@ test_pymem_alloc0(PyObject *self, PyObject *Py_UNUSED(ignored))
     Py_RETURN_NONE;
 }
 
+#if PY_DEBUGGING_FEATURES
 typedef struct {
     PyMemAllocatorEx alloc;
 
@@ -3992,6 +3993,7 @@ remove_mem_hooks(PyObject *self, PyObject *Py_UNUSED(ignored))
     fm_remove_hooks();
     Py_RETURN_NONE;
 }
+#endif // PY_DEBUGGING_FEATURES
 
 PyDoc_STRVAR(docstring_empty,
 ""
@@ -4444,6 +4446,7 @@ test_PyTime_AsMicroseconds(PyObject *self, PyObject *args)
     return _PyTime_AsNanosecondsObject(ms);
 }
 
+#if PY_DEBUGGING_FEATURES
 static PyObject*
 get_recursion_depth(PyObject *self, PyObject *args)
 {
@@ -4592,7 +4595,6 @@ pyobject_malloc_without_gil(PyObject *self, PyObject *args)
     Py_RETURN_NONE;
 }
 
-#if PY_DEBUGGING_FEATURES
 static PyObject *
 tracemalloc_track(PyObject *self, PyObject *args)
 {
@@ -5252,6 +5254,7 @@ static PyMethodDef TestMethods[] = {
     {"with_tp_del",             with_tp_del,                     METH_VARARGS},
     {"create_cfunction",        create_cfunction,                METH_NOARGS},
     {"test_pymem_alloc0",       test_pymem_alloc0,               METH_NOARGS},
+#if PY_DEBUGGING_FEATURES
     {"test_pymem_setrawallocators",test_pymem_setrawallocators,  METH_NOARGS},
     {"test_pymem_setallocators",test_pymem_setallocators,        METH_NOARGS},
     {"test_pyobject_setallocators",test_pyobject_setallocators,  METH_NOARGS},
@@ -5259,6 +5262,7 @@ static PyMethodDef TestMethods[] = {
      PyDoc_STR("set_nomemory(start:int, stop:int = 0)")},
     {"remove_mem_hooks",        remove_mem_hooks,                METH_NOARGS,
      PyDoc_STR("Remove memory hooks.")},
+#endif
     {"no_docstring",
         (PyCFunction)test_with_docstring, METH_NOARGS},
     {"docstring_empty",
@@ -5312,6 +5316,7 @@ static PyMethodDef TestMethods[] = {
 #endif
     {"PyTime_AsMilliseconds", test_PyTime_AsMilliseconds, METH_VARARGS},
     {"PyTime_AsMicroseconds", test_PyTime_AsMicroseconds, METH_VARARGS},
+#if PY_DEBUGGING_FEATURES
     {"get_recursion_depth", get_recursion_depth, METH_NOARGS},
     {"pymem_buffer_overflow", pymem_buffer_overflow, METH_NOARGS},
     {"pymem_api_misuse", pymem_api_misuse, METH_NOARGS},
@@ -5322,7 +5327,6 @@ static PyMethodDef TestMethods[] = {
     {"check_pyobject_forbidden_bytes_is_freed", check_pyobject_forbidden_bytes_is_freed, METH_NOARGS},
     {"check_pyobject_freed_is_freed", check_pyobject_freed_is_freed, METH_NOARGS},
     {"pyobject_malloc_without_gil", pyobject_malloc_without_gil, METH_NOARGS},
-#if PY_DEBUGGING_FEATURES
     {"tracemalloc_track", tracemalloc_track, METH_VARARGS},
     {"tracemalloc_untrack", tracemalloc_untrack, METH_VARARGS},
     {"tracemalloc_get_traceback", tracemalloc_get_traceback, METH_VARARGS},

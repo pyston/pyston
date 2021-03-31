@@ -14,6 +14,7 @@ extern void _PyMem_DumpTraceback(int fd, const void *ptr);
 #define uint    unsigned int    /* assuming >= 16 bits */
 
 /* Forward declaration */
+#if PY_DEBUGGING_FEATURES
 static void* _PyMem_DebugRawMalloc(void *ctx, size_t size);
 static void* _PyMem_DebugRawCalloc(void *ctx, size_t nelem, size_t elsize);
 static void* _PyMem_DebugRawRealloc(void *ctx, void *ptr, size_t size);
@@ -23,6 +24,7 @@ static void* _PyMem_DebugMalloc(void *ctx, size_t size);
 static void* _PyMem_DebugCalloc(void *ctx, size_t nelem, size_t elsize);
 static void* _PyMem_DebugRealloc(void *ctx, void *ptr, size_t size);
 static void _PyMem_DebugFree(void *ctx, void *p);
+#endif
 
 static void _PyObject_DebugDumpAddress(const void *p);
 static void _PyMem_DebugCheckAddress(char api_id, const void *p);
@@ -177,6 +179,7 @@ _PyObject_ArenaFree(void *ctx, void *ptr, size_t size)
 }
 #endif
 
+#if PY_DEBUGGING_FEATURES
 #define MALLOC_ALLOC {NULL, _PyMem_RawMalloc, _PyMem_RawCalloc, _PyMem_RawRealloc, _PyMem_RawFree}
 #ifdef WITH_PYMALLOC
 #  define PYMALLOC_ALLOC {NULL, _PyObject_Malloc, _PyObject_Calloc, _PyObject_Realloc, _PyObject_Free}
@@ -421,6 +424,7 @@ _PyMem_GetCurrentAllocatorName(void)
     }
     return NULL;
 }
+#endif
 
 
 #undef MALLOC_ALLOC
@@ -444,25 +448,32 @@ static PyObjectArenaAllocator _PyObject_Arena = {NULL,
     };
 
 #ifdef WITH_PYMALLOC
+#if PY_DEBUGGING_FEATURES
 static int
 _PyMem_DebugEnabled(void)
 {
     return (_PyObject.malloc == _PyMem_DebugMalloc);
 }
+#endif
 
 static int
 _PyMem_PymallocEnabled(void)
 {
+#if PY_DEBUGGING_FEATURES
     if (_PyMem_DebugEnabled()) {
         return (_PyMem_Debug.obj.alloc.malloc == _PyObject_Malloc);
     }
     else {
         return (_PyObject.malloc == _PyObject_Malloc);
     }
+#else
+    return 1;
+#endif
 }
 #endif
 
 
+#if PY_DEBUGGING_FEATURES
 static void
 _PyMem_SetupDebugHooksDomain(PyMemAllocatorDomain domain)
 {
@@ -547,6 +558,7 @@ PyMem_SetAllocator(PyMemAllocatorDomain domain, PyMemAllocatorEx *allocator)
     /* ignore unknown domain */
     }
 }
+#endif
 
 void
 PyObject_GetArenaAllocator(PyObjectArenaAllocator *allocator)
@@ -571,7 +583,11 @@ PyMem_RawMalloc(size_t size)
      */
     if (size > (size_t)PY_SSIZE_T_MAX)
         return NULL;
+#if PY_DEBUGGING_FEATURES
     return _PyMem_Raw.malloc(_PyMem_Raw.ctx, size);
+#else
+    return _PyMem_RawMalloc(NULL, size);
+#endif
 }
 
 void *
@@ -580,7 +596,11 @@ PyMem_RawCalloc(size_t nelem, size_t elsize)
     /* see PyMem_RawMalloc() */
     if (elsize != 0 && nelem > (size_t)PY_SSIZE_T_MAX / elsize)
         return NULL;
+#if PY_DEBUGGING_FEATURES
     return _PyMem_Raw.calloc(_PyMem_Raw.ctx, nelem, elsize);
+#else
+    return _PyMem_RawCalloc(NULL, nelem, elsize);
+#endif
 }
 
 void*
@@ -589,12 +609,20 @@ PyMem_RawRealloc(void *ptr, size_t new_size)
     /* see PyMem_RawMalloc() */
     if (new_size > (size_t)PY_SSIZE_T_MAX)
         return NULL;
+#if PY_DEBUGGING_FEATURES
     return _PyMem_Raw.realloc(_PyMem_Raw.ctx, ptr, new_size);
+#else
+    return _PyMem_RawRealloc(NULL, ptr, new_size);
+#endif
 }
 
 void PyMem_RawFree(void *ptr)
 {
+#if PY_DEBUGGING_FEATURES
     _PyMem_Raw.free(_PyMem_Raw.ctx, ptr);
+#else
+    _PyMem_RawFree(NULL, ptr);
+#endif
 }
 
 
@@ -604,7 +632,11 @@ PyMem_Malloc(size_t size)
     /* see PyMem_RawMalloc() */
     if (size > (size_t)PY_SSIZE_T_MAX)
         return NULL;
+#if PY_DEBUGGING_FEATURES
     return _PyMem.malloc(_PyMem.ctx, size);
+#else
+    return _PyObject_Malloc(NULL, size);
+#endif
 }
 
 void *
@@ -613,7 +645,11 @@ PyMem_Calloc(size_t nelem, size_t elsize)
     /* see PyMem_RawMalloc() */
     if (elsize != 0 && nelem > (size_t)PY_SSIZE_T_MAX / elsize)
         return NULL;
+#if PY_DEBUGGING_FEATURES
     return _PyMem.calloc(_PyMem.ctx, nelem, elsize);
+#else
+    return _PyObject_Calloc(NULL, nelem, elsize);
+#endif
 }
 
 void *
@@ -622,13 +658,21 @@ PyMem_Realloc(void *ptr, size_t new_size)
     /* see PyMem_RawMalloc() */
     if (new_size > (size_t)PY_SSIZE_T_MAX)
         return NULL;
+#if PY_DEBUGGING_FEATURES
     return _PyMem.realloc(_PyMem.ctx, ptr, new_size);
+#else
+    return _PyObject_Realloc(NULL, ptr, new_size);
+#endif
 }
 
 void
 PyMem_Free(void *ptr)
 {
+#if PY_DEBUGGING_FEATURES
     _PyMem.free(_PyMem.ctx, ptr);
+#else
+    _PyObject_Free(NULL, ptr);
+#endif
 }
 
 
@@ -684,7 +728,11 @@ PyObject_Malloc(size_t size)
     /* see PyMem_RawMalloc() */
     if (size > (size_t)PY_SSIZE_T_MAX)
         return NULL;
+#if PY_DEBUGGING_FEATURES
     return _PyObject.malloc(_PyObject.ctx, size);
+#else
+    return _PyObject_Malloc(NULL, size);
+#endif
 }
 
 void *
@@ -693,7 +741,11 @@ PyObject_Calloc(size_t nelem, size_t elsize)
     /* see PyMem_RawMalloc() */
     if (elsize != 0 && nelem > (size_t)PY_SSIZE_T_MAX / elsize)
         return NULL;
+#if PY_DEBUGGING_FEATURES
     return _PyObject.calloc(_PyObject.ctx, nelem, elsize);
+#else
+    return _PyObject_Calloc(NULL, nelem, elsize);
+#endif
 }
 
 void *
@@ -702,13 +754,21 @@ PyObject_Realloc(void *ptr, size_t new_size)
     /* see PyMem_RawMalloc() */
     if (new_size > (size_t)PY_SSIZE_T_MAX)
         return NULL;
+#if PY_DEBUGGING_FEATURES
     return _PyObject.realloc(_PyObject.ctx, ptr, new_size);
+#else
+    return _PyObject_Realloc(NULL, ptr, new_size);
+#endif
 }
 
 void
 PyObject_Free(void *ptr)
 {
+#if PY_DEBUGGING_FEATURES
     _PyObject.free(_PyObject.ctx, ptr);
+#else
+    _PyObject_Free(NULL, ptr);
+#endif
 }
 
 
@@ -2060,6 +2120,7 @@ write_size_t(void *p, size_t n)
     }
 }
 
+#if PY_DEBUGGING_FEATURES
 /* Let S = sizeof(size_t).  The debug malloc asks for 4 * S extra bytes and
    fills them with useful stuff, here calling the underlying malloc's result p:
 
@@ -2495,6 +2556,7 @@ _PyObject_DebugDumpAddress(const void *p)
     _PyMem_DumpTraceback(fileno(stderr), p);
 #endif
 }
+#endif
 
 
 static size_t

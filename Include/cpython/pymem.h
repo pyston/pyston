@@ -42,14 +42,19 @@ typedef enum {
     PYMEM_ALLOCATOR_DEFAULT = 1,
     PYMEM_ALLOCATOR_DEBUG = 2,
     PYMEM_ALLOCATOR_MALLOC = 3,
+#if PY_DEBUGGING_FEATURES
     PYMEM_ALLOCATOR_MALLOC_DEBUG = 4,
+#endif
 #ifdef WITH_PYMALLOC
     PYMEM_ALLOCATOR_PYMALLOC = 5,
+#if PY_DEBUGGING_FEATURES
     PYMEM_ALLOCATOR_PYMALLOC_DEBUG = 6,
+#endif
 #endif
 } PyMemAllocatorName;
 
 
+#if PY_DEBUGGING_FEATURES
 typedef struct {
     /* user context passed as the first argument to the 4 functions */
     void *ctx;
@@ -102,6 +107,7 @@ PyAPI_FUNC(void) PyMem_SetAllocator(PyMemAllocatorDomain domain,
 
    The function does nothing if Python is not compiled is debug mode. */
 PyAPI_FUNC(void) PyMem_SetupDebugHooks(void);
+#endif
 
 #ifdef __cplusplus
 }

@@ -148,6 +148,7 @@ struct _gc_runtime_state {
 PyAPI_FUNC(void) _PyGC_Initialize(struct _gc_runtime_state *);
 
 
+#if PY_DEBUGGING_HOOKS
 /* Set the memory allocator of the specified domain to the default.
    Save the old allocator into *old_alloc if it's non-NULL.
    Return on success, or return -1 if the domain is unknown. */
@@ -196,6 +197,8 @@ static inline int _PyMem_IsPtrFreed(void *ptr)
 #  error "unknown pointer size"
 #endif
 }
+#endif
+#define _PyMem_IsPtrFreed(x) (0)
 
 PyAPI_FUNC(int) _PyMem_GetAllocatorName(
     const char *name,

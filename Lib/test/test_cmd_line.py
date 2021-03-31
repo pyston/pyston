@@ -605,20 +605,21 @@ class CmdLineTest(unittest.TestCase):
         out = self.run_xdev("-Werror", "-c", code)
         self.assertEqual(out, f"error::Warning {expected_filters}")
 
-        # Memory allocator debug hooks
-        try:
-            import _testcapi
-        except ImportError:
-            pass
-        else:
-            code = "import _testcapi; print(_testcapi.pymem_getallocatorsname())"
-            with support.SuppressCrashReport():
-                out = self.run_xdev("-c", code, check_exitcode=False)
-            if support.with_pymalloc():
-                alloc_name = "pymalloc_debug"
+        if not hasattr(sys, "pyston_version_info"):
+            # Memory allocator debug hooks
+            try:
+                import _testcapi
+            except ImportError:
+                pass
             else:
-                alloc_name = "malloc_debug"
-            self.assertEqual(out, alloc_name)
+                code = "import _testcapi; print(_testcapi.pymem_getallocatorsname())"
+                with support.SuppressCrashReport():
+                    out = self.run_xdev("-c", code, check_exitcode=False)
+                if support.with_pymalloc():
+                    alloc_name = "pymalloc_debug"
+                else:
+                    alloc_name = "malloc_debug"
+                self.assertEqual(out, alloc_name)
 
         # Faulthandler
         try:
@@ -688,6 +689,7 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(proc.stdout.rstrip(), name)
         self.assertEqual(proc.returncode, 0)
 
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables memory hooks")
     def test_pythonmalloc(self):
         # Test the PYTHONMALLOC environment variable
         pymalloc = support.with_pymalloc()
