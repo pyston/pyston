@@ -9,11 +9,11 @@ extern "C" {
 #if PY_DEBUGGING_FEATURES
 /* This function returns the number of allocated memory blocks, regardless of size */
 PyAPI_FUNC(Py_ssize_t) _Py_GetAllocatedBlocks(void);
-#endif
 
 /* Macros */
 #ifdef WITH_PYMALLOC
 PyAPI_FUNC(int) _PyObject_DebugMallocStats(FILE *out);
+#endif
 #endif
 
 

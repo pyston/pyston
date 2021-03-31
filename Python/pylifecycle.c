@@ -1383,10 +1383,12 @@ Py_FinalizeEx(void)
         _Py_PrintReferenceAddresses(stderr);
     }
 #endif /* Py_TRACE_REFS */
+#if PY_DEBUGGING_FEATURES
 #ifdef WITH_PYMALLOC
     if (malloc_stats) {
         _PyObject_DebugMallocStats(stderr);
     }
+#endif
 #endif
 
     call_ll_exitfuncs(runtime);
