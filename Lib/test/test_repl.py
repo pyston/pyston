@@ -38,6 +38,7 @@ def spawn_repl(*args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **kw):
 
 class TestInteractiveInterpreter(unittest.TestCase):
 
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables memory hooks")
     @cpython_only
     def test_no_memory(self):
         # Issue #30696: Fix the interactive interpreter looping endlessly when

@@ -40,8 +40,10 @@ pathconfig_clear(_PyPathConfig *config)
     /* _PyMem_SetDefaultAllocator() is needed to get a known memory allocator,
        since Py_SetPath(), Py_SetPythonHome() and Py_SetProgramName() can be
        called before Py_Initialize() which can changes the memory allocator. */
+#if PY_DEBUGGING_FEATURES
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
 #define CLEAR(ATTR) \
     do { \
@@ -61,7 +63,9 @@ pathconfig_clear(_PyPathConfig *config)
 
 #undef CLEAR
 
+#if PY_DEBUGGING_FEATURES
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 }
 
 
@@ -98,12 +102,16 @@ pathconfig_copy(_PyPathConfig *config, const _PyPathConfig *config2)
 void
 _PyPathConfig_ClearGlobal(void)
 {
+#if PY_DEBUGGING_FEATURES
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     pathconfig_clear(&_Py_path_config);
 
+#if PY_DEBUGGING_FEATURES
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 }
 
 
@@ -142,8 +150,10 @@ static PyStatus
 pathconfig_set_from_config(_PyPathConfig *pathconfig, const PyConfig *config)
 {
     PyStatus status;
+#if PY_DEBUGGING_FEATURES
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     if (config->module_search_paths_set) {
         PyMem_RawFree(pathconfig->module_search_path);
@@ -180,7 +190,9 @@ no_memory:
     status = _PyStatus_NO_MEMORY();
 
 done:
+#if PY_DEBUGGING_FEATURES
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
     return status;
 }
 
@@ -261,8 +273,10 @@ pathconfig_calculate(_PyPathConfig *pathconfig, const PyConfig *config)
 {
     PyStatus status;
 
+#if PY_DEBUGGING_FEATURES
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     status = pathconfig_copy(pathconfig, &_Py_path_config);
     if (_PyStatus_EXCEPTION(status)) {
@@ -282,7 +296,9 @@ pathconfig_calculate(_PyPathConfig *pathconfig, const PyConfig *config)
     }
 
 done:
+#if PY_DEBUGGING_FEATURES
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
     return status;
 }
 
@@ -447,8 +463,10 @@ Py_SetPath(const wchar_t *path)
         return;
     }
 
+#if PY_DEBUGGING_FEATURES
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     /* Getting the program full path calls pathconfig_global_init() */
     wchar_t *program_full_path = _PyMem_RawWcsdup(Py_GetProgramFullPath());
@@ -463,7 +481,9 @@ Py_SetPath(const wchar_t *path)
     _Py_path_config.exec_prefix = _PyMem_RawWcsdup(L"");
     _Py_path_config.module_search_path = _PyMem_RawWcsdup(path);
 
+#if PY_DEBUGGING_FEATURES
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     if (_Py_path_config.program_full_path == NULL
         || _Py_path_config.prefix == NULL
@@ -482,13 +502,17 @@ Py_SetPythonHome(const wchar_t *home)
         return;
     }
 
+#if PY_DEBUGGING_FEATURES
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     PyMem_RawFree(_Py_path_config.home);
     _Py_path_config.home = _PyMem_RawWcsdup(home);
 
+#if PY_DEBUGGING_FEATURES
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     if (_Py_path_config.home == NULL) {
         Py_FatalError("Py_SetPythonHome() failed: out of memory");
@@ -503,13 +527,17 @@ Py_SetProgramName(const wchar_t *program_name)
         return;
     }
 
+#if PY_DEBUGGING_FEATURES
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     PyMem_RawFree(_Py_path_config.program_name);
     _Py_path_config.program_name = _PyMem_RawWcsdup(program_name);
 
+#if PY_DEBUGGING_FEATURES
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     if (_Py_path_config.program_name == NULL) {
         Py_FatalError("Py_SetProgramName() failed: out of memory");
@@ -523,13 +551,17 @@ _Py_SetProgramFullPath(const wchar_t *program_full_path)
         return;
     }
 
+#if PY_DEBUGGING_FEATURES
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     PyMem_RawFree(_Py_path_config.program_full_path);
     _Py_path_config.program_full_path = _PyMem_RawWcsdup(program_full_path);
 
+#if PY_DEBUGGING_FEATURES
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     if (_Py_path_config.program_full_path == NULL) {
         Py_FatalError("_Py_SetProgramFullPath() failed: out of memory");

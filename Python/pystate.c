@@ -92,21 +92,27 @@ _PyRuntimeState_Init(_PyRuntimeState *runtime)
 {
     /* Force default allocator, since _PyRuntimeState_Fini() must
        use the same allocator than this function. */
+#if PY_DEBUGGING_FEATURES
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     PyStatus status = _PyRuntimeState_Init_impl(runtime);
 
+#if PY_DEBUGGING_FEATURES
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
     return status;
 }
 
 void
 _PyRuntimeState_Fini(_PyRuntimeState *runtime)
 {
+#if PY_DEBUGGING_FEATURES
     /* Force the allocator used by _PyRuntimeState_Init(). */
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     if (runtime->interpreters.mutex != NULL) {
         PyThread_free_lock(runtime->interpreters.mutex);
@@ -118,7 +124,9 @@ _PyRuntimeState_Fini(_PyRuntimeState *runtime)
         runtime->xidregistry.mutex = NULL;
     }
 
+#if PY_DEBUGGING_FEATURES
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 }
 
 /* This function is called from PyOS_AfterFork_Child to ensure that
@@ -131,16 +139,20 @@ _PyRuntimeState_ReInitThreads(_PyRuntimeState *runtime)
     // This was initially set in _PyRuntimeState_Init().
     runtime->main_thread = PyThread_get_thread_ident();
 
+#if PY_DEBUGGING_FEATURES
     /* Force default allocator, since _PyRuntimeState_Fini() must
        use the same allocator than this function. */
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     runtime->interpreters.mutex = PyThread_allocate_lock();
     runtime->interpreters.main->id_mutex = PyThread_allocate_lock();
     runtime->xidregistry.mutex = PyThread_allocate_lock();
 
+#if PY_DEBUGGING_FEATURES
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     if (runtime->interpreters.mutex == NULL) {
         Py_FatalError("Can't initialize lock for runtime interpreters");
@@ -173,14 +185,18 @@ _PyInterpreterState_Enable(_PyRuntimeState *runtime)
     /* Py_Finalize() calls _PyRuntimeState_Fini() which clears the mutex.
        Create a new mutex if needed. */
     if (interpreters->mutex == NULL) {
+#if PY_DEBUGGING_FEATURES
         /* Force default allocator, since _PyRuntimeState_Fini() must
            use the same allocator than this function. */
         PyMemAllocatorEx old_alloc;
         _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
         interpreters->mutex = PyThread_allocate_lock();
 
+#if PY_DEBUGGING_FEATURES
         PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
         if (interpreters->mutex == NULL) {
             return _PyStatus_ERR("Can't initialize threads for interpreter");
