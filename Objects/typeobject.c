@@ -6734,10 +6734,39 @@ slot_tp_getattro(PyObject *self, PyObject *name)
     return call_method(self, &PyId___getattribute__, stack, 1);
 }
 
+PyObject *
+wrapperdescr_call(PyWrapperDescrObject *descr, PyObject *args, PyObject *kwds);
+
 /* static */ PyObject *
 call_attribute(PyObject *self, PyObject *attr, PyObject *name)
 {
     PyObject *res, *descr = NULL;
+
+#if PYSTON_SPEEDUPS
+    if (Py_TYPE(attr) == &PyFunction_Type) {
+        // __getattr__ functions will usually be Python functions
+
+        PyObject* stack[] = { self, name };
+        res = _PyFunction_Vectorcall(attr, stack, 2, NULL);
+        return res;
+    } else if (Py_TYPE(attr) == &PyWrapperDescr_Type) {
+        // A special case is type.__getattribute__, which will get called for any metatype that
+        // defines __getattr__ (such as EnumMeta)
+        PyWrapperDescrObject* descr = (PyWrapperDescrObject*)attr;
+
+        // This fast-paths type_getattro
+        if (PyDescr_TYPE(descr) == &PyType_Type && descr->d_base->wrapper == wrap_binaryfunc && PyType_Check(self)) {
+            binaryfunc func = (binaryfunc)descr->d_wrapped;
+            return func(self, name);
+        }
+
+        PyObject* args = PyTuple_Pack2(self, name);
+        res = wrapperdescr_call(attr, args, NULL);
+        Py_DECREF(args);
+        return res;
+    }
+#endif
+
     descrgetfunc f = Py_TYPE(attr)->tp_descr_get;
 
     if (f != NULL) {

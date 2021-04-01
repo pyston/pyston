@@ -59,7 +59,12 @@ method_vectorcall(PyObject *method, PyObject *const *args,
         nargs += 1;
         PyObject *tmp = newargs[0];
         newargs[0] = self;
-        result = _PyObject_Vectorcall(func, newargs, nargs, kwnames);
+#if PYSTON_SPEEDUPS
+        if (Py_TYPE(func) == &PyFunction_Type)
+            result = _PyFunction_Vectorcall(func, newargs, nargs, kwnames);
+        else
+#endif
+            result = _PyObject_Vectorcall(func, newargs, nargs, kwnames);
         newargs[0] = tmp;
     }
     else {

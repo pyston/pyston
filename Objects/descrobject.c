@@ -485,7 +485,7 @@ wrapperdescr_raw_call(PyWrapperDescrObject *descr, PyObject *self,
     return (*wrapper)(self, args, descr->d_wrapped);
 }
 
-static PyObject *
+/* static */ PyObject *
 wrapperdescr_call(PyWrapperDescrObject *descr, PyObject *args, PyObject *kwds)
 {
     Py_ssize_t argc;
