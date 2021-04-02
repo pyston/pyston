@@ -48,7 +48,7 @@ def relpath(path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("aot_gen")
     parser.add_argument("--binary", default=relpath("build/unopt_env/bin/python"), help="The binary to test")
-    parser.add_argument("--target", default=relpath("python/benchmarks/run_benchmarks.py"), help="The script to run. can include arguments separated by spaces")
+    parser.add_argument("--target", default=relpath("run_profile_task.py"), help="The script to run. can include arguments separated by spaces")
     parser.add_argument("--function", default=[], action="append", help="The set of functions to evaluate. If empty, all samples are included; if non-empty, samples are only included if some function in the stack trace contains one of the specified functions (case-sensitive)")
     parser.add_argument("--from-cache", action="store_true", help="Whether to reuse the perf results from the previous run.  If not specified, this script will run the benchmarking target.  If given, the previous results will be reused.  This is useful for investigating multiple flamegraphs from the same data")
     parser.add_argument("--svg-viewer", default="google-chrome", help="SVG viewer. google-chrome is the only program I've found that supports interactive svgs")
