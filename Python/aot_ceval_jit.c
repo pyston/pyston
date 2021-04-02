@@ -1509,7 +1509,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 // instead jump to the slow path
                 | jz >1
                 emit_incref(Dst, res_idx);
-            } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
+            } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_DICT_LOCALDESCR) {
                 if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
                     | cmp_imm_mem [arg2 + offsetof(PyDictObject, ma_values)], 0
                     | je >1 // fail if dict->ma_values == NULL
@@ -1526,17 +1526,42 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 PyObject* r = la->u.value_cache.obj;
                 emit_mov_imm(Dst, res_idx, (unsigned long)r);
 
-                // In theory we could remove some of these checks, since we could prove that tp_descr_get wouldn't
-                // be able to change.  But we have to do that determination at cache-set time, because that's the
-                // only time we know that the cached value is alive.  So it's unclear if it's worth it, especially
-                // for the complexity.
-                if (la->guard_tp_descr_get) {
+                if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT_LOCALDESCR) {
+                    PyObject* descr = la->u.value_cache.obj;
                     | mov arg2, [res + offsetof(PyObject, ob_type)]
-                    | cmp_imm_mem [arg2 + offsetof(PyTypeObject, tp_descr_get)], 0
-                    | jne >1
+                    | mov arg2, [arg2 + offsetof(PyTypeObject, tp_descr_get)]
+                    | test arg2, arg2
+                    | jz >6
+
+                    | mov tmp_preserved_reg, arg1
+
+                    // res = descr->ob_type->tp_descr_get(descr, NULL, owner);
+                    | mov arg3, arg1
+                    | mov arg1, res
+                    | mov res, arg2
+                    emit_mov_imm(Dst, arg2_idx, 0);
+                    | call res
+
+                    | mov arg1, tmp_preserved_reg
+                    | jmp >7
+                    | 6:
+                    emit_incref(Dst, res_idx);
+                    | 7:
+                } else {
+
+                    // In theory we could remove some of these checks, since we could prove that tp_descr_get wouldn't
+                    // be able to change.  But we have to do that determination at cache-set time, because that's the
+                    // only time we know that the cached value is alive.  So it's unclear if it's worth it, especially
+                    // for the complexity.
+                    if (la->guard_tp_descr_get) {
+                        | mov arg2, [res + offsetof(PyObject, ob_type)]
+                        | cmp_imm_mem [arg2 + offsetof(PyTypeObject, tp_descr_get)], 0
+                        | jne >1
+                    }
+
+                    emit_incref(Dst, res_idx);
                 }
 
-                emit_incref(Dst, res_idx);
             } else if (la->cache_type == LA_CACHE_IDX_SPLIT_DICT) {
                 // arg4 = dict->ma_values
                 | mov arg4, [arg2 + offsetof(PyDictObject, ma_values)]

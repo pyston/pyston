@@ -923,6 +923,7 @@ PyObject* slot_tp_getattr_hook_simple(PyObject *self, PyObject *name);
 PyObject* slot_tp_getattr_hook_simple_not_found(PyObject *self, PyObject *name);
 PyObject* module_getattro(PyObject *_m, PyObject *name);
 PyObject* module_getattro_not_found(PyObject *_m, PyObject *name);
+PyObject* type_getattro(PyTypeObject *type, PyObject *name);
 
 PyObject* loadAttrCacheAttrNotFound(PyObject *owner, PyObject *name) {
     void* tp_getattro = Py_TYPE(owner)->tp_getattro;
@@ -933,6 +934,8 @@ PyObject* loadAttrCacheAttrNotFound(PyObject *owner, PyObject *name) {
         return slot_tp_getattr_hook_simple_not_found(owner, name);
     } else if (tp_getattro == module_getattro) {
         return module_getattro_not_found(owner, name);
+    } else if (tp_getattro == type_getattro) {
+        assert(PyErr_Occurred());
     } else {
         printf("loadAttrCacheAttrNotFound error this should never happen: %p\n", tp_getattro);
         abort();
@@ -952,6 +955,9 @@ int __attribute__((always_inline)) loadAttrCache(PyObject* owner, PyObject* name
 
     if (unlikely(Py_TYPE(owner)->tp_version_tag != la->type_ver))
         return -1;
+
+    if (Py_TYPE(owner)->tp_getattro == type_getattro)
+        __asm__ volatile ("nop");
 
     PyObject** dictptr = _PyObject_GetDictPtr(owner);
     if (meth_found)
@@ -974,7 +980,7 @@ int __attribute__((always_inline)) loadAttrCache(PyObject* owner, PyObject* name
         if (*res == NULL)
             return -1;
         Py_INCREF(*res);
-    } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT)
+    } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_DICT_LOCALDESCR)
     {
         if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
             if (la->u.value_cache.dict_ver != getSplitDictKeysVersionFromDictPtr(dictptr))
@@ -984,12 +990,22 @@ int __attribute__((always_inline)) loadAttrCache(PyObject* owner, PyObject* name
                 return -1;
         }
 
-        if (la->guard_tp_descr_get && Py_TYPE(la->u.value_cache.obj)->tp_descr_get != NULL)
-            return -1;
+        if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT_LOCALDESCR) {
+            PyObject* descr = la->u.value_cache.obj;
+            if (descr->ob_type->tp_descr_get)
+                *res = descr->ob_type->tp_descr_get(descr, NULL, owner);
+            else {
+                *res = descr;
+                Py_INCREF(*res);
+            }
+        } else {
+            if (la->guard_tp_descr_get && Py_TYPE(la->u.value_cache.obj)->tp_descr_get != NULL)
+                return -1;
 
-        *res = la->u.value_cache.obj;
-        assert(*res); // must be set because otherwise we would not have cached the value
-        Py_INCREF(*res);
+            *res = la->u.value_cache.obj;
+            assert(*res); // must be set because otherwise we would not have cached the value
+            Py_INCREF(*res);
+        }
     } else if (la->cache_type == LA_CACHE_IDX_SPLIT_DICT) {
         // check if this dict has the same keys as the cached one
         if (la->u.split_dict_cache.splitdict_keys_version != getSplitDictKeysVersionFromDictPtr(dictptr))
@@ -1002,7 +1018,7 @@ int __attribute__((always_inline)) loadAttrCache(PyObject* owner, PyObject* name
             *res = loadAttrCacheAttrNotFound(owner, name);
         else
             Py_INCREF(*res);
-    } else {
+    } else { // LA_CACHE_DATA_DESCR
         PyObject* descr = la->u.descr_cache.descr;
         if (unlikely(Py_TYPE(descr)->tp_version_tag != la->u.descr_cache.descr_type_ver))
             return -1;
@@ -1015,6 +1031,20 @@ int __attribute__((always_inline)) loadAttrCache(PyObject* owner, PyObject* name
     }
 
     co_opcache->num_failed = 0;
+
+#if 0 && Py_DEBUG
+    if (!(meth_found && la->meth_found)) {
+        PyObject* real = PyObject_GetAttr(owner, name);
+        if (real != res && !PyObject_RichCompareBool(real, *res, Py_EQ)) {
+        //if (*res != real) {
+            _PyObject_Dump(owner);
+            _PyObject_Dump(*res);
+            _PyObject_Dump(real);
+            abort();
+        }
+        Py_DECREF(real);
+    }
+#endif
 
 #if OPCACHE_STATS
     if (meth_found)
@@ -1047,8 +1077,10 @@ int __attribute__((always_inline)) setupLoadAttrCache(PyObject* obj, PyObject* n
         // We only cache the attribute if we find it via the PyObject_GenericGetAttr mechanism which means
         // we also support module_getattro and slot_tp_getattr_hook_simple because the lookup mechanism is only different when we can't find it. And we handle that part inside loadAttrCacheAttrNotFound
         // WARNING if you add support for a new method make sure to update loadAttrCacheAttrNotFound
-        if (tp_getattro != module_getattro && tp_getattro != slot_tp_getattr_hook_simple)
+        if (tp_getattro != module_getattro && tp_getattro != slot_tp_getattr_hook_simple && tp_getattro != type_getattro)
             return -1;
+        if (tp_getattro == type_getattro)
+            __asm__ volatile ("nop");
     }
 
     if (tp->tp_dict == NULL && PyType_Ready(tp) < 0)
@@ -1057,7 +1089,7 @@ int __attribute__((always_inline)) setupLoadAttrCache(PyObject* obj, PyObject* n
     descr = _PyType_Lookup(tp, name);
     if (descr != NULL) {
         // it's important that this function behaviour is the same as _PyObject_GetMethod because we use it to actually
-        // fetch the value and this function to check what behaviour the fatched value has regarding caching.
+        // fetch the value and this function to check what behaviour the fetched value has regarding caching.
         // This means that if tp_getattro != PyObject_GenericGetAttr we have to do the normal load attribute lookup
         // because _PyObject_GetMethod is only handling PyObject_GenericGetAttr (for non PyObject_GenericGetAttr would
         // return meth_found = 0 but this function would return 1.
@@ -1107,6 +1139,11 @@ int __attribute__((always_inline)) setupLoadAttrCache(PyObject* obj, PyObject* n
             if (descr)
                 return -1;
 
+            if (tp_getattro == type_getattro)
+                __asm__ volatile ("nop");
+
+            //if (tp_getattro == type_getattro && Py_)
+
             // because we verfied that _PyType_Lookup(tp, name) == NULL, we don't need to emit this guard
             la->guard_tp_descr_get = 0;
 
@@ -1115,7 +1152,11 @@ int __attribute__((always_inline)) setupLoadAttrCache(PyObject* obj, PyObject* n
             // if LA_CACHE_VALUE_CACHE_DICT is frequently resulting in a cache miss we switch to caching the offset of
             // the hashtable entry which does not require us to guard on the exact dict version - but retrieval
             // is more expensive (=LA_CACHE_OFFSET_CACHE)
-            if (_PyDict_HasSplitTable((PyDictObject*)dict)) {
+            if (Py_TYPE(obj)->tp_getattro == type_getattro) {
+                la->cache_type = LA_CACHE_VALUE_CACHE_DICT_LOCALDESCR;
+                la->u.value_cache.obj = attr;
+                la->u.value_cache.dict_ver = getDictVersionFromDictPtr(dictptr);
+            } else if (_PyDict_HasSplitTable((PyDictObject*)dict)) {
                 la->cache_type = LA_CACHE_IDX_SPLIT_DICT;
                 la->u.split_dict_cache.splitdict_keys_version = getSplitDictKeysVersionFromDictPtr(dictptr);
                 la->u.split_dict_cache.splitdict_index = _PyDict_GetItemIndexSplitDict(dict, name);
@@ -1141,6 +1182,9 @@ int __attribute__((always_inline)) setupLoadAttrCache(PyObject* obj, PyObject* n
             Py_DECREF(dict);
             // we only call into this function if the lookup succeeded so why should it fail now
             assert(!PyErr_Occurred());
+
+            if (tp_getattro == type_getattro)
+                return -1;
         }
     }
 

@@ -36,27 +36,29 @@ enum _PyOpcache_LoadAttr_Types {
     // (only used if the more powerful LA_CACHE_IDX_SPLIT_DICT or LA_CACHE_VALUE_CACHE_SPLIT_DICT is not possible)
     LA_CACHE_VALUE_CACHE_DICT = 0,
 
+    LA_CACHE_VALUE_CACHE_DICT_LOCALDESCR = 1,
+
     // caching an index inside instance splitdict, guarded by the splitdict keys version (dict->ma_keys->dk_version_tag)
-    LA_CACHE_IDX_SPLIT_DICT = 1,
+    LA_CACHE_IDX_SPLIT_DICT = 2,
 
     // caching a data descriptor object, guarded by data descriptor types version
-    LA_CACHE_DATA_DESCR = 2,
+    LA_CACHE_DATA_DESCR = 3,
 
     // caching an object from the type, guarded by instance splitdict keys version (dict->ma_keys->dk_version_tag)
     // (making sure the attribute is not getting overwritten in the instance dict)
-    LA_CACHE_VALUE_CACHE_SPLIT_DICT = 3,
+    LA_CACHE_VALUE_CACHE_SPLIT_DICT = 4,
 
     // caching the offset to the instance dict entry inside the hash table.
     // Works for non split dicts but retrieval is slower than LA_CACHE_VALUE_CACHE_DICT
     // so only gets used if the lookups miss frequently.
     // Has the advantage that even with modifications to the dict the cache will mostly hit.
-    LA_CACHE_OFFSET_CACHE = 4,
+    LA_CACHE_OFFSET_CACHE = 5,
 
     // caching the offset to attribute slot inside a python object.
     // used for __slots__
     // LA_CACHE_DATA_DESCR works too but is slower because it needs extra guarding
     // and emits a call to the decriptor function
-    LA_CACHE_SLOT_CACHE = 5,
+    LA_CACHE_SLOT_CACHE = 6,
 };
 typedef struct {
     uint64_t type_ver;  /* tp_version_tag of type */

@@ -1243,6 +1243,15 @@ JIT_HELPER_WITH_NAME_OPCACHE_AOT1(LOAD_ATTR_CACHED, owner) {
     //OPCACHE_FETCH();
 
     if (likely(loadAttrCache(owner, name, co_opcache, &res, 0) == 0)) {
+#if Py_DEBUG
+        PyObject* real = PyObject_GetAttr(owner, name);
+        if (!PyObject_RichCompareBool(real, res, Py_EQ)) {
+            _PyObject_Dump(res);
+            _PyObject_Dump(real);
+            abort();
+        }
+#endif
+
         goto la_common;
     }
 
