@@ -13,6 +13,7 @@ pyston3: pyston/build/opt_env/bin/python
 	ln -sf $< $@
 
 unopt: pyston/build/unopt_env/bin/python
+dbg: pyston/build/dbg_env/bin/python
 
 .PHONY: clean
 clean:
