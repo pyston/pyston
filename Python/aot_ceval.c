@@ -3868,9 +3868,12 @@ la_common:
             _Py_IDENTIFIER(__exit__);
             _Py_IDENTIFIER(__enter__);
             PyObject *mgr = TOP();
-            PyObject *enter = special_lookup(tstate, mgr, &PyId___enter__);
+            PyObject* enter = _PyType_LookupId(Py_TYPE(mgr), &PyId___enter__);
             PyObject *res;
             if (enter == NULL) {
+                if (!_PyErr_Occurred(tstate))
+                    _PyErr_SetObject(tstate, PyExc_AttributeError, PyId___enter__.object);
+
                 goto error;
             }
             PyObject *exit = special_lookup(tstate, mgr, &PyId___exit__);
@@ -3879,9 +3882,26 @@ la_common:
                 goto error;
             }
             SET_TOP(exit);
-            Py_DECREF(mgr);
-            res = _PyObject_CallNoArg(enter);
-            Py_DECREF(enter);
+
+            if (PyFunction_Check(enter)) {
+                PyObject* stack[] = { mgr };
+                res = _PyFunction_Vectorcall(enter, stack, 1, NULL);
+                Py_DECREF(mgr);
+            } else {
+                descrgetfunc f;
+                if ((f = Py_TYPE(enter)->tp_descr_get) == NULL)
+                    Py_INCREF(enter);
+                else
+                    enter = f(enter, mgr, (PyObject *)(Py_TYPE(mgr)));
+
+                if (enter == NULL)
+                    goto error;
+
+                Py_DECREF(mgr);
+                res = _PyObject_CallNoArg(enter);
+                Py_DECREF(enter);
+            }
+
             if (res == NULL)
                 goto error;
             /* Setup the finally block before pushing the result
