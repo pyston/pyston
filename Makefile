@@ -397,8 +397,8 @@ unsafe_dbg:
 	/bin/cp pyston/build/cpython_dbg_build/pyston pyston/build/cpython_dbg_install/usr/bin/python3.8
 unsafe_% unsafe_%_unopt: %.py unsafe_unopt
 	time pyston/build/unopt_env/bin/python3 $< $(ARGS)
-unsafe_dbg_%: %.py unsafe_unopt
-	gdb --args pyston/build/unopt_env/bin/python3 $< $(ARGS)
+unsafe_dbg_%: %.py unsafe_dbg
+	gdb --args pyston/build/dbg_env/bin/python3 $< $(ARGS)
 unsafe_perf_%: %.py unsafe_unopt
 	JIT_PERF_MAP=1 perf record -g pyston/build/unopt_env/bin/python3 $< $(ARGS)
 	$(MAKE) perf_report

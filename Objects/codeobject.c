@@ -8,6 +8,7 @@
 #include "pycore_pystate.h"
 #include "pycore_tupleobject.h"
 #include "clinic/codeobject.c.h"
+#include "frameobject.h"
 
 /* Holder for co_extra information */
 typedef struct {
@@ -243,6 +244,28 @@ PyCode_NewWithPosOnlyArgs(int argcount, int posonlyargcount, int kwonlyargcount,
     co->co_builtins_cache_ver = 0;
     co->co_jit_code = 0;
 #endif
+
+#if 0
+    Py_ssize_t extras, ncells, nfrees;
+    ncells = PyTuple_GET_SIZE(co->co_cellvars);
+    nfrees = PyTuple_GET_SIZE(co->co_freevars);
+    extras = co->co_stacksize + co->co_nlocals + ncells +
+        nfrees;
+    PyFrameObject* f = PyObject_GC_NewVar(PyFrameObject, &PyFrame_Type, extras);
+    if (f == NULL) {
+        Py_DECREF(co);
+        return NULL;
+    }
+    f->f_code = co;
+    extras = co->co_nlocals + ncells + nfrees;
+    f->f_valuestack = f->f_localsplus + extras;
+    for (i=0; i<extras; i++)
+        f->f_localsplus[i] = NULL;
+    f->f_locals = NULL;
+    f->f_trace = NULL;
+    Py_DECREF(f);
+#endif
+
     return co;
 }
 

@@ -181,6 +181,8 @@ def collectTraces(args, controller):
         def send(s):
             p.stdin.write(s + b'\n')
 
+        # send(b"set follow-fork-mode child")
+
         marker = [123450000]
         def read_results():
             m = marker[0]
@@ -269,8 +271,8 @@ def removeDuplicates(stack_list):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("aot_gen")
-    parser.add_argument("--binary", default="build/unopt_env/bin/python")
-    parser.add_argument("--target", default="python/benchmarks/django_template_verbose.py 1000000")
+    parser.add_argument("--binary", default="pyston/build/unopt_env/bin/python")
+    parser.add_argument("--target", default="pyston/run_profile_task.py")
     parser.add_argument("function")
     parser.add_argument("--skip", default="iteration 20")
     parser.add_argument("-n", default=1000, type=int)
@@ -311,8 +313,8 @@ if __name__ == "__main__":
         with open("/tmp/out.perf", "w") as f:
             for k, v in counts:
                 print(';'.join([l.function.decode("ascii") for l in k]), v, file=f)
-        subprocess.check_call([os.path.join(os.path.dirname(__file__), "FlameGraph/flamegraph.pl"), "/tmp/out.perf", "--width", "3000", "--minwidth", "45"], stdout=open("/tmp/out.svg", "w"))
-        subprocess.check_call(["xdg-open", "/tmp/out.svg"])
+        subprocess.check_call([os.path.join(os.path.dirname(__file__), "FlameGraph/flamegraph.pl"), "/tmp/out.perf", "--width", "2000", "--minwidth", "45"], stdout=open("/tmp/out.svg", "w"))
+        subprocess.check_call(["google-chrome", "/tmp/out.svg"])
     else:
         for k, v in counts[:args.show]:
             print("\n%.1f%%" % (100.0 * v / args.n))
