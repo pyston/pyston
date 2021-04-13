@@ -1721,6 +1721,7 @@ sys_gettotalrefcount_impl(PyObject *module)
 }
 #endif /* Py_REF_DEBUG */
 
+#if PY_DEBUGGING_FEATURES
 /*[clinic input]
 sys.getallocatedblocks -> Py_ssize_t
 
@@ -1733,6 +1734,7 @@ sys_getallocatedblocks_impl(PyObject *module)
 {
     return _Py_GetAllocatedBlocks();
 }
+#endif
 
 #ifdef COUNT_ALLOCS
 /*[clinic input]
@@ -1965,7 +1967,9 @@ static PyMethodDef sys_methods[] = {
     SYS_EXIT_METHODDEF
     SYS_GETDEFAULTENCODING_METHODDEF
     SYS_GETDLOPENFLAGS_METHODDEF
+#if PY_DEBUGGING_FEATURES
     SYS_GETALLOCATEDBLOCKS_METHODDEF
+#endif
     SYS_GETCOUNTS_METHODDEF
 #ifdef DYNAMIC_EXECUTION_PROFILE
     {"getdxp",          _Py_GetDXProfile, METH_VARARGS},
@@ -2016,6 +2020,12 @@ list_builtin_module_names(void)
     if (list == NULL)
         return NULL;
     for (i = 0; PyImport_Inittab[i].name != NULL; i++) {
+#if !PY_DEBUGGING_FEATURES
+        // It's easier to blacklist _tracemalloc here than update Modules/makesetup
+        // to not include it in the first place
+        if (!strcmp(PyImport_Inittab[i].name, "_tracemalloc"))
+            continue;
+#endif
         PyObject *name = PyUnicode_FromString(
             PyImport_Inittab[i].name);
         if (name == NULL)
@@ -2066,11 +2076,13 @@ _alloc_preinit_entry(const wchar_t *value)
     /* To get this to work, we have to initialize the runtime implicitly */
     _PyRuntime_Initialize();
 
+#if PY_DEBUGGING_FEATURES
     /* Force default allocator, so we can ensure that it also gets used to
      * destroy the linked list in _clear_preinit_entries.
      */
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 
     _Py_PreInitEntry node = PyMem_RawCalloc(1, sizeof(*node));
     if (node != NULL) {
@@ -2081,7 +2093,9 @@ _alloc_preinit_entry(const wchar_t *value)
         };
     };
 
+#if PY_DEBUGGING_FEATURES
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
     return node;
 }
 
@@ -2112,16 +2126,20 @@ _clear_preinit_entries(_Py_PreInitEntry *optionlist)
 {
     _Py_PreInitEntry current = *optionlist;
     *optionlist = NULL;
+#if PY_DEBUGGING_FEATURES
     /* Deallocate the nodes and their contents using the default allocator */
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
     while (current != NULL) {
         _Py_PreInitEntry next = current->next;
         PyMem_RawFree(current->value);
         PyMem_RawFree(current);
         current = next;
     }
+#if PY_DEBUGGING_FEATURES
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+#endif
 }
 
 

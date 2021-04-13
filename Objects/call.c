@@ -19,6 +19,7 @@ null_error(void)
 }
 
 
+#if PY_DEBUGGING_CHECKS
 PyObject*
 _Py_CheckFunctionResult(PyObject *callable, PyObject *result, const char *where)
 {
@@ -66,6 +67,7 @@ _Py_CheckFunctionResult(PyObject *callable, PyObject *result, const char *where)
     }
     return result;
 }
+#endif
 
 
 /* --- Core PyObject call functions ------------------------------- */

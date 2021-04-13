@@ -290,7 +290,9 @@ _PyPreConfig_InitCompatConfig(PyPreConfig *config)
     config->coerce_c_locale_warn = 0;
 
     config->dev_mode = -1;
+#if PY_DEBUGGING_FEATURES
     config->allocator = PYMEM_ALLOCATOR_NOT_SET;
+#endif
 #ifdef MS_WINDOWS
     config->legacy_windows_fs_encoding = -1;
 #endif
@@ -379,7 +381,9 @@ preconfig_copy(PyPreConfig *config, const PyPreConfig *config2)
     COPY_ATTR(coerce_c_locale);
     COPY_ATTR(coerce_c_locale_warn);
     COPY_ATTR(utf8_mode);
+#if PY_DEBUGGING_FEATURES
     COPY_ATTR(allocator);
+#endif
 #ifdef MS_WINDOWS
     COPY_ATTR(legacy_windows_fs_encoding);
 #endif
@@ -423,7 +427,9 @@ _PyPreConfig_AsDict(const PyPreConfig *config)
     SET_ITEM_INT(legacy_windows_fs_encoding);
 #endif
     SET_ITEM_INT(dev_mode);
+#if PY_DEBUGGING_FEATURES
     SET_ITEM_INT(allocator);
+#endif
     return dict;
 
 fail:
@@ -700,6 +706,7 @@ preconfig_init_coerce_c_locale(PyPreConfig *config)
 }
 
 
+#if PY_DEBUGGING_FEATURES
 static PyStatus
 preconfig_init_allocator(PyPreConfig *config)
 {
@@ -723,6 +730,7 @@ preconfig_init_allocator(PyPreConfig *config)
     }
     return _PyStatus_OK();
 }
+#endif
 
 
 static PyStatus
@@ -751,11 +759,13 @@ preconfig_read(PyPreConfig *config, _PyPreCmdline *cmdline)
         return status;
     }
 
+#if PY_DEBUGGING_FEATURES
     /* allocator */
     status = preconfig_init_allocator(config);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
+#endif
 
     assert(config->coerce_c_locale >= 0);
     assert(config->coerce_c_locale_warn >= 0);
@@ -939,12 +949,14 @@ _PyPreConfig_Write(const PyPreConfig *src_config)
         return _PyStatus_OK();
     }
 
+#if PY_DEBUGGING_FEATURES
     PyMemAllocatorName name = (PyMemAllocatorName)config.allocator;
     if (name != PYMEM_ALLOCATOR_NOT_SET) {
         if (_PyMem_SetupAllocators(name) < 0) {
             return _PyStatus_ERR("Unknown PYTHONMALLOC allocator");
         }
     }
+#endif
 
     preconfig_set_global_vars(&config);
 

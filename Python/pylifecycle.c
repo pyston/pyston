@@ -971,9 +971,11 @@ pyinit_main(_PyRuntimeState *runtime, PyInterpreterState *interp)
         return _PyStatus_ERR("can't initialize signals");
     }
 
+#if PY_DEBUGGING_FEATURES
     if (_PyTraceMalloc_Init(config->tracemalloc) < 0) {
         return _PyStatus_ERR("can't initialize tracemalloc");
     }
+#endif
 
     status = add_main_module(interp);
     if (_PyStatus_EXCEPTION(status)) {
@@ -1275,9 +1277,11 @@ Py_FinalizeEx(void)
     _PyGC_CollectIfEnabled();
 #endif
 
+#if PY_DEBUGGING_FEATURES
     /* Disable tracemalloc after all Python objects have been destroyed,
        so it is possible to use tracemalloc in objects destructor. */
     _PyTraceMalloc_Fini();
+#endif
 
     /* Destroy the database used by _PyImport_{Fixup,Find}Extension */
     _PyImport_Fini();

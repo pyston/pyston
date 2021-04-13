@@ -541,6 +541,7 @@ class DictTest(unittest.TestCase):
         d = {1: BadRepr()}
         self.assertRaises(Exc, repr, d)
 
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables these checks")
     def test_repr_deep(self):
         d = {}
         for i in range(sys.getrecursionlimit() + 100):
@@ -1410,7 +1411,8 @@ class CAPITest(unittest.TestCase):
         self.assertEqual(dict_getitem_knownhash(d, 'z', hash('z')), 3)
 
         # not a dict
-        self.assertRaises(SystemError, dict_getitem_knownhash, [], 1, hash(1))
+        if not hasattr(sys, "pyston_version_info"):
+            self.assertRaises(SystemError, dict_getitem_knownhash, [], 1, hash(1))
         # key does not exist
         self.assertRaises(KeyError, dict_getitem_knownhash, {}, 1, hash(1))
 

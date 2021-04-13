@@ -211,7 +211,11 @@ PyAPI_FUNC(void) PyErr_BadInternalCall(void);
 PyAPI_FUNC(void) _PyErr_BadInternalCall(const char *filename, int lineno);
 /* Mask the old API with a call to the new API for code compiled under
    Python 2.0: */
+#if !PY_DEBUGGING_CHECKS
+#define PyErr_BadInternalCall() ((void)0)
+#else
 #define PyErr_BadInternalCall() _PyErr_BadInternalCall(__FILE__, __LINE__)
+#endif
 
 /* Function to create a new exception */
 PyAPI_FUNC(PyObject *) PyErr_NewException(

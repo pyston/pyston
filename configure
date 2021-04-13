@@ -822,6 +822,7 @@ with_assertions
 enable_optimizations
 enable_pyston
 enable_aot
+enable_debugging_features
 with_lto
 with_hash_algorithm
 with_address_sanitizer
@@ -1498,6 +1499,8 @@ Optional Features:
                           Disabled by default.
   --disable-pyston        Disable non-jit Pyston speedups.
   --disable-aot           Disable AOT traces and the JIT.
+  --disable-debugging-features
+                          Disable various debugging features for performance.
   --enable-loadable-sqlite-extensions
                           support loadable extensions in _sqlite module
   --enable-ipv6           Enable ipv6 (with ipv4) support
@@ -6518,6 +6521,37 @@ if test "$USE_AOT" != "false"
 then
     CFLAGS="$CFLAGS -DENABLE_AOT"
 fi
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for --disable-debugging-features" >&5
+$as_echo_n "checking for --disable-debugging-features... " >&6; }
+# Check whether --enable-debugging-features was given.
+if test "${enable_debugging_features+set}" = set; then :
+  enableval=$enable_debugging_features;
+if test "$enableval" != no
+then
+  $as_echo "#define PY_DEBUGGING_FEATURES 1" >>confdefs.h
+
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+  # 'a' for "asserts" ('d' makes more sense but is already taken)
+  ABIFLAGS="${ABIFLAGS}a"
+else
+  $as_echo "#define PY_DEBUGGING_FEATURES 0" >>confdefs.h
+
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+$as_echo "yes" >&6; }
+fi
+else
+
+  $as_echo "#define PY_DEBUGGING_FEATURES 1" >>confdefs.h
+
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+  # 'a' for "asserts" ('d' makes more sense but is already taken)
+  ABIFLAGS="${ABIFLAGS}a"
+
+fi
+
 
 
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking PROFILE_TASK" >&5
@@ -15289,7 +15323,7 @@ SOABI=${IMPLEMENTATION_NAME}-`echo ${SOABI_VERSION} | tr -d .`${ABIFLAGS}${PLATF
 $as_echo "$SOABI" >&6; }
 if test $PYSTON != no; then
 
-    UNSAFE_SOABI=cpython-`echo ${VERSION} | tr -d .`${ABIFLAGS}${PLATFORM_TRIPLET:+-$PLATFORM_TRIPLET}
+    UNSAFE_SOABI=cpython-`echo ${VERSION} | tr -d .``echo ${ABIFLAGS} | tr -d a`${PLATFORM_TRIPLET:+-$PLATFORM_TRIPLET}
 fi
 
 # Release and debug (Py_DEBUG) ABI are compatible, but not Py_TRACE_REFS ABI
@@ -15307,6 +15341,7 @@ cat >>confdefs.h <<_ACEOF
 _ACEOF
 
 fi
+
 
 EXT_SUFFIX=.${SOABI}${SHLIB_SUFFIX}
 

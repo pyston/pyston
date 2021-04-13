@@ -1347,6 +1347,26 @@ then
     CFLAGS="$CFLAGS -DENABLE_AOT"
 fi
 
+AC_MSG_CHECKING(for --disable-debugging-features)
+AC_ARG_ENABLE(debugging-features, AS_HELP_STRING([--disable-debugging-features], [Disable various debugging features for performance.]),
+[
+if test "$enableval" != no
+then
+  AC_DEFINE(PY_DEBUGGING_FEATURES, 1, [])
+  AC_MSG_RESULT(no)
+  # 'a' for "asserts" ('d' makes more sense but is already taken)
+  ABIFLAGS="${ABIFLAGS}a"
+else
+  AC_DEFINE(PY_DEBUGGING_FEATURES, 0, [])
+  AC_MSG_RESULT(yes)
+fi],
+[
+  AC_DEFINE(PY_DEBUGGING_FEATURES, 1, [])
+  AC_MSG_RESULT(no)
+  # 'a' for "asserts" ('d' makes more sense but is already taken)
+  ABIFLAGS="${ABIFLAGS}a"
+])
+
 AC_ARG_VAR(PROFILE_TASK, Python args for PGO generation task)
 AC_MSG_CHECKING(PROFILE_TASK)
 if test -z "$PROFILE_TASK"
@@ -4723,7 +4743,7 @@ SOABI=${IMPLEMENTATION_NAME}-`echo ${SOABI_VERSION} | tr -d .`${ABIFLAGS}${PLATF
 AC_MSG_RESULT($SOABI)
 if test $PYSTON != no; then
     AC_SUBST(UNSAFE_SOABI)
-    UNSAFE_SOABI=cpython-`echo ${VERSION} | tr -d .`${ABIFLAGS}${PLATFORM_TRIPLET:+-$PLATFORM_TRIPLET}
+    UNSAFE_SOABI=cpython-`echo ${VERSION} | tr -d .``echo ${ABIFLAGS} | tr -d a`${PLATFORM_TRIPLET:+-$PLATFORM_TRIPLET}
 fi
 
 # Release and debug (Py_DEBUG) ABI are compatible, but not Py_TRACE_REFS ABI

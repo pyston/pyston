@@ -77,16 +77,18 @@ PROFILE_TASK:=../../../Lib/test/regrtest.py -j 1 -unone,decimal -x test_posix te
 MAKEFILE_DEPENDENCIES:=Makefile.pre.in configure
 pyston/build/cpython_bc_build/Makefile: $(CLANG) $(MAKEFILE_DEPENDENCIES)
 	mkdir -p pyston/build/cpython_bc_build
-	cd pyston/build/cpython_bc_build; WRAPPER_REALCC=$(realpath $(CLANG)) WRAPPER_OUTPUT_PREFIX=../cpython_bc CC=../../../pyston/clang_wrapper.py CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -Wno-unused-command-line-argument" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=/usr --disable-aot
+	cd pyston/build/cpython_bc_build; WRAPPER_REALCC=$(realpath $(CLANG)) WRAPPER_OUTPUT_PREFIX=../cpython_bc CC=../../../pyston/clang_wrapper.py CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -Wno-unused-command-line-argument" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=/usr --disable-aot --disable-debugging-features
 pyston/build/cpython_unopt_build/Makefile: $(MAKEFILE_DEPENDENCIES)
 	mkdir -p pyston/build/cpython_unopt_build
-	cd pyston/build/cpython_unopt_build; CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl,--emit-relocs" ../../../configure --prefix=/usr
+	cd pyston/build/cpython_unopt_build; CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl,--emit-relocs" ../../../configure --prefix=/usr --disable-debugging-features
 pyston/build/cpython_opt_build/Makefile: $(MAKEFILE_DEPENDENCIES)
 	mkdir -p pyston/build/cpython_opt_build
-	cd pyston/build/cpython_opt_build; PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl,--emit-relocs" ../../../configure --prefix=/usr --enable-optimizations --with-lto
+	cd pyston/build/cpython_opt_build; PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl,--emit-relocs" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-debugging-features
+# We have to --disable-debugging-features for consistency with the bc build
+# If we had a separate bc-dbg build then we could change this
 pyston/build/cpython_dbg_build/Makefile: $(MAKEFILE_DEPENDENCIES)
 	mkdir -p pyston/build/cpython_dbg_build
-	cd pyston/build/cpython_dbg_build; CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl,--emit-relocs" ../../../configure --prefix=/usr --with-pydebug
+	cd pyston/build/cpython_dbg_build; CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl,--emit-relocs" ../../../configure --prefix=/usr --with-pydebug --disable-debugging-features
 pyston/build/cpython_stock_build/Makefile: $(MAKEFILE_DEPENDENCIES)
 	mkdir -p pyston/build/cpython_stock_build
 	cd pyston/build/cpython_stock_build; PROFILE_TASK="$(PROFILE_TASK) || true" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-pyston

@@ -326,14 +326,15 @@ class TestPartial:
 
     def test_recursive_pickle(self):
         with self.AllowPickle():
-            f = self.partial(capture)
-            f.__setstate__((f, (), {}, {}))
-            try:
-                for proto in range(pickle.HIGHEST_PROTOCOL + 1):
-                    with self.assertRaises(RecursionError):
-                        pickle.dumps(f, proto)
-            finally:
-                f.__setstate__((capture, (), {}, {}))
+            if not hasattr(sys, "pyston_version_info"):
+                f = self.partial(capture)
+                f.__setstate__((f, (), {}, {}))
+                try:
+                    for proto in range(pickle.HIGHEST_PROTOCOL + 1):
+                        with self.assertRaises(RecursionError):
+                            pickle.dumps(f, proto)
+                finally:
+                    f.__setstate__((capture, (), {}, {}))
 
             f = self.partial(capture)
             f.__setstate__((capture, (f,), {}, {}))

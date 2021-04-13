@@ -2,6 +2,7 @@
 
 import unittest
 from test import support
+import sys
 
 import operator
 
@@ -220,6 +221,7 @@ class MiscTest(unittest.TestCase):
         for func in (do, operator.not_):
             self.assertRaises(Exc, func, Bad())
 
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables recursion checking")
     @support.no_tracing
     def test_recursion(self):
         # Check that comparison for recursive objects fails gracefully

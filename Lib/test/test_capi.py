@@ -183,6 +183,7 @@ class CAPITest(unittest.TestCase):
         self.assertEqual(o.__ipow__(1), (1, None))
         self.assertEqual(o.__ipow__(2, 2), (2, 2))
 
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disabled this check")
     def test_return_null_without_error(self):
         # Issue #23571: A function must not return NULL without setting an
         # error
@@ -212,6 +213,7 @@ class CAPITest(unittest.TestCase):
                              'return_null_without_error.* '
                              'returned NULL without setting an error')
 
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disabled this check")
     def test_return_result_with_error(self):
         # Issue #23571: A function must not return a result with an error set
         if Py_DEBUG:
@@ -257,6 +259,8 @@ class CAPITest(unittest.TestCase):
         _opcache_thresh = int(os.environ["OPCACHE_MIN_RUNS"])
     else:
         _opcache_thresh = int(os.environ.get("JIT_MIN_RUNS", "2000")) / 2
+
+    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables memory hooks")
     @unittest.skipIf(_opcache_thresh < 200, "We might allocate an opcache in the middle of this test")
     def test_set_nomemory(self):
         code = """if 1:
@@ -666,6 +670,7 @@ class Test_testcapi(unittest.TestCase):
                     if name.startswith('test_') and not name.endswith('_code'))
 
 
+@unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables memory hooks")
 class PyMemDebugTests(unittest.TestCase):
     PYTHONMALLOC = 'debug'
     # '0x04c06e0' or '04C06E0'
@@ -694,6 +699,10 @@ class PyMemDebugTests(unittest.TestCase):
                  r"Enable tracemalloc to get the memory block allocation traceback\n"
                  r"\n"
                  r"Fatal Python error: bad trailing pad byte")
+        if hasattr(sys, "pyston_version_info"):
+            regex = regex.split('\\n')
+            del regex[-3:-1]
+            regex = '\\n'.join(regex)
         regex = regex.format(ptr=self.PTR_REGEX)
         regex = re.compile(regex, flags=re.DOTALL)
         self.assertRegex(out, regex)
@@ -710,6 +719,10 @@ class PyMemDebugTests(unittest.TestCase):
                  r"Enable tracemalloc to get the memory block allocation traceback\n"
                  r"\n"
                  r"Fatal Python error: bad ID: Allocated using API 'm', verified using API 'r'\n")
+        if hasattr(sys, "pyston_version_info"):
+            regex = regex.split('\\n')
+            del regex[-4:-2]
+            regex = '\\n'.join(regex)
         regex = regex.format(ptr=self.PTR_REGEX)
         self.assertRegex(out, regex)
 

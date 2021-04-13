@@ -101,6 +101,7 @@ PyAPI_FUNC(void) PyMem_Free(void *ptr);
 #define PyMem_Del               PyMem_Free
 #define PyMem_DEL               PyMem_FREE
 
+#if PY_DEBUGGING_FEATURES
 /* bpo-35053: expose _Py_tracemalloc_config for performance:
    _Py_NewReference() needs an efficient check to test if tracemalloc is
    tracing.
@@ -129,6 +130,7 @@ struct _PyTraceMalloc_Config {
 };
 
 PyAPI_DATA(struct _PyTraceMalloc_Config) _Py_tracemalloc_config;
+#endif
 
 #define _PyTraceMalloc_Config_INIT \
     {.initialized = TRACEMALLOC_NOT_INITIALIZED, \

@@ -435,9 +435,11 @@ PyAPI_FUNC(void) _Py_AddToAllObjects(PyObject *, int force);
    inline. */
 static inline void _Py_NewReference(PyObject *op)
 {
+#if PY_DEBUGGING_FEATURES
     if (_Py_tracemalloc_config.tracing) {
         _PyTraceMalloc_NewReference(op);
     }
+#endif
     _Py_INC_TPALLOCS(op);
     _Py_INC_REFTOTAL;
     Py_REFCNT(op) = 1;

@@ -2253,7 +2253,9 @@ _PyObject_AssertFailed(PyObject *obj, const char *expr, const char *msg,
         else {
             ptr = (void *)obj;
         }
+#if PY_DEBUGGING_FEATURES
         _PyMem_DumpTraceback(fileno(stderr), ptr);
+#endif
 
         /* This might succeed or fail, but we're about to abort, so at least
            try to provide any extra info we can: */
