@@ -118,7 +118,7 @@ cell_repr(PyCellObject *op)
                                op->ob_ref);
 }
 
-static int
+/*static*/ int
 cell_traverse(PyCellObject *op, visitproc visit, void *arg)
 {
     Py_VISIT(op->ob_ref);

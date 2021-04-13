@@ -3204,8 +3204,12 @@ _PyType_Lookup(PyTypeObject *type, PyObject *name)
     int error;
     unsigned int h;
 
+#if PYSTON_SPEEDUPS
+    if (PyUnicode_CheckExact(name)) {
+#else
     if (MCACHE_CACHEABLE_NAME(name) &&
         PyType_HasFeature(type, Py_TPFLAGS_VALID_VERSION_TAG)) {
+#endif
         /* fast path */
         h = MCACHE_HASH_METHOD(type, name);
         if (method_cache[h].version == type->tp_version_tag &&

@@ -390,6 +390,31 @@ visit_decref(PyObject *op, void *parent)
     return 0;
 }
 
+#if PYSTON_SPEEDUPS
+int tupletraverse(PyTupleObject *o, visitproc visit, void *arg);
+int func_traverse(PyFunctionObject *f, visitproc visit, void *arg);
+int cell_traverse(PyCellObject *op, visitproc visit, void *arg);
+int dict_traverse(PyObject *op, visitproc visit, void *arg);
+int list_traverse(PyListObject *o, visitproc visit, void *arg);
+
+__attribute__((always_inline)) __attribute__((flatten))
+static void inlined_tp_traverse(PyObject* op, visitproc proc, void* c) {
+    if (Py_TYPE(op) == &PyTuple_Type) {
+        tupletraverse(op, proc, c);
+    } else if (Py_TYPE(op) == &PyFunction_Type) {
+        func_traverse(op, proc, c);
+    } else if (Py_TYPE(op) == &PyCell_Type) {
+        cell_traverse(op, proc, c);
+    } else if (Py_TYPE(op) == &PyDict_Type) {
+        dict_traverse(op, proc, c);
+    } else if (Py_TYPE(op) == &PyList_Type) {
+        list_traverse(op, proc, c);
+    } else {
+        Py_TYPE(op)->tp_traverse(op, proc, c);
+    }
+}
+#endif
+
 /* Subtract internal references from gc_refs.  After this, gc_refs is >= 0
  * for all objects in containers, and is GC_REACHABLE for all tracked gc
  * objects not in containers.  The ones with gc_refs > 0 are directly
@@ -402,10 +427,14 @@ subtract_refs(PyGC_Head *containers)
     PyGC_Head *gc = GC_NEXT(containers);
     for (; gc != containers; gc = GC_NEXT(gc)) {
         PyObject *op = FROM_GC(gc);
+#if PYSTON_SPEEDUPS
+        inlined_tp_traverse(op, (visitproc)visit_decref, op);
+#else
         traverse = Py_TYPE(op)->tp_traverse;
         (void) traverse(FROM_GC(gc),
                        (visitproc)visit_decref,
                        op);
+#endif
     }
 }
 
@@ -507,9 +536,13 @@ move_unreachable(PyGC_Head *young, PyGC_Head *unreachable)
                                       "refcount is too small");
             // NOTE: visit_reachable may change gc->_gc_next when
             // young->_gc_prev == gc.  Don't do gc = GC_NEXT(gc) before!
+#if PYSTON_SPEEDUPS
+            inlined_tp_traverse(op, (visitproc)visit_reachable, (void *)young);
+#else
             (void) traverse(op,
                     (visitproc)visit_reachable,
                     (void *)young);
+#endif
             // relink gc_prev to prev element.
             _PyGCHead_SET_PREV(gc, prev);
             // gc is not COLLECTING state after here.
