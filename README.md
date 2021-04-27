@@ -55,7 +55,7 @@ make script_opt
 
 ## Changing the version number
 1. adjust `VERSION` in `pyston/tools/make_release.sh`
-2. add a `debian/changelog` entry (make sure the date is correct or the build fails in odd ways)
+2. add a `pyston/debian/changelog` entry (make sure the date is correct or the build fails in odd ways)
 3. adjust `PYSTON_*_VERSION` inside `Include/patchlevel.h`
 4. adjust `PYSTON_VERSION` inside `configure.ac` and run `autoconf`
 

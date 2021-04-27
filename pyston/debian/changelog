@@ -1,3 +1,9 @@
+pyston (2.2) unstable; urgency=medium
+
+  * more infos can be found in our blog post
+
+ -- Marius Wachtler <undingen@gmail.com>  Thu, 29 Apr 2021 17:46:12 +0200
+
 pyston (2.1) unstable; urgency=medium
 
   * packaging improvements and minor changes

@@ -5,7 +5,7 @@ dnl ***********************************************
 # Set VERSION so we only need to edit in one place (i.e., here)
 # If you change these, update patchlevel.h as well
 m4_define(PYTHON_VERSION, 3.8)
-m4_define(PYSTON_VERSION, 2.1)
+m4_define(PYSTON_VERSION, 2.2)
 
 AC_PREREQ([2.69])
 
