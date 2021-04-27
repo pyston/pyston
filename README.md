@@ -42,7 +42,7 @@ A symlink to the final binary will be created with the name `pyston3`
 
 ## Changing the version number
 1. adjust `VERSION` in `pyston/tools/make_release.sh`
-2. add a `debian/changelog` entry
+2. add a `pyston/debian/changelog` entry
 3. adjust `PYSTON_*_VERSION` inside `Include/patchlevel.h`
 4. adjust `PYSTON_VERSION` inside `configure.ac` and run `autoconf`
 
