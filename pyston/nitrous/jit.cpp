@@ -948,13 +948,13 @@ private:
     string getSource(StringRef filename, int line) {
         ErrorOr< unique_ptr< MemoryBuffer > > buf(nullptr);
         string real_filename(filename);
-        if (filename.startswith("../../python/cpython")) {
-            real_filename = ("build/Release/" + filename).str();
+        if (filename.startswith("../../..")) {
+            real_filename = ("pyston/build/Release/" + filename).str();
         }
         buf = MemoryBuffer::getFile(path_prefix + real_filename);
 
         if (error_code ec = buf.getError())
-            return "Could not read file: " + ec.message();
+            return "Could not read file " + (path_prefix + real_filename) + ": " + ec.message();
 
         line_iterator it(**buf);
 
@@ -985,8 +985,8 @@ private:
 public:
     DebugInfoPrinter() {
         // Try to find the path to the nitrous directory
-        if (sys::fs::exists("../build") && sys::fs::exists("../src"))
-            path_prefix = "../";
+        if (sys::fs::exists("../nitrous") && sys::fs::exists("../pystol"))
+            path_prefix = "../../";
     }
 
     void printInliningInfo(DILocation* loc) {
