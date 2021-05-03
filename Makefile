@@ -99,25 +99,25 @@ pyston/build/cpython_stockdbg_build/Makefile: $(MAKEFILE_DEPENDENCIES)
 	mkdir -p pyston/build/cpython_stockdbg_build
 	cd pyston/build/cpython_stockdbg_build; CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=/usr --disable-pyston --with-pydebug
 
-pyston/build/cpython_bc_build/pyston: pyston/build/cpython_bc_build/Makefile $(filter-out $(wildcard Python/aot*.c),$(wildcard */*.c))
+pyston/build/cpython_bc_build/pyston: pyston/build/cpython_bc_build/Makefile $(filter-out $(wildcard Python/aot*.c),$(wildcard */*.c)) $(wildcard */*.h)
 	cd pyston/build/cpython_bc_build; WRAPPER_REALCC=$(realpath $(CLANG)) WRAPPER_OUTPUT_PREFIX=../cpython_bc $(MAKE)
 	touch $@ # some cpython .c files don't affect the python executable
-pyston/build/cpython_unopt_build/pyston: pyston/build/cpython_unopt_build/Makefile $(wildcard */*.c) pyston/aot/aot_all.bc
+pyston/build/cpython_unopt_build/pyston: pyston/build/cpython_unopt_build/Makefile $(wildcard */*.c) $(wildcard */*.h) pyston/aot/aot_all.bc
 	cd pyston/build/cpython_unopt_build; $(MAKE)
 	touch $@ # some cpython .c files don't affect the python executable
-pyston/build/cpython_opt_build/pyston: pyston/build/cpython_opt_build/Makefile $(wildcard */*.c) pyston/aot/aot_all.bc
+pyston/build/cpython_opt_build/pyston: pyston/build/cpython_opt_build/Makefile $(wildcard */*.c) $(wildcard */*.h) pyston/aot/aot_all.bc
 	cd pyston/build/cpython_opt_build; $(MAKE)
 	touch $@ # some cpython .c files don't affect the python executable
-pyston/build/cpython_dbg_build/pyston: pyston/build/cpython_dbg_build/Makefile $(wildcard */*.c) pyston/aot/aot_all.bc
+pyston/build/cpython_dbg_build/pyston: pyston/build/cpython_dbg_build/Makefile $(wildcard */*.c) $(wildcard */*.h) pyston/aot/aot_all.bc
 	cd pyston/build/cpython_dbg_build; $(MAKE)
 	touch $@ # some cpython .c files don't affect the python executable
-pyston/build/cpython_stock_build/pyston: pyston/build/cpython_stock_build/Makefile $(wildcard */*.c)
+pyston/build/cpython_stock_build/pyston: pyston/build/cpython_stock_build/Makefile $(wildcard */*.c) $(wildcard */*.h)
 	cd pyston/build/cpython_stock_build; $(MAKE)
 	touch $@ # some cpython .c files don't affect the python executable
-pyston/build/cpython_stockunopt_build/pyston: pyston/build/cpython_stockunopt_build/Makefile $(wildcard */*.c)
+pyston/build/cpython_stockunopt_build/pyston: pyston/build/cpython_stockunopt_build/Makefile $(wildcard */*.c) $(wildcard */*.h)
 	cd pyston/build/cpython_stockunopt_build; $(MAKE)
 	touch $@ # some cpython .c files don't affect the python executable
-pyston/build/cpython_stockdbg_build/pyston: pyston/build/cpython_stockdbg_build/Makefile $(wildcard */*.c)
+pyston/build/cpython_stockdbg_build/pyston: pyston/build/cpython_stockdbg_build/Makefile $(wildcard */*.c) $(wildcard */*.h)
 	cd pyston/build/cpython_stockdbg_build; $(MAKE)
 	touch $@ # some cpython .c files don't affect the python executable
 
