@@ -5,7 +5,6 @@ import copyreg
 import weakref
 import abc
 from operator import le, lt, ge, gt, eq, ne
-import sys
 
 import unittest
 
@@ -373,9 +372,8 @@ class TestCopy(unittest.TestCase):
         x = []
         x.append(x)
         y = copy.deepcopy(x)
-        if not hasattr(sys, "pyston_version_info"):
-            for op in comparisons:
-                self.assertRaises(RecursionError, op, y, x)
+        for op in comparisons:
+            self.assertRaises(RecursionError, op, y, x)
         self.assertIsNot(y, x)
         self.assertIs(y[0], y)
         self.assertEqual(len(y), 1)
@@ -401,9 +399,8 @@ class TestCopy(unittest.TestCase):
         x = ([],)
         x[0].append(x)
         y = copy.deepcopy(x)
-        if not hasattr(sys, "pyston_version_info"):
-            for op in comparisons:
-                self.assertRaises(RecursionError, op, y, x)
+        for op in comparisons:
+            self.assertRaises(RecursionError, op, y, x)
         self.assertIsNot(y, x)
         self.assertIsNot(y[0], x[0])
         self.assertIs(y[0][0], y)
@@ -421,9 +418,8 @@ class TestCopy(unittest.TestCase):
         y = copy.deepcopy(x)
         for op in order_comparisons:
             self.assertRaises(TypeError, op, y, x)
-        if not hasattr(sys, "pyston_version_info"):
-            for op in equality_comparisons:
-                self.assertRaises(RecursionError, op, y, x)
+        for op in equality_comparisons:
+            self.assertRaises(RecursionError, op, y, x)
         self.assertIsNot(y, x)
         self.assertIs(y['foo'], y)
         self.assertEqual(len(y), 1)

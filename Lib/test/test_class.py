@@ -1,6 +1,5 @@
 "Test the functionality of Python classes implementing operators."
 
-import sys
 import unittest
 
 
@@ -491,7 +490,6 @@ class ClassTests(unittest.TestCase):
         self.assertRaises(TypeError, hash, C2())
 
 
-    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables recursion checking")
     def testSFBug532646(self):
         # Test for SF bug 532646
 

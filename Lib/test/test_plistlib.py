@@ -12,7 +12,6 @@ import binascii
 import collections
 from test import support
 from io import BytesIO
-import sys
 
 from plistlib import UID
 
@@ -908,7 +907,6 @@ class TestBinaryPlistlib(unittest.TestCase):
         b = plistlib.loads(plistlib.dumps(a, fmt=plistlib.FMT_BINARY))
         self.assertIs(b['x'], b)
 
-    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables recursion checking")
     def test_deep_nesting(self):
         for N in [300, 100000]:
             chunks = [b'\xa1' + (i + 1).to_bytes(4, 'big') for i in range(N)]

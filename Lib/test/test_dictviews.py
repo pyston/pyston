@@ -213,7 +213,6 @@ class DictSetTest(unittest.TestCase):
         # Again.
         self.assertIsInstance(r, str)
 
-    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disabled this check")
     def test_deeply_nested_repr(self):
         d = {}
         for i in range(sys.getrecursionlimit() + 100):

@@ -4288,7 +4288,6 @@ class ModuleLevelMiscTest(BaseTest):
         self.assertIn("exception in __del__", err)
         self.assertIn("ValueError: some error", err)
 
-    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables recursion checking")
     def test_recursion_error(self):
         # Issue 36272
         code = """if 1:

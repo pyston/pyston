@@ -2354,7 +2354,6 @@ class AbstractPickleTests(unittest.TestCase):
             self.assertEqual(y._reduce_called, 1)
 
     @no_tracing
-    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables recursion checking")
     def test_bad_getattr(self):
         # Issue #3514: crash when there is an infinite loop in __getattr__
         x = BadGetattr()

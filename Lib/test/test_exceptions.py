@@ -560,7 +560,6 @@ class ExceptionTests(unittest.TestCase):
         self.assertEqual(x.fancy_arg, 42)
 
     @no_tracing
-    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables recursion checking")
     def testInfiniteRecursion(self):
         def f():
             return f()
@@ -974,18 +973,16 @@ class ExceptionTests(unittest.TestCase):
             else:
                 self.fail("Should have raised KeyError")
 
-        if not hasattr(sys, "pyston_version_info"):
-            def g():
-                try:
-                    return g()
-                except RecursionError:
-                    return sys.exc_info()
-            e, v, tb = g()
-            self.assertIsInstance(v, RecursionError, type(v))
-            self.assertIn("maximum recursion depth exceeded", str(v))
+        def g():
+            try:
+                return g()
+            except RecursionError:
+                return sys.exc_info()
+        e, v, tb = g()
+        self.assertIsInstance(v, RecursionError, type(v))
+        self.assertIn("maximum recursion depth exceeded", str(v))
 
     @cpython_only
-    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables recursion checking")
     def test_recursion_normalizing_exception(self):
         # Issue #22898.
         # Test that a RecursionError is raised when tstate->recursion_depth is
@@ -1168,7 +1165,6 @@ class ExceptionTests(unittest.TestCase):
         self.assertEqual(wr(), None)
 
     @no_tracing
-    @unittest.skipIf(hasattr(sys, "pyston_version_info"), "Pyston disables recursion checking")
     def test_recursion_error_cleanup(self):
         # Same test as above, but with "recursion exceeded" errors
         class C:
