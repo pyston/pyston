@@ -2058,14 +2058,7 @@ _imp_extension_suffixes_impl(PyObject *module)
     const char *suffix;
     unsigned int index = 0;
 
-    const char** filetab = _PyImport_DynLoadFiletab;
-#if PYSTON_SPEEDUPS
-    const char *envar = getenv("PYSTON_UNSAFE_ABI");
-    if (envar && atoll(envar)) {
-        filetab = _PyImport_UnsafeDynLoadFiletab;
-    }
-#endif
-    while ((suffix = filetab[index])) {
+    while ((suffix = _PyImport_DynLoadFiletab[index])) {
         PyObject *item = PyUnicode_FromString(suffix);
         if (item == NULL) {
             Py_DECREF(list);

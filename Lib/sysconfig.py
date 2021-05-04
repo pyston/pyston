@@ -422,13 +422,6 @@ def _init_posix(vars):
     _temp = __import__(name, globals(), locals(), ['build_time_vars'], 0)
     build_time_vars = _temp.build_time_vars
 
-    if "Pyston" in sys.version and sys.implementation.name == "cpython":
-        # unsafe abi mode detected
-        # It's not clear if it's better to overwrite SOABI, since that means
-        # we would create builds with the unsafe soabi suffix
-        # build_time_vars["SOABI"] = build_time_vars["UNSAFE_SOABI"]
-        pass
-
     vars.update(build_time_vars)
 
 def _init_non_posix(vars):
