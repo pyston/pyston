@@ -7,9 +7,6 @@ extern "C" {
 
 
 extern const char *_PyImport_DynLoadFiletab[];
-#if PYSTON_SPEEDUPS
-extern const char *_PyImport_UnsafeDynLoadFiletab[];
-#endif
 
 extern PyObject *_PyImport_LoadDynamicModuleWithSpec(PyObject *spec, FILE *);
 

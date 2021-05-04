@@ -15,7 +15,6 @@
 /* Alternative SOABI used in debug build to load C extensions built in release
    mode */
 #undef ALT_SOABI
-#undef UNSAFE_ALT_SOABI
 
 /* The Android API level. */
 #undef ANDROID_API_LEVEL
