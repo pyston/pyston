@@ -4741,20 +4741,12 @@ AC_DEFINE_UNQUOTED(IMPLEMENTATION_NAME, "${IMPLEMENTATION_NAME}")
 
 SOABI=${IMPLEMENTATION_NAME}-`echo ${SOABI_VERSION} | tr -d .`${ABIFLAGS}${PLATFORM_TRIPLET:+-$PLATFORM_TRIPLET}
 AC_MSG_RESULT($SOABI)
-if test $PYSTON != no; then
-    AC_SUBST(UNSAFE_SOABI)
-    UNSAFE_SOABI=cpython-`echo ${VERSION} | tr -d .``echo ${ABIFLAGS} | tr -d a`${PLATFORM_TRIPLET:+-$PLATFORM_TRIPLET}
-fi
 
 # Release and debug (Py_DEBUG) ABI are compatible, but not Py_TRACE_REFS ABI
 if test "$Py_DEBUG" = 'true' -a "$with_trace_refs" != "yes"; then
   # Similar to SOABI but remove "d" flag from ABIFLAGS
   AC_SUBST(ALT_SOABI)
   ALT_SOABI=${IMPLEMENTATION_NAME}-`echo ${SOABI_VERSION} | tr -d .``echo $ABIFLAGS | tr -d d`${PLATFORM_TRIPLET:+-$PLATFORM_TRIPLET}
-  if test $PYSTON != no; then
-      AC_SUBST(UNSAFE_ALT_SOABI)
-      UNSAFE_ALT_SOABI=cpython-`echo ${VERSION} | tr -d .``echo $ABIFLAGS | tr -d d`${PLATFORM_TRIPLET:+-$PLATFORM_TRIPLET}
-  fi
   AC_DEFINE_UNQUOTED(ALT_SOABI, "${ALT_SOABI}",
             [Alternative SOABI used in debug build to load C extensions built in release mode])
 fi

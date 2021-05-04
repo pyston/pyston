@@ -47,27 +47,6 @@ const char *_PyImport_DynLoadFiletab[] = {
     NULL,
 };
 
-// In unsafe-abi mode, add the cpython abis to the end of the filetab
-#if PYSTON_SPEEDUPS
-const char *_PyImport_UnsafeDynLoadFiletab[] = {
-#ifdef __CYGWIN__
-    ".dll",
-#else  /* !__CYGWIN__ */
-    "." SOABI ".so",
-#ifdef ALT_SOABI
-    "." ALT_SOABI ".so",
-#endif
-    ".abi" PYTHON_ABI_STRING ".so",
-    ".so",
-    "." UNSAFE_SOABI ".so",
-#ifdef UNSAFE_ALT_SOABI
-    "." UNSAFE_ALT_SOABI ".so",
-#endif
-#endif  /* __CYGWIN__ */
-    NULL,
-};
-#endif
-
 static struct {
     dev_t dev;
     ino_t ino;

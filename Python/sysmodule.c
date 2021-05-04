@@ -2616,11 +2616,6 @@ const char *_PySys_ImplName = IMPLEMENTATION_NAME;
 #endif
 #define TAG IMPLEMENTATION_NAME "-" MAJOR MINOR
 const char *_PySys_ImplCacheTag = TAG;
-#if PYSTON_SPEEDUPS
-#define UNSAFE_TAG "cpython" "-" Py_STRINGIFY(PY_MAJOR_VERSION) Py_STRINGIFY(PY_MINOR_VERSION)
-const char *_PySys_UnsafeImplCacheTag = UNSAFE_TAG;
-const char *_PySys_UnsafeImplName = "cpython";
-#endif
 #undef MAJOR
 #undef MINOR
 #undef TAG
@@ -2637,16 +2632,7 @@ make_impl_info(PyObject *version_info)
 
     /* populate the dict */
 
-#if PYSTON_SPEEDUPS
-    const char *envar = getenv("PYSTON_UNSAFE_ABI");
-    int unsafe_abi = envar && atoll(envar);
-    if (unsafe_abi)
-        value = PyUnicode_FromString(_PySys_UnsafeImplName);
-    else
-        value = PyUnicode_FromString(_PySys_ImplName);
-#else
     value = PyUnicode_FromString(_PySys_ImplName);
-#endif
     if (value == NULL)
         goto error;
     res = PyDict_SetItemString(impl_info, "name", value);
@@ -2654,14 +2640,7 @@ make_impl_info(PyObject *version_info)
     if (res < 0)
         goto error;
 
-#if PYSTON_SPEEDUPS
-    if (unsafe_abi)
-        value = PyUnicode_FromString(_PySys_UnsafeImplCacheTag);
-    else
-        value = PyUnicode_FromString(_PySys_ImplCacheTag);
-#else
     value = PyUnicode_FromString(_PySys_ImplCacheTag);
-#endif
     if (value == NULL)
         goto error;
     res = PyDict_SetItemString(impl_info, "cache_tag", value);
