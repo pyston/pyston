@@ -1,8 +1,6 @@
 # Pyston
 
-Pyston is a fork of CPython with additional optimizations for performance.  It is targeted at large real-world applications such as web serving, delivering up to a 25% speedup with no development work required.
-
-Run `make bm_nbody` to build all the code and run a Python benchmark.
+Pyston is a fork of CPython with additional optimizations for performance.  It is targeted at large real-world applications such as web serving, delivering up to a 30% speedup with no development work required.
 
 ## Dependencies
 
@@ -30,19 +28,34 @@ sudo apt-get install dh-make dh-exec debhelper patchelf
 
 ## Building
 
-Run
+For a build with all optimizations enabled (LTO+PGO) run:
 
 ```
-make
+make -j
 ```
 
 An initial build will take quite a long time due to having to build LLVM twice, and subsequent builds are faster but still slow due to extra profiling steps.
 
 A symlink to the final binary will be created with the name `pyston3`
 
+For a quicker build during development run:
+```
+make unopt -j
+```
+the generated executable can be found inside `pyston/build/cpython_unopt_install/`
+
+Running a python file called script.py with pyston can be easily done via:
+```
+make script_unopt
+```
+or
+```
+make script_opt
+```
+
 ## Changing the version number
 1. adjust `VERSION` in `pyston/tools/make_release.sh`
-2. add a `debian/changelog` entry
+2. add a `debian/changelog` entry (make sure the date is correct or the build fails in odd ways)
 3. adjust `PYSTON_*_VERSION` inside `Include/patchlevel.h`
 4. adjust `PYSTON_VERSION` inside `configure.ac` and run `autoconf`
 
