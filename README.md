@@ -7,7 +7,7 @@ Pyston is a fork of CPython 3.8.8 with additional optimizations for performance.
 First do
 
 ```
-git submodule update --init pyston/llvm pyston/bolt/bolt pyston/bolt/llvm pyston/LuaJIT
+git submodule update --init pyston/llvm pyston/bolt/bolt pyston/bolt/llvm pyston/LuaJIT pyston/macrobenchmarks
 ```
 
 Pyston has the following build dependencies:
