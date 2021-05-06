@@ -2,6 +2,16 @@
 
 Pyston is a fork of CPython 3.8.8 with additional optimizations for performance.  It is targeted at large real-world applications such as web serving, delivering up to a 30% speedup with no development work required.
 
+## Techniques
+
+We plan on explaining our techniques in more detail in future blog posts, but the main ones we use are:
+
+- A very-low-overhead JIT using DynASM
+- Quickening
+- Aggressive attribute caching
+- General CPython optimizations
+- Build process improvements
+
 ## Dependencies
 
 First do
