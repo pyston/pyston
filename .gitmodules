@@ -16,7 +16,7 @@
 	url = https://github.com/brendangregg/FlameGraph
 [submodule "pyston/macrobenchmarks"]
 	path = pyston/macrobenchmarks
-	url = git@github.com:pyston/python-macrobenchmarks
+	url = https://github.com/pyston/python-macrobenchmarks
 [submodule "pyston/test/external/django"]
 	path = pyston/test/external/django
 	url = https://github.com/django/django
