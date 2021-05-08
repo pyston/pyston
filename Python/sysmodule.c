@@ -1721,7 +1721,7 @@ sys_gettotalrefcount_impl(PyObject *module)
 }
 #endif /* Py_REF_DEBUG */
 
-#if PY_DEBUGGING_FEATURES
+
 /*[clinic input]
 sys.getallocatedblocks -> Py_ssize_t
 
@@ -1732,9 +1732,13 @@ static Py_ssize_t
 sys_getallocatedblocks_impl(PyObject *module)
 /*[clinic end generated code: output=f0c4e873f0b6dcf7 input=dab13ee346a0673e]*/
 {
+    #if PY_DEBUGGING_FEATURES
     return _Py_GetAllocatedBlocks();
+    #else
+    return 0;
+    #endif
 }
-#endif
+
 
 #ifdef COUNT_ALLOCS
 /*[clinic input]
