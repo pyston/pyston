@@ -87,8 +87,8 @@ PyAPI_FUNC(void) Py_SetRecursionLimit(int);
 PyAPI_FUNC(int) Py_GetRecursionLimit(void);
 
 #if !PY_DEBUGGING_CHECKS
-#define Py_EnterRecursiveCall(where) (0)
-#define Py_LeaveRecursiveCall(where) ((void)0)
+#define Py_EnterRecursiveCall(...) (0)
+#define Py_LeaveRecursiveCall(..) ((void)0)
 #else
 #define Py_EnterRecursiveCall(where)  \
             (_Py_MakeRecCheck(PyThreadState_GET()->recursion_depth) &&  \
