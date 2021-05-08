@@ -23,9 +23,11 @@ ENV_DIR:=../../build/
 # 1600 and 1601 which say:
 #    if len(errors) > 0:
 #        raise errors[-1]
+# PYPY_BENCHS=ai,bm_chameleon,bm_dulwich_log,bm_mako,bm_mdp,chaos,cpython_doc,crypto_pyaes,deltablue,django,eparse,fannkuch,float,genshi_text,genshi_xml,go,hexiom2,html5lib,json_bench,meteor-contest,nbody_modified,nqueens,pickle,pickle_dict,pickle_list,pidigits,pyflate-fast,pyxl_bench,raytrace-simple,richards,scimark_fft,scimark_lu,scimark_montecarlo,scimark_sor,scimark_sparsematmult,spectral-norm,spitfire2,spitfire2,spitfire_cstringio2,sqlalchemy_declarative,sqlalchemy_imperative,sqlitesynth,sympy_expand,sympy_integrate,sympy_str,sympy_sum,telco,twisted_iteration,twisted_names,twisted_pb,twisted_tcp,unpickle,unpickle_list
+PYPY_BENCHS=ai,bm_chameleon,bm_dulwich_log,bm_mako,bm_mdp,chaos,cpython_doc,crypto_pyaes,deltablue,eparse,fannkuch,float,go,hexiom2,html5lib,json_bench,meteor-contest,nbody_modified,nqueens,pickle,pickle_dict,pickle_list,pidigits,pyflate-fast,pyxl_bench,raytrace-simple,richards,scimark_fft,scimark_lu,scimark_montecarlo,scimark_sor,scimark_sparsematmult,spectral-norm,sqlalchemy_declarative,sqlalchemy_imperative,sqlitesynth,sympy_expand,sympy_integrate,sympy_str,sympy_sum,twisted_iteration,twisted_names,twisted_pb,twisted_tcp,unpickle,unpickle_list
 results/pypybench-%.json: | $(ENV_DIR)%_env/bin/python pypy-benchmarks results
 	PYTHONPATH=..:$(PYTHONPATH) python3 -c "import tune; tune.tune()"
-	/usr/bin/time --verbose --output=$(patsubst %.json,%.time,$@) $(ENV_DIR)system_env/bin/python3 pypy-benchmarks/runner.py --changed=$(firstword $|) -o $@
+	/usr/bin/time --verbose --output=$(patsubst %.json,%.time,$@) $(ENV_DIR)system_env/bin/python3 pypy-benchmarks/runner.py --changed=$(firstword $|) -o $@ --benchmarks=$(PYPY_BENCHS)
 	PYTHONPATH=..:$(PYTHONPATH) python3 -c "import tune; tune.untune()"
 pypybench_results: $(patsubst %,results/pypybench-%.json,$(BUILDS))
 
