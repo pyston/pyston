@@ -148,7 +148,7 @@ struct _gc_runtime_state {
 PyAPI_FUNC(void) _PyGC_Initialize(struct _gc_runtime_state *);
 
 
-#if PY_DEBUGGING_HOOKS
+#if PY_DEBUGGING_FEATURES
 /* Set the memory allocator of the specified domain to the default.
    Save the old allocator into *old_alloc if it's non-NULL.
    Return on success, or return -1 if the domain is unknown. */
@@ -171,7 +171,7 @@ PyAPI_FUNC(int) _PyMem_SetDefaultAllocator(
 #define PYMEM_CLEANBYTE      0xCD
 #define PYMEM_DEADBYTE       0xDD
 #define PYMEM_FORBIDDENBYTE  0xFD
-#if PY_DEBUGGING_HOOKS
+#if PY_DEBUGGING_FEATURES
 
 /* Heuristic checking if a pointer value is newly allocated
    (uninitialized), newly freed or NULL (is equal to zero).
