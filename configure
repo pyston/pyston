@@ -806,6 +806,7 @@ SHELL'
 ac_subst_files=''
 ac_user_opts='
 enable_option_checking
+enable_configure
 enable_universalsdk
 with_universal_archs
 with_framework_name
@@ -1487,6 +1488,8 @@ Optional Features:
   --disable-option-checking  ignore unrecognized --enable/--with options
   --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
+  --enable-configure      Safety check because users should not call configure
+                          themselves in Pyston
   --enable-universalsdk[=SDKDIR]
                           Build fat binary against Mac OS X SDK
   --enable-framework[=INSTALLDIR]
@@ -2728,7 +2731,24 @@ if test "$srcdir" != . -a "$srcdir" != "$(pwd)"; then
     BASECPPFLAGS="-IObjects -IInclude -IPython"
 else
     BASECPPFLAGS=""
-    as_fn_error $? "pyston does not support in-source builds, please run configure from a separate directory" "$LINENO" 5
+fi
+
+# Check whether --enable-configure was given.
+if test "${enable_configure+set}" = set; then :
+  enableval=$enable_configure;
+	case $enableval in
+	yes)
+	esac
+	case $enableval in
+	no)
+        as_fn_error $? "Please build Pyston from the top-level Makefile, not by calling configure" "$LINENO" 5
+	esac
+
+
+else
+
+    as_fn_error $? "Please build Pyston from the top-level Makefile, not by calling configure" "$LINENO" 5
+
 fi
 
 

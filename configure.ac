@@ -27,9 +27,22 @@ if test "$srcdir" != . -a "$srcdir" != "$(pwd)"; then
     BASECPPFLAGS="-IObjects -IInclude -IPython"
 else
     BASECPPFLAGS=""
-    AC_MSG_ERROR([pyston does not support in-source builds, please run configure from a separate directory])
 fi
 
+AC_ARG_ENABLE(configure,
+	AS_HELP_STRING([--enable-configure], [Safety check because users should not call configure themselves in Pyston]),
+[
+	case $enableval in
+	yes)
+	esac
+	case $enableval in
+	no)
+        AC_MSG_ERROR([Please build Pyston from the top-level Makefile, not by calling configure])
+	esac
+
+],[
+    AC_MSG_ERROR([Please build Pyston from the top-level Makefile, not by calling configure])
+])
 AC_SUBST(GITVERSION)
 AC_SUBST(GITTAG)
 AC_SUBST(GITBRANCH)
