@@ -74,7 +74,7 @@ $(BOLT): pyston/build/bolt/build.ninja
 CPYTHON_EXTRA_CFLAGS:=-fstack-protector -specs=$(CURDIR)/pyston/tools/no-pie-compile.specs -D_FORTIFY_SOURCE=2
 CPYTHON_EXTRA_LDFLAGS:=-specs=$(CURDIR)/pyston/tools/no-pie-link.specs -Wl,-z,relro
 
-PROFILE_TASK:=../../../Lib/test/regrtest.py -j 1 -unone,decimal -x test_posix test_asyncio test_cmd_line_script test_compiler test_concurrent_futures test_ctypes test_dbm_dumb test_dbm_ndbm test_distutils test_ensurepip test_ftplib test_gdb test_httplib test_imaplib test_ioctl test_linuxaudiodev test_multiprocessing test_nntplib test_ossaudiodev test_poplib test_pydoc test_signal test_socket test_socketserver test_ssl test_subprocess test_sundry test_thread test_threaded_import test_threadedtempfile test_threading test_threading_local test_threadsignals test_venv test_zipimport_support
+PROFILE_TASK:=../../../Lib/test/regrtest.py -j 1 -unone,decimal -x test_posix test_asyncio test_cmd_line_script test_compiler test_concurrent_futures test_ctypes test_dbm_dumb test_dbm_ndbm test_distutils test_ensurepip test_ftplib test_gdb test_httplib test_imaplib test_ioctl test_linuxaudiodev test_multiprocessing test_nntplib test_ossaudiodev test_poplib test_pydoc test_signal test_socket test_socketserver test_ssl test_subprocess test_sundry test_thread test_threaded_import test_threadedtempfile test_threading test_threading_local test_threadsignals test_venv test_zipimport_support test_httpservers
 
 MAKEFILE_DEPENDENCIES:=Makefile.pre.in configure
 pyston/build/cpython_bc_build/Makefile: $(CLANG) $(MAKEFILE_DEPENDENCIES)
@@ -164,13 +164,13 @@ pyston/build/bc_env/bin/python: pyston/build/cpython_bc_install/usr/bin/python3 
 pyston/build/unopt_env/bin/python: pyston/build/cpython_unopt_install/usr/bin/python3 | $(VIRTUALENV)
 	$(VIRTUALENV) -p $< pyston/build/unopt_env
 pyston/build/unoptshared_env/bin/python: pyston/build/cpython_unoptshared_install/usr/bin/python3 | $(VIRTUALENV)
-	$(VIRTUALENV) -p $< pyston/build/unoptshared_env
+	LD_LIBRARY_PATH=`pwd`/pyston/build/cpython_unoptshared_build/ $(VIRTUALENV) -p $< pyston/build/unoptshared_env
 pyston/build/optnobolt_env/bin/python: pyston/build/cpython_opt_install/usr/bin/python3 | $(VIRTUALENV)
 	$(VIRTUALENV) -p $< pyston/build/optnobolt_env
 pyston/build/opt_env/bin/python: pyston/build/cpython_opt_install/usr/bin/python3.bolt | $(VIRTUALENV)
 	$(VIRTUALENV) -p $< pyston/build/opt_env
 pyston/build/optshared_env/bin/python: pyston/build/cpython_optshared_install/usr/bin/python3.bolt | $(VIRTUALENV)
-	$(VIRTUALENV) -p $< pyston/build/optshared_env
+	LD_LIBRARY_PATH=`pwd`/pyston/build/cpython_optshared_build/ $(VIRTUALENV) -p $< pyston/build/optshared_env
 pyston/build/stock_env/bin/python: pyston/build/cpython_stock_install/usr/bin/python3 | $(VIRTUALENV)
 	$(VIRTUALENV) -p $< pyston/build/stock_env
 pyston/build/stockunopt_env/bin/python: pyston/build/cpython_stockunopt_install/usr/bin/python3 | $(VIRTUALENV)
@@ -193,9 +193,9 @@ $(2).fdata: $(1) $(BOLT) | $(VIRTUALENV)
 	rm -rf /tmp/tmp_env
 	rm $(2)*.fdata || true
 	$(BOLT) $(1) -instrument -instrumentation-file-append-pid -instrumentation-file=$(abspath $(2)) -o $(1).bolt_inst
-	$(VIRTUALENV) -p $(1).bolt_inst /tmp/tmp_env
-	/tmp/tmp_env/bin/pip install -r pyston/benchmark_requirements.txt
-	/tmp/tmp_env/bin/python3 pyston/run_profile_task.py
+	LD_LIBRARY_PATH=`pwd`/pyston/build/cpython_optshared_build/ $(VIRTUALENV) -p $(1).bolt_inst /tmp/tmp_env
+	LD_LIBRARY_PATH=`pwd`/pyston/build/cpython_optshared_build/ /tmp/tmp_env/bin/pip install -r pyston/benchmark_requirements.txt
+	LD_LIBRARY_PATH=`pwd`/pyston/build/cpython_optshared_build/ /tmp/tmp_env/bin/python3 pyston/run_profile_task.py
 	$(MERGE_FDATA) $(2).*.fdata > $(2).fdata
 
 $(2): $(2).fdata
@@ -268,6 +268,8 @@ DBG_BENCH_ENV:=pyston/build/dbg_env/update.stamp
 UNOPT_BENCH_ENV:=pyston/build/unopt_env/update.stamp
 OPTNOBOLT_BENCH_ENV:=pyston/build/optnobolt_env/update.stamp
 OPT_BENCH_ENV:=pyston/build/opt_env/update.stamp
+UNOPTSHARED_BENCH_ENV:=pyston/build/unoptshared_env/update.stamp
+OPTSHARED_BENCH_ENV:=pyston/build/optshared_env/update.stamp
 STOCK_BENCH_ENV:=pyston/build/stock_env/update.stamp
 STOCKUNOPT_BENCH_ENV:=pyston/build/stockunopt_env/update.stamp
 STOCKDBG_BENCH_ENV:=pyston/build/stockdbg_env/update.stamp
@@ -282,6 +284,12 @@ $(DBG_BENCH_ENV): pyston/benchmark_requirements.txt pyston/benchmark_requirement
 	touch $@
 $(UNOPT_BENCH_ENV): pyston/benchmark_requirements.txt pyston/benchmark_requirements_nonpypy.txt | pyston/build/unopt_env/bin/python
 	pyston/build/unopt_env/bin/pip install -r pyston/benchmark_requirements.txt -r pyston/benchmark_requirements_nonpypy.txt
+	touch $@
+$(UNOPTSHARED_BENCH_ENV): pyston/benchmark_requirements.txt pyston/benchmark_requirements_nonpypy.txt | pyston/build/unoptshared_env/bin/python
+	LD_LIBRARY_PATH=`pwd`/pyston/build/cpython_unoptshared_build/ pyston/build/unoptshared_env/bin/pip install -r pyston/benchmark_requirements.txt -r pyston/benchmark_requirements_nonpypy.txt
+	touch $@
+$(OPTSHARED_BENCH_ENV): pyston/benchmark_requirements.txt pyston/benchmark_requirements_nonpypy.txt | pyston/build/optshared_env/bin/python
+	LD_LIBRARY_PATH=`pwd`/pyston/build/cpython_optshared_build/ pyston/build/optshared_env/bin/pip install -r pyston/benchmark_requirements.txt -r pyston/benchmark_requirements_nonpypy.txt
 	touch $@
 $(OPTNOBOLT_BENCH_ENV): pyston/benchmark_requirements.txt pyston/benchmark_requirements_nonpypy.txt | pyston/build/optnobolt_env/bin/python
 	pyston/build/optnobolt_env/bin/pip install -r pyston/benchmark_requirements.txt -r pyston/benchmark_requirements_nonpypy.txt
@@ -316,6 +324,10 @@ update_envs:
 	time pyston/build/unopt_env/bin/python3 $< $(ARGS)
 %_optnobolt: %.py $(OPTNOBOLT_BENCH_ENV)
 	time pyston/build/optnobolt_env/bin/python3 $< $(ARGS)
+%_unoptshared: %.py $(UNOPTSHARED_BENCH_ENV)
+	LD_LIBRARY_PATH=`pwd`/pyston/build/cpython_unoptshared_build/ time pyston/build/unoptshared_env/bin/python3 $< $(ARGS)
+%_optshared: %.py $(OPTSHARED_BENCH_ENV)
+	LD_LIBRARY_PATH=`pwd`/pyston/build/cpython_optshared_build/ time pyston/build/optshared_env/bin/python3 $< $(ARGS)
 %_opt: %.py $(OPT_BENCH_ENV)
 	time pyston/build/opt_env/bin/python3 $< $(ARGS)
 %_dbg: %.py $(DBG_BENCH_ENV)

@@ -801,7 +801,7 @@ static void emit_mov_imm2(Jit* Dst, int r_idx1, void* addr1, int r_idx2, void* a
 }
 
 static void emit_call_ext_func(Jit* Dst, void* addr) {
-    if (IS_32BIT_SIGNED_VAL((long)addr)) {
+    if (0 && IS_32BIT_SIGNED_VAL((long)addr)) {
         // This emits a relative call. The dynasm syntax is confusing
         // it will not actually take the address of addr (even though it says &addr).
         // Put instead just take the value of addr and calculate the difference to the emitted instruction address. (generated code: dasm_put(Dst, 135, (ptrdiff_t)(addr)))
@@ -935,7 +935,7 @@ static void emit_call_decref_args3(Jit* Dst, void* func, int r1_idx, int r2_idx,
 
 static void* get_aot_func_addr(Jit* Dst, int opcode, int oparg, int opcache_available) {
     long addr = (long)get_addr_of_aot_func(opcode, oparg, opcache_available);
-    JIT_ASSERT(IS_32BIT_SIGNED_VAL(addr), "aborting func addr does not fit into 32bit");
+    //JIT_ASSERT(IS_32BIT_SIGNED_VAL(addr), "aborting func addr does not fit into 32bit");
     return (void*)addr;
 }
 
