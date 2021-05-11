@@ -2,10 +2,10 @@ import os
 import subprocess
 import sys
 
-exe = sys.executable
+exe = os.path.abspath(sys.executable)
 
 def run(bench, *args):
-    subprocess.check_call(["/usr/bin/time", exe, bench] + list(args))
+    subprocess.check_call([exe, bench] + list(args))
 
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
