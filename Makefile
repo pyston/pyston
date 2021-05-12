@@ -125,8 +125,10 @@ pyston/build/cpython_bc_install/usr/bin/python3: pyston/build/cpython_bc_build/p
 	cd pyston/build/cpython_bc_build; WRAPPER_REALCC=$(realpath $(CLANG)) WRAPPER_OUTPUT_PREFIX=../cpython_bc $(MAKE) install DESTDIR=$(abspath pyston/build/cpython_bc_install)
 pyston/build/cpython_unopt_install/usr/bin/python3: pyston/build/cpython_unopt_build/pyston
 	cd pyston/build/cpython_unopt_build; $(MAKE) install DESTDIR=$(abspath pyston/build/cpython_unopt_install)
+	mkdir -p pyston/build/unopt_env/lib/python3.8/config-3.8/; cp pyston/build/cpython_unopt_install/usr/lib/libpyston3.8.a pyston/build/unopt_env/lib/python3.8/config-3.8/libpython3.8.a
 pyston/build/cpython_opt_install/usr/bin/python3: pyston/build/cpython_opt_build/pyston
 	cd pyston/build/cpython_opt_build; $(MAKE) install DESTDIR=$(abspath pyston/build/cpython_opt_install)
+	mkdir -p pyston/build/opt_env/lib/python3.8/config-3.8/; cp pyston/build/cpython_opt_install/usr/lib/libpyston3.8.a pyston/build/opt_env/lib/python3.8/config-3.8/libpython3.8.a
 pyston/build/cpython_dbg_install/usr/bin/python3: pyston/build/cpython_dbg_build/pyston
 	cd pyston/build/cpython_dbg_build; $(MAKE) install DESTDIR=$(abspath pyston/build/cpython_dbg_install)
 pyston/build/cpython_stock_install/usr/bin/python3: pyston/build/cpython_stock_build/pyston
