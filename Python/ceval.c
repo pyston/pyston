@@ -5027,7 +5027,7 @@ call_function_ceval(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t opar
 #ifndef _MSC_VER
     if (__builtin_expect(tstate->use_tracing, 0)) {
 #else
-     if ((tstate->use_tracing, 0)) {
+     if (tstate->use_tracing) {
 
 #endif
         x = trace_call_function(tstate, func, stack, nargs, kwnames);
