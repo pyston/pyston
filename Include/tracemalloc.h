@@ -3,7 +3,7 @@
 
 #ifndef Py_LIMITED_API
 
-#if Py_DEBUGGING_FEATURES
+#if PY_DEBUGGING_FEATURES
 /* Track an allocated memory block in the tracemalloc module.
    Return 0 on success, return -1 on error (failed to allocate memory to store
    the trace).
@@ -42,7 +42,7 @@ PyAPI_FUNC(PyObject*) _PyTraceMalloc_GetTraceback(
 #define PyTraceMalloc_Untrack(domain, ptr) (-2)
 #define _PyTraceMalloc_GetTraceback(domain, ptr) (&_Py_NoneStruct)
 
-#endif // Py_DEBUGGING_FEATURES
+#endif // PY_DEBUGGING_FEATURES
 
 #endif // Py_LIMITED_API
 
