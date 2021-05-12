@@ -31,7 +31,7 @@ git submodule update --init pyston/llvm pyston/bolt/bolt pyston/bolt/llvm pyston
 Pyston has the following build dependencies:
 
 ```
-sudo apt-get install ninja-build cmake clang libssl-dev libsqlite3-dev luajit python3.8 zlib1g-dev virtualenv libjemalloc-dev time
+sudo apt-get install ninja-build cmake clang libssl-dev libsqlite3-dev luajit python3.8 zlib1g-dev virtualenv libjemalloc-dev
 ```
 
 Extra dependencies for running the test suite:
