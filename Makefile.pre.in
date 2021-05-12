@@ -1748,15 +1748,15 @@ aot_optimized.o: ../../aot/aot_all.bc
 	then \
 		echo "traces are compiled with instrumentation"; \
 		rm -rf ../../aot/aot_prof; \
-		$(CLANG) -c -O2 -fprofile-generate=`realpath ../../aot/aot_prof` -o $@ ../../aot/aot_all.bc; \
+		$(CLANG) -c -O2 -fPIE -fprofile-generate=`realpath ../../aot/aot_prof` -o $@ ../../aot/aot_all.bc; \
 	elif [ -d ../../aot/aot_prof ]; \
 	then \
 		echo "traces are using PGO"; \
 		../../build/Release/llvm/bin/llvm-profdata merge -output=../../aot/aot_prof.profdata ../../aot/aot_prof/*.profraw || exit 1; \
-		$(CLANG) -c -O2 -fprofile-use=`realpath ../../aot/aot_prof.profdata` -o $@ ../../aot/aot_all.bc; \
+		$(CLANG) -c -O2 -fPIE -fprofile-use=`realpath ../../aot/aot_prof.profdata` -o $@ ../../aot/aot_all.bc; \
 	else \
 		echo "traces are not using PGO"; \
-		$(CLANG) -c -O2 -o $@ ../../aot/aot_all.bc; \
+		$(CLANG) -c -O2 -fPIE -o $@ ../../aot/aot_all.bc; \
 	fi;
 
 # Run reindent on the library
