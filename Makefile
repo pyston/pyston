@@ -147,7 +147,7 @@ pyston/build/unopt_env/bin/python: pyston/build/cpython_unopt_install/usr/bin/py
 	$(VIRTUALENV) -p $< pyston/build/unopt_env
 pyston/build/optnobolt_env/bin/python: pyston/build/cpython_opt_install/usr/bin/python3 | $(VIRTUALENV)
 	$(VIRTUALENV) -p $< pyston/build/optnobolt_env
-pyston/build/opt_env/bin/python: pyston/build/cpython_opt_install/usr/bin/python3.bolt | $(VIRTUALENV)
+pyston/build/opt_env/bin/python: pyston/build/cpython_opt_install/usr/bin/python3 | $(VIRTUALENV)
 	$(VIRTUALENV) -p $< pyston/build/opt_env
 pyston/build/stock_env/bin/python: pyston/build/cpython_stock_install/usr/bin/python3 | $(VIRTUALENV)
 	$(VIRTUALENV) -p $< pyston/build/stock_env
