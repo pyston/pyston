@@ -113,21 +113,21 @@ pyston/build/cpython_$(1)_install/usr/bin/python3: pyston/build/cpython_$(1)_bui
 $(1): pyston/build/$(1)_env/bin/python
 
 pyston/build/$(1)_env/bin/python: pyston/build/cpython_$(1)_install/usr/bin/python3 | $(VIRTUALENV)
-	$(VIRTUALENV) -p $$< pyston/build/$(1)_env
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) $(VIRTUALENV) -p $$< pyston/build/$(1)_env
 
 pyston/build/$(1)_env/update.stamp: pyston/benchmark_requirements.txt pyston/benchmark_requirements_nonpypy.txt | pyston/build/$(1)_env/bin/python
-	pyston/build/$(1)_env/bin/pip install -r pyston/benchmark_requirements.txt -r pyston/benchmark_requirements_nonpypy.txt
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) pyston/build/$(1)_env/bin/pip install -r pyston/benchmark_requirements.txt -r pyston/benchmark_requirements_nonpypy.txt
 	touch $$@
 
 %_$(1): %.py pyston/build/$(1)_env/update.stamp
-	time pyston/build/$(1)_env/bin/python3 $$< $$(ARGS)
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) time pyston/build/$(1)_env/bin/python3 $$< $$(ARGS)
 
 perf_%_$(1): %.py pyston/build/$(1)_env/update.stamp
-	JIT_PERF_MAP=1 perf record -g ./pyston/build/$(1)_env/bin/python3 $$< $$(ARGS)
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) JIT_PERF_MAP=1 perf record -g ./pyston/build/$(1)_env/bin/python3 $$< $$(ARGS)
 	$$(MAKE) perf_report
 
 pyperf_%_$(1): %.py ./pyston/build/$(1)_env/bin/update.stamp pyston/build/system_env/bin/python
-	$$(PYPERF) pyston/build/$(1)_env/bin/python3 $$< $$(ARGS)
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) $$(PYPERF) pyston/build/$(1)_env/bin/python3 $$< $$(ARGS)
 )
 
 # UNSAFE build target
@@ -143,7 +143,9 @@ endef
 
 COMMA:=,
 $(call make_cpython_build,unopt,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc)
+$(call make_cpython_build,unoptshared,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --disable-debugging-features --enable-configure --enable-shared,pyston/build/aot_pic/aot_all.bc)
 $(call make_cpython_build,opt,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc)
+$(call make_cpython_build,optshared,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-debugging-features --enable-configure --enable-shared,pyston/build/aot_pic/aot_all.bc)
 # We have to --disable-debugging-features for consistency with the bc build
 # If we had a separate bc-dbg build then we could change this
 $(call make_cpython_build,dbg,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --with-pydebug --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc)
@@ -192,7 +194,7 @@ define make_aot_build
 $(eval
 pyston/build/$(1)/aot_pre_trace.c: pyston/aot/aot_gen.py pyston/build/cpython_bc_install/usr/bin/python3
 	mkdir -p pyston/build/$(1)
-	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../Release/nitrous/:`pwd`/../Release/pystol/" ../build/cpython_bc_install/usr/bin/python3 aot_gen.py --action=pretrace -o $$(abspath $$@)
+	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../Release/nitrous/:`pwd`/../Release/pystol/" ../build/cpython_bc_install/usr/bin/python3 aot_gen.py --action=pretrace -o $$(abspath $$@) $(2)
 pyston/build/$(1)/aot_pre_trace.bc: pyston/build/$(1)/aot_pre_trace.c
 	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $$< -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/ -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/internal/ -Ipyston/nitrous/ -emit-llvm -c -o $$@
 pyston/build/$(1)/aot_pre_trace.so: pyston/build/$(1)/aot_pre_trace.c pyston/build/Release/nitrous/libinterp.so
@@ -208,12 +210,13 @@ pyston/build/$(1)/aot_all.bc: pyston/build/$(1)/aot_profile.c
 # The "%"s here are to force make to consider these as group targets and not run this target multiple times
 pyston/build/$(1)/aot_profile%c: pyston/build/$(1)/all.bc pyston/build/$(1)/aot_pre_trace.so pyston/build/cpython_bc_install/usr/bin/python3 pyston/aot/aot_gen.py pyston/build/Release/nitrous/libinterp.so pyston/build/Release/pystol/libpystol.so
 	cd pyston/build/$(1); rm -f aot_module*.bc
-	cd pyston/build/$(1); LD_LIBRARY_PATH="`pwd`/../Release/nitrous/:`pwd`/../Release/pystol/" ../cpython_bc_install/usr/bin/python3 ../../aot/aot_gen.py --action=trace
+	cd pyston/build/$(1); LD_LIBRARY_PATH="`pwd`/../Release/nitrous/:`pwd`/../Release/pystol/" ../cpython_bc_install/usr/bin/python3 ../../aot/aot_gen.py --action=trace $(2)
 	cd pyston/build/$(1); ls -al aot_module*.bc | wc -l
 )
 endef
 
 $(call make_aot_build,aot,)
+$(call make_aot_build,aot_pic,--pic)
 
 dbg_aot_trace: pyston/aot/all.bc pyston/aot/aot_pre_trace.so pyston/aot/aot_gen.py pyston/build/cpython_bc_install/usr/bin/python3 build_dbg
 	cd pyston/aot; rm -f aot_module*.bc

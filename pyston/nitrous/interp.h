@@ -10,7 +10,7 @@ extern "C" {
 #define DEF
 #endif
 
-DEF void initializeJIT(int verbosity);
+DEF void initializeJIT(int verbosity, int pic);
 
 DEF void loadBitcode(const char* llvm_filename);
 

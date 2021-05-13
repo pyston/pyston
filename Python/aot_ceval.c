@@ -839,7 +839,8 @@ static uint64_t getSplitDictKeysVersionFromDictPtr(PyObject** dictptr) {
     return _PyDict_GetDictKeyVersionFromSplitDict((PyObject*)dict);
 }
 
-int __attribute__((always_inline)) storeAttrCache(PyObject* owner, PyObject* name, PyObject* v, _PyOpcache *co_opcache, int* err) {
+int __attribute__((always_inline)) __attribute__((visibility("hidden")))
+storeAttrCache(PyObject* owner, PyObject* name, PyObject* v, _PyOpcache *co_opcache, int* err) {
     _PyOpcache_StoreAttr *as = &co_opcache->u.sa;
     PyTypeObject *tp = Py_TYPE(owner);
 
@@ -883,7 +884,8 @@ int __attribute__((always_inline)) storeAttrCache(PyObject* owner, PyObject* nam
     return 0;
 }
 
-int __attribute__((always_inline)) setupStoreAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache) {
+int __attribute__((always_inline)) __attribute__((visibility("hidden")))
+setupStoreAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache) {
     _PyOpcache_StoreAttr *sa = &co_opcache->u.sa;
     PyTypeObject *tp = Py_TYPE(obj);
 
@@ -943,7 +945,8 @@ PyObject* loadAttrCacheAttrNotFound(PyObject *owner, PyObject *name) {
 int64_t _PyDict_GetItemOffset(PyDictObject *mp, PyObject *key, Py_ssize_t *dk_size);
 PyObject* _PyDict_GetItemByOffset(PyDictObject *mp, PyObject *key, Py_ssize_t dk_size, int64_t offset);
 
-int __attribute__((always_inline)) loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject** res, int *meth_found) {
+int __attribute__((always_inline)) __attribute__((visibility("hidden")))
+loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject** res, int *meth_found) {
     _PyOpcache_LoadAttr *la = &co_opcache->u.la;
 
     // do we have a valid cache entry?
@@ -1025,7 +1028,8 @@ int __attribute__((always_inline)) loadAttrCache(PyObject* owner, PyObject* name
     return 0;
 }
 
-int __attribute__((always_inline)) setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObject* res, int is_load_method) {
+int __attribute__((always_inline)) __attribute__((visibility("hidden")))
+setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObject* res, int is_load_method) {
     _PyOpcache_LoadAttr *la = &co_opcache->u.la;
     int meth_found = 0;
     PyObject* descr = NULL;

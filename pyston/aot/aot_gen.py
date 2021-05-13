@@ -500,7 +500,7 @@ def loadLibs():
 
     global initializeJIT
     initializeJIT = nitrous_so.initializeJIT
-    initializeJIT.argtypes = [ctypes.c_long]
+    initializeJIT.argtypes = [ctypes.c_long, ctypes.c_bool]
 
     global loadBitcode
     loadBitcode = nitrous_so.loadBitcode
@@ -731,6 +731,7 @@ if __name__ == "__main__":
     parser.add_argument("-v", action="count", default=0, dest="verbosity")
     parser.add_argument("--only", action="store", default=None)
     parser.add_argument("-o", action="store", default=None)
+    parser.add_argument("--pic", action="store_true", default=False)
 
     args = parser.parse_args()
     assert args.action in ("pretrace", "trace", "all")
@@ -745,7 +746,7 @@ if __name__ == "__main__":
         # init JIT
         loadLibs()
 
-        initializeJIT(VERBOSITY)
+        initializeJIT(VERBOSITY, args.pic)
         loadBitcode(b'all.bc')
         pystolGlobalPythonSetup()
 

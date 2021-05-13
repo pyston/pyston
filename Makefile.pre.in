@@ -1749,15 +1749,15 @@ aot_optimized.o: $(AOT_DIR)/aot_all.bc
 	then \
 		echo "traces are compiled with instrumentation"; \
 		rm -rf $(AOT_DIR)/aot_prof; \
-		$(CLANG) -c -O2 -fprofile-generate=`realpath $(AOT_DIR)/aot_prof` -o $@ $(AOT_DIR)/aot_all.bc; \
+		$(CLANG) -c -O2 $(CFLAGSFORSHARED) -fprofile-generate=`realpath $(AOT_DIR)/aot_prof` -o $@ $(AOT_DIR)/aot_all.bc; \
 	elif [ -d $(AOT_DIR)/aot_prof ]; \
 	then \
 		echo "traces are using PGO"; \
 		../../build/Release/llvm/bin/llvm-profdata merge -output=$(AOT_DIR)/aot_prof.profdata $(AOT_DIR)/aot_prof/*.profraw || exit 1; \
-		$(CLANG) -c -O2 -fprofile-use=`realpath $(AOT_DIR)/aot_prof.profdata` -o $@ $(AOT_DIR)/aot_all.bc; \
+		$(CLANG) -c -O2 $(CFLAGSFORSHARED) -fprofile-use=`realpath $(AOT_DIR)/aot_prof.profdata` -o $@ $(AOT_DIR)/aot_all.bc; \
 	else \
 		echo "traces are not using PGO"; \
-		$(CLANG) -c -O2 -o $@ $(AOT_DIR)/aot_all.bc; \
+		$(CLANG) -c -O2 $(CFLAGSFORSHARED) -o $@ $(AOT_DIR)/aot_all.bc; \
 	fi;
 
 # Run reindent on the library
