@@ -77,6 +77,7 @@ MKDIR_P=	@MKDIR_P@
 MAKESETUP=      $(srcdir)/Modules/makesetup
 
 USE_AOT =  @USE_AOT@
+AOT_DIR =  @AOT_DIR@
 
 # Compiler options
 OPT=		@OPT@
@@ -443,7 +444,7 @@ LIBRARY_OBJS=	\
 
 ifeq ($(USE_AOT),true)
 	PYTHON_OBJS:=$(PYTHON_OBJS) Python/aot_ceval.o Python/aot_ceval_jit.o Python/aot_ceval_jit_helper.o
-	LIBRARY_OBJS:=$(LIBRARY_OBJS) aot_optimized.o ../../aot/aot_profile.o
+	LIBRARY_OBJS:=$(LIBRARY_OBJS) aot_optimized.o $(AOT_DIR)/aot_profile.o
 endif
 
 
@@ -1743,20 +1744,20 @@ Python/aot_ceval_jit_helper.o: Python/aot_ceval_jit_helper.c
 	# also disabled fcf-protection because our JIT does not generate them but this is not required
 	$(CC) -c $(filter-out -flto -fuse-linker-plugin -ffat-lto-objects -flto-partition=none,$(PY_CORE_CFLAGS)) -std=gnu99 $(FCF_FLAG) -o $@ $<
 
-aot_optimized.o: ../../aot/aot_all.bc
+aot_optimized.o: $(AOT_DIR)/aot_all.bc
 	@if [ "$(findstring fprofile-generate, $(PY_CORE_CFLAGS))" != "" ]; \
 	then \
 		echo "traces are compiled with instrumentation"; \
-		rm -rf ../../aot/aot_prof; \
-		$(CLANG) -c -O2 -fprofile-generate=`realpath ../../aot/aot_prof` -o $@ ../../aot/aot_all.bc; \
-	elif [ -d ../../aot/aot_prof ]; \
+		rm -rf $(AOT_DIR)/aot_prof; \
+		$(CLANG) -c -O2 -fprofile-generate=`realpath $(AOT_DIR)/aot_prof` -o $@ $(AOT_DIR)/aot_all.bc; \
+	elif [ -d $(AOT_DIR)/aot_prof ]; \
 	then \
 		echo "traces are using PGO"; \
-		../../build/Release/llvm/bin/llvm-profdata merge -output=../../aot/aot_prof.profdata ../../aot/aot_prof/*.profraw || exit 1; \
-		$(CLANG) -c -O2 -fprofile-use=`realpath ../../aot/aot_prof.profdata` -o $@ ../../aot/aot_all.bc; \
+		../../build/Release/llvm/bin/llvm-profdata merge -output=$(AOT_DIR)/aot_prof.profdata $(AOT_DIR)/aot_prof/*.profraw || exit 1; \
+		$(CLANG) -c -O2 -fprofile-use=`realpath $(AOT_DIR)/aot_prof.profdata` -o $@ $(AOT_DIR)/aot_all.bc; \
 	else \
 		echo "traces are not using PGO"; \
-		$(CLANG) -c -O2 -o $@ ../../aot/aot_all.bc; \
+		$(CLANG) -c -O2 -o $@ $(AOT_DIR)/aot_all.bc; \
 	fi;
 
 # Run reindent on the library
@@ -1824,7 +1825,7 @@ clean: pycremoval
 	-rm -f Include/pydtrace_probes.h
 	-rm -f profile-gen-stamp
 ifeq ($(USE_AOT),true)
-	-rm ../../aot/aot_profile.o
+	-rm $(AOT_DIR)/aot_profile.o
 endif
 
 profile-removal:

@@ -677,10 +677,8 @@ def print_helper_funcs(f):
     print("} while(0)", file=f)
 
 
-def create_pre_traced_funcs():
-    aot_pre_trace = "aot_pre_trace.c"
-
-    with open(aot_pre_trace, "w") as f:
+def create_pre_traced_funcs(output_file):
+    with open(output_file, "w") as f:
         print_includes(f)
 
         print("PyObject* avoid_clang_bug_aotpretrace() { return NULL; }", file=f)
@@ -732,12 +730,14 @@ if __name__ == "__main__":
     parser.add_argument("--action", action="store", default="all")
     parser.add_argument("-v", action="count", default=0, dest="verbosity")
     parser.add_argument("--only", action="store", default=None)
+    parser.add_argument("-o", action="store", default=None)
 
     args = parser.parse_args()
     assert args.action in ("pretrace", "trace", "all")
 
     if args.action in ("pretrace", "all"):
-        create_pre_traced_funcs()
+        assert args.o
+        create_pre_traced_funcs(args.o)
 
     VERBOSITY = args.verbosity
 

@@ -697,6 +697,7 @@ READELF
 ARFLAGS
 ac_ct_AR
 AR
+AOT_DIR
 GNULD
 LINKCC
 LDVERSION
@@ -5865,6 +5866,12 @@ then
 fi
 { $as_echo "$as_me:${as_lineno-$LINENO}: result: $enable_shared" >&5
 $as_echo "$enable_shared" >&6; }
+
+AOT_DIR="../aot"
+if test $enable_shared = "yes"; then
+    AOT_DIR="../aot_pic"
+fi
+
 
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for --enable-profiling" >&5
 $as_echo_n "checking for --enable-profiling... " >&6; }

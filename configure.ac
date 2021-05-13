@@ -1085,6 +1085,12 @@ then
 fi
 AC_MSG_RESULT($enable_shared)
 
+AOT_DIR="../aot"
+if test $enable_shared = "yes"; then
+    AOT_DIR="../aot_pic"
+fi
+AC_SUBST(AOT_DIR)
+
 AC_MSG_CHECKING(for --enable-profiling)
 AC_ARG_ENABLE(profiling,
               AS_HELP_STRING([--enable-profiling], [enable C-level code profiling]))

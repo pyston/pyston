@@ -12,11 +12,9 @@ all: pyston3
 pyston3: pyston/build/opt_env/bin/python
 	ln -sf $< $@
 
-unopt: pyston/build/unopt_env/bin/python
-
 .PHONY: clean
 clean:
-	rm -rf pyston/build/*_env pyston/build/cpython_* pyston/aot/*.o pyston/aot/*.so pyston/aot/*.bc pyston/aot/*.c pyston/aot/*.gcda pyston/aot/aot_prof pyston/aot/*.profdata
+	rm -rf pyston/build/*_env pyston/build/cpython_* pyston/build/aot*
 
 tune: pyston/build/system_env/bin/python
 	PYTHONPATH=pyston/tools pyston/build/system_env/bin/python -c "import tune; tune.tune()"
@@ -144,11 +142,11 @@ unsafe_$(1):
 endef
 
 COMMA:=,
-$(call make_cpython_build,unopt,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --disable-debugging-features --enable-configure,pyston/aot/aot_all.bc)
-$(call make_cpython_build,opt,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-debugging-features --enable-configure,pyston/aot/aot_all.bc)
+$(call make_cpython_build,unopt,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc)
+$(call make_cpython_build,opt,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc)
 # We have to --disable-debugging-features for consistency with the bc build
 # If we had a separate bc-dbg build then we could change this
-$(call make_cpython_build,dbg,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --with-pydebug --disable-debugging-features --enable-configure,pyston/aot/aot_all.bc)
+$(call make_cpython_build,dbg,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --with-pydebug --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc)
 $(call make_cpython_build,stock,PROFILE_TASK="$(PROFILE_TASK) || true" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-pyston --enable-configure,)
 $(call make_cpython_build,stockunopt,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=/usr --disable-pyston --enable-configure,)
 $(call make_cpython_build,stockdbg,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=/usr --disable-pyston --with-pydebug --enable-configure,)
@@ -186,37 +184,47 @@ cpython: pyston/build/bc_env/bin/python pyston/build/unopt_env/bin/python pyston
 find_similar_traces: $(patsubst %.bc,%.normalized_ll,$(wildcard pyston/aot/*.bc))
 	python3 pyston/aot/aot_diff_ir.py
 
-pyston/aot/aot_pre_trace.c: pyston/aot/aot_gen.py pyston/build/cpython_bc_install/usr/bin/python3
-	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../build/Release/nitrous/:`pwd`/../build/Release/pystol/" ../build/cpython_bc_install/usr/bin/python3 aot_gen.py --action=pretrace
-pyston/aot/aot_pre_trace.bc: pyston/aot/aot_pre_trace.c
-	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $< -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/ -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/internal/ -Ipyston/nitrous/ -emit-llvm -c -o $@
-pyston/aot/aot_pre_trace.so: pyston/aot/aot_pre_trace.c pyston/build/Release/nitrous/libinterp.so
-	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $< -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/ -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/internal/ -Ipyston/nitrous/ -shared -Lpyston/build/Release/nitrous -linterp -o $@
+ONLY?=null
 
-pyston/aot/all.bc: pyston/build/cpython_bc_build/pyston $(LLVM_TOOLS) pyston/aot/aot_pre_trace.bc
-	pyston/build/Release/llvm/bin/llvm-link $(filter-out %_testembed.o.bc %frozenmain.o.bc pyston/build/cpython_bc/Modules/%,$(wildcard pyston/build/cpython_bc/*/*.bc)) pyston/build/cpython_bc/Modules/gcmodule.o.bc pyston/build/cpython_bc/Modules/getpath.o.bc pyston/build/cpython_bc/Modules/main.o.bc pyston/build/cpython_bc/Modules/config.o.bc pyston/aot/aot_pre_trace.bc -o=$@
+# Usage:
+# $(call make_aot_build,NAME,FLAGS)
+define make_aot_build
+$(eval
+pyston/build/$(1)/aot_pre_trace.c: pyston/aot/aot_gen.py pyston/build/cpython_bc_install/usr/bin/python3
+	mkdir -p pyston/build/$(1)
+	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../Release/nitrous/:`pwd`/../Release/pystol/" ../build/cpython_bc_install/usr/bin/python3 aot_gen.py --action=pretrace -o $$(abspath $$@)
+pyston/build/$(1)/aot_pre_trace.bc: pyston/build/$(1)/aot_pre_trace.c
+	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $$< -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/ -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/internal/ -Ipyston/nitrous/ -emit-llvm -c -o $$@
+pyston/build/$(1)/aot_pre_trace.so: pyston/build/$(1)/aot_pre_trace.c pyston/build/Release/nitrous/libinterp.so
+	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $$< -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/ -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/internal/ -Ipyston/nitrous/ -shared -Lpyston/build/Release/nitrous -linterp -o $$@
+
+pyston/build/$(1)/all.bc: pyston/build/cpython_bc_build/pyston $(LLVM_TOOLS) pyston/build/$(1)/aot_pre_trace.bc
+	pyston/build/Release/llvm/bin/llvm-link $$(filter-out %_testembed.o.bc %frozenmain.o.bc pyston/build/cpython_bc/Modules/%,$$(wildcard pyston/build/cpython_bc/*/*.bc)) pyston/build/cpython_bc/Modules/gcmodule.o.bc pyston/build/cpython_bc/Modules/getpath.o.bc pyston/build/cpython_bc/Modules/main.o.bc pyston/build/cpython_bc/Modules/config.o.bc pyston/build/$(1)/aot_pre_trace.bc -o=$$@
+
+# Not really dependent on aot_profile.c, but aot_profile.c gets generated at the same time as the real dependencies
+pyston/build/$(1)/aot_all.bc: pyston/build/$(1)/aot_profile.c
+	cd pyston/build/$(1); ../Release/llvm/bin/llvm-link aot_module*.bc -o aot_all.bc
+
+# The "%"s here are to force make to consider these as group targets and not run this target multiple times
+pyston/build/$(1)/aot_profile%c: pyston/build/$(1)/all.bc pyston/build/$(1)/aot_pre_trace.so pyston/build/cpython_bc_install/usr/bin/python3 pyston/aot/aot_gen.py pyston/build/Release/nitrous/libinterp.so pyston/build/Release/pystol/libpystol.so
+	cd pyston/build/$(1); rm -f aot_module*.bc
+	cd pyston/build/$(1); LD_LIBRARY_PATH="`pwd`/../Release/nitrous/:`pwd`/../Release/pystol/" ../cpython_bc_install/usr/bin/python3 ../../aot/aot_gen.py --action=trace
+	cd pyston/build/$(1); ls -al aot_module*.bc | wc -l
+)
+endef
+
+$(call make_aot_build,aot,)
 
 dbg_aot_trace: pyston/aot/all.bc pyston/aot/aot_pre_trace.so pyston/aot/aot_gen.py pyston/build/cpython_bc_install/usr/bin/python3 build_dbg
 	cd pyston/aot; rm -f aot_module*.bc
 	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../build/PartialDebug/nitrous/:`pwd`/../build/PartialDebug/pystol/" gdb --args ../build/cpython_bc_install/usr/bin/python3 aot_gen.py -vv --action=trace
 	cd pyston/aot; ls -al aot_module*.bc | wc -l
 
-ONLY?=null
 aot_trace_only: pyston/aot/all.bc pyston/aot/aot_pre_trace.so pyston/aot/aot_gen.py pyston/build/cpython_bc_install/usr/bin/python3 pyston/build/Release/nitrous/libinterp.so pyston/build/Release/pystol/libpystol.so
 	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../build/Release/nitrous/:`pwd`/../build/Release/pystol/" ../build/cpython_bc_install/usr/bin/python3 aot_gen.py --action=trace -vv --only=$(ONLY)
 
 dbg_aot_trace_only: pyston/aot/all.bc pyston/aot/aot_pre_trace.so pyston/aot/aot_gen.py pyston/build/cpython_bc_install/usr/bin/python3 build_dbg
 	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../build/PartialDebug/nitrous/:`pwd`/../build/PartialDebug/pystol/" gdb --ex run --args ../build/cpython_bc_install/usr/bin/python3 aot_gen.py --action=trace -vv --only=$(ONLY)
-
-# Not really dependent on aot_profile.c, but aot_profile.c gets generated at the same time as the real dependencies
-pyston/aot/aot_all.bc: pyston/aot/aot_profile.c
-	cd pyston/aot; ../build/Release/llvm/bin/llvm-link aot_module*.bc -o aot_all.bc
-
-# The "%"s here are to force make to consider these as group targets and not run this target multiple times
-pyston/aot/aot_profile%c: pyston/aot/all.bc pyston/aot/aot_pre_trace.so pyston/build/cpython_bc_install/usr/bin/python3 pyston/aot/aot_gen.py pyston/build/Release/nitrous/libinterp.so pyston/build/Release/pystol/libpystol.so
-	cd pyston/aot; rm -f aot_module*.bc
-	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../build/Release/nitrous/:`pwd`/../build/Release/pystol/" ../build/cpython_bc_install/usr/bin/python3 aot_gen.py --action=trace
-	cd pyston/aot; ls -al aot_module*.bc | wc -l
 
 PYPERF:=pyston/build/system_env/bin/pyperf command -w 0 -l 1 -p 1 -n $(or $(N),$(N),3) -v --affinity 0
 linktest:
