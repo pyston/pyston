@@ -104,7 +104,7 @@ PY_CFLAGS_NODIST=$(CONFIGURE_CFLAGS_NODIST) $(CFLAGS_NODIST) -I$(srcdir)/Include
 # environment variables
 PY_CPPFLAGS=	$(BASECPPFLAGS) -I. -I$(srcdir)/Include $(CONFIGURE_CPPFLAGS) $(CPPFLAGS)
 ifeq ($(USE_AOT),true)
-	PY_CPPFLAGS:=$(PY_CPPFLAGS) -I../../aot
+	PY_CPPFLAGS:=$(PY_CPPFLAGS) -I$(AOT_DIR)
 endif
 PY_LDFLAGS=	$(CONFIGURE_LDFLAGS) $(LDFLAGS)
 PY_LDFLAGS_NODIST=$(CONFIGURE_LDFLAGS_NODIST) $(LDFLAGS_NODIST)
@@ -1727,7 +1727,7 @@ config.status:	$(srcdir)/configure
 Python/dtoa.o: Python/dtoa.c
 	$(CC) -c $(PY_CORE_CFLAGS) $(CFLAGS_ALIASING) -o $@ $<
 
-Python/aot_ceval.o: Python/aot_ceval.c ../../aot/aot.h
+Python/aot_ceval.o: Python/aot_ceval.c $(AOT_DIR)/aot.h
 	$(CC) -c $(PY_CORE_CFLAGS) -Wno-unused-label -o $@ $<
 
 Python/aot_ceval_jit.o: Python/aot_ceval_jit.c
