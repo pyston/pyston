@@ -63,7 +63,7 @@ BOLT:=pyston/build/bolt/bin/llvm-bolt
 MERGE_FDATA:=pyston/build/bolt/bin/merge-fdata
 pyston/build/bolt/build.ninja: pyston/bolt/llvm/tools/llvm-bolt
 	mkdir -p pyston/build/bolt
-	cd pyston/build/bolt; cmake -G Ninja ../../bolt/llvm -DLLVM_TARGETS_TO_BUILD="X86" -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON
+	cd pyston/build/bolt; cmake -G Ninja ../../bolt/llvm -DLLVM_TARGETS_TO_BUILD="X86" -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_INCLUDE_TESTS=0
 bolt: $(BOLT)
 $(BOLT): pyston/build/bolt/build.ninja
 	cd pyston/build/bolt; ninja llvm-bolt merge-fdata
