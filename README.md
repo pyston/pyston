@@ -31,12 +31,12 @@ git submodule update --init pyston/llvm pyston/bolt/bolt pyston/bolt/llvm pyston
 Pyston has the following build dependencies:
 
 ```
-sudo apt-get install ninja-build cmake clang libssl-dev libsqlite3-dev luajit python3.8 zlib1g-dev virtualenv libjemalloc-dev
+sudo apt-get install ninja-build cmake clang libssl-dev libsqlite3-dev luajit python3 zlib1g-dev virtualenv libjpeg-dev
 ```
 
 Extra dependencies for running the test suite:
 ```
-sudo apt-get install libwebp-dev libjpeg-dev python3-gdbm python3-tk python3.8-dev
+sudo apt-get install libwebp-dev libjpeg-dev python3-gdbm python3-tk python3-dev
 ```
 
 Extra dependencies for producing Pyston debian packages and portable directory release:
