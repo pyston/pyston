@@ -4,8 +4,8 @@ Upstream-Contact: support@pyston.org
 Source: https://github.com/pyston/pyston
 
 Files: *
-Copyright: 2020 The Pyston Team <support@pyston.org>
-License: Closed source, all rights reserved.
+Copyright: 2021 The Pyston Team <support@pyston.org>
+License: Python Software Foundation License Version 2
 
 # Please also look if there are files or directories which have a
 # different copyright/license attached and list them here.
