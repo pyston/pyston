@@ -196,9 +196,9 @@ pyston/build/$(1)/aot_pre_trace.c: pyston/aot/aot_gen.py pyston/build/cpython_bc
 	mkdir -p pyston/build/$(1)
 	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../Release/nitrous/:`pwd`/../Release/pystol/" ../build/cpython_bc_install/usr/bin/python3 aot_gen.py --action=pretrace -o $$(abspath $$@) $(2)
 pyston/build/$(1)/aot_pre_trace.bc: pyston/build/$(1)/aot_pre_trace.c
-	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $$< -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/ -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/internal/ -Ipyston/nitrous/ -emit-llvm -c -o $$@
+	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $$< -Ipyston/build/cpython_bc_install/usr/include/python3.8-pyston2.2/ -Ipyston/build/cpython_bc_install/usr/include/python3.8-pyston2.2/internal/ -Ipyston/nitrous/ -emit-llvm -c -o $$@
 pyston/build/$(1)/aot_pre_trace.so: pyston/build/$(1)/aot_pre_trace.c pyston/build/Release/nitrous/libinterp.so
-	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $$< -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/ -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/internal/ -Ipyston/nitrous/ -shared -Lpyston/build/Release/nitrous -linterp -o $$@
+	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $$< -Ipyston/build/cpython_bc_install/usr/include/python3.8-pyston2.2/ -Ipyston/build/cpython_bc_install/usr/include/python3.8-pyston2.2/internal/ -Ipyston/nitrous/ -shared -Lpyston/build/Release/nitrous -linterp -o $$@
 
 pyston/build/$(1)/all.bc: pyston/build/cpython_bc_build/pyston $(LLVM_TOOLS) pyston/build/$(1)/aot_pre_trace.bc
 	pyston/build/Release/llvm/bin/llvm-link $$(filter-out %_testembed.o.bc %frozenmain.o.bc pyston/build/cpython_bc/Modules/%,$$(wildcard pyston/build/cpython_bc/*/*.bc)) pyston/build/cpython_bc/Modules/gcmodule.o.bc pyston/build/cpython_bc/Modules/getpath.o.bc pyston/build/cpython_bc/Modules/main.o.bc pyston/build/cpython_bc/Modules/config.o.bc pyston/build/$(1)/aot_pre_trace.bc -o=$$@

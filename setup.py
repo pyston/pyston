@@ -2370,15 +2370,21 @@ class PyBuildInstallLib(install_lib):
 class PyBuildScripts(build_scripts):
     def copy_scripts(self):
         outfiles, updated_files = build_scripts.copy_scripts(self)
-        fullversion = '-{0[0]}.{0[1]}'.format(sys.version_info)
+        fullversion = '-{0[0]}.{0[1]}-pyston{1[0]}.{1[1]}'.format(sys.version_info, sys.pyston_version_info)
         minoronly = '.{0[1]}'.format(sys.version_info)
         newoutfiles = []
         newupdated_files = []
         for filename in outfiles:
             if filename.endswith('2to3'):
+                # Example: "2to3" -> "2to3-3.8-pyston2.2"
                 newfilename = filename + fullversion
             else:
-                newfilename = filename + minoronly
+                # Example: "idle3" -> "idle3.8-pyston2.2"
+                assert filename.endswith('3')
+                assert fullversion[1] == '3'
+                newfilename = filename[:-1] + fullversion[1:]
+                # From CPython:
+                # newfilename = filename + minoronly
             log.info('renaming %s to %s', filename, newfilename)
             os.rename(filename, newfilename)
             newoutfiles.append(newfilename)

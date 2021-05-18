@@ -20,14 +20,14 @@ __all__ = [
 
 _INSTALL_SCHEMES = {
     'posix_prefix': {
-        'stdlib': '{installed_base}/lib/pyston{py_version_short}',
-        'platstdlib': '{platbase}/lib/pyston{py_version_short}',
-        'purelib': '{base}/lib/pyston{py_version_short}/site-packages',
-        'platlib': '{platbase}/lib/pyston{py_version_short}/site-packages',
+        'stdlib': '{installed_base}/lib/python{py_version_short}',
+        'platstdlib': '{platbase}/lib/python{py_version_short}',
+        'purelib': '{base}/lib/python{py_version_short}/site-packages',
+        'platlib': '{platbase}/lib/python{py_version_short}/site-packages',
         'include':
-            '{installed_base}/include/pyston{py_version_short}{abiflags}',
+            '{installed_base}/include/python{py_version_short}{abiflags}',
         'platinclude':
-            '{installed_platbase}/include/pyston{py_version_short}{abiflags}',
+            '{installed_platbase}/include/python{py_version_short}{abiflags}',
         'scripts': '{base}/bin',
         'data': '{base}',
         },
@@ -62,11 +62,11 @@ _INSTALL_SCHEMES = {
         'data': '{userbase}',
         },
     'posix_user': {
-        'stdlib': '{userbase}/lib/pyston{py_version_short}',
-        'platstdlib': '{userbase}/lib/pyston{py_version_short}',
-        'purelib': '{userbase}/lib/pyston{py_version_short}/site-packages',
-        'platlib': '{userbase}/lib/pyston{py_version_short}/site-packages',
-        'include': '{userbase}/include/pyston{py_version_short}',
+        'stdlib': '{userbase}/lib/python{py_version_short}',
+        'platstdlib': '{userbase}/lib/python{py_version_short}',
+        'purelib': '{userbase}/lib/python{py_version_short}/site-packages',
+        'platlib': '{userbase}/lib/python{py_version_short}/site-packages',
+        'include': '{userbase}/include/python{py_version_short}',
         'scripts': '{userbase}/bin',
         'data': '{userbase}',
         },
@@ -87,7 +87,7 @@ _SCHEME_KEYS = ('stdlib', 'platstdlib', 'purelib', 'platlib', 'include',
  # FIXME don't rely on sys.version here, its format is an implementation detail
  # of CPython, use sys.version_info or sys.hexversion
 _PY_VERSION = sys.version.split()[0]
-_PY_VERSION_SHORT = '%d.%d' % sys.version_info[:2]
+_PY_VERSION_SHORT = '%d.%d-pyston%d.%d' % (sys.version_info[:2] + sys.pyston_version_info[:2])
 _PY_VERSION_SHORT_NO_DOT = '%d%d' % sys.version_info[:2]
 _PREFIX = os.path.normpath(sys.prefix)
 _BASE_PREFIX = os.path.normpath(sys.base_prefix)
