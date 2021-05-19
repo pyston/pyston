@@ -129,6 +129,8 @@ extern "C" {
 #define CALL_FINALLY            162
 #define POP_FINALLY             163
 
+#define CALL_METHOD_KW          166 // backport of GH-26014
+
 /* EXCEPT_HANDLER is a special, implicit block type which is created when
    entering an except handler. It is not an opcode but we define it here
    as we want it to be available to both frameobject.c and ceval.c, while

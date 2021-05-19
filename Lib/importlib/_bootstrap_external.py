@@ -271,6 +271,7 @@ _code_type = type(_write_atomic.__code__)
 #     Python 3.8b2  3412 (Swap the position of positional args and positional
 #                         only args in ast.arguments #37593)
 #     Python 3.8b4  3413 (Fix "break" and "continue" in "finally" #37830)
+#     Pyston 2.3    4414 (CALL_METHOD_KW)
 #
 # MAGIC must change whenever the bytecode emitted by the compiler may no
 # longer be understood by older implementations of the eval loop (usually
@@ -279,7 +280,7 @@ _code_type = type(_write_atomic.__code__)
 # Whenever MAGIC_NUMBER is changed, the ranges in the magic_values array
 # in PC/launcher.c must also be updated.
 
-MAGIC_NUMBER = (3413).to_bytes(2, 'little') + b'\r\n'
+MAGIC_NUMBER = (4414).to_bytes(2, 'little') + b'\r\n'
 _RAW_MAGIC_NUMBER = int.from_bytes(MAGIC_NUMBER, 'little')  # For import.c
 
 _PYCACHE = '__pycache__'
