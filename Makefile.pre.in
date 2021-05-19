@@ -437,14 +437,14 @@ LIBRARY_OBJS_OMIT_FROZEN=	\
 		$(MODULE_OBJS) \
 		$(MODOBJS)
 
+ifeq ($(USE_AOT),true)
+	PYTHON_OBJS:=$(PYTHON_OBJS) Python/aot_ceval.o Python/aot_ceval_jit.o Python/aot_ceval_jit_helper.o
+	LIBRARY_OBJS_OMIT_FROZEN:=$(LIBRARY_OBJS_OMIT_FROZEN) aot_optimized.o ../../aot/aot_profile.o
+endif
+
 LIBRARY_OBJS=	\
 		$(LIBRARY_OBJS_OMIT_FROZEN) \
 		Python/frozen.o
-
-ifeq ($(USE_AOT),true)
-	PYTHON_OBJS:=$(PYTHON_OBJS) Python/aot_ceval.o Python/aot_ceval_jit.o Python/aot_ceval_jit_helper.o
-	LIBRARY_OBJS:=$(LIBRARY_OBJS) aot_optimized.o ../../aot/aot_profile.o
-endif
 
 
 

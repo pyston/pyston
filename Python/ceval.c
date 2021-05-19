@@ -992,7 +992,7 @@ _PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
 #define STACK_SHRINK(n) do { \
                             assert(n >= 0); \
                             (void)(lltrace && prtrace(tstate, TOP(), "stackadj")); \
-                            (void)(BASIC_STACKADJ(-n)); \
+                            (void)(BASIC_STACKADJ(-(n))); \
                             assert(STACK_LEVEL() <= co->co_stacksize); \
                         } while (0)
 #define EXT_POP(STACK_POINTER) ((void)(lltrace && \
@@ -1002,7 +1002,7 @@ _PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
 #define PUSH(v)                BASIC_PUSH(v)
 #define POP()                  BASIC_POP()
 #define STACK_GROW(n)          BASIC_STACKADJ(n)
-#define STACK_SHRINK(n)        BASIC_STACKADJ(-n)
+#define STACK_SHRINK(n)        BASIC_STACKADJ(-(n))
 #define EXT_POP(STACK_POINTER) (*--(STACK_POINTER))
 #endif
 
@@ -3504,6 +3504,28 @@ main_loop:
             PUSH(res);
             if (res == NULL)
                 goto error;
+            DISPATCH();
+        }
+        case TARGET(CALL_METHOD_KW): {
+            /* Designed to work in tandem with LOAD_METHOD. Same as CALL_METHOD
+            but pops TOS to get a tuple of keyword names. */
+            PyObject **sp, *res;
+            PyObject *names = NULL;
+            int meth_found;
+
+            names = POP();
+
+            sp = stack_pointer;
+            meth_found = (PEEK(oparg + 2) != NULL);
+            res = call_function_ceval(tstate, &sp, oparg + meth_found, names);
+            stack_pointer = sp;
+
+            STACK_SHRINK(1 - meth_found);
+            PUSH(res);
+            Py_DECREF(names);
+            if (res == NULL) {
+                goto error;
+            }
             DISPATCH();
         }
 
