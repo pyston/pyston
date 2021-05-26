@@ -96,7 +96,7 @@ pyston/build/pypy_env/bin/python: | $(VIRTUALENV)
 	$(VIRTUALENV) -p pypy3 pyston/build/pypy_env
 
 # Usage:
-# $(call make_cpython_build,NAME,CONFIGURE_LINE,AOT_DEPENDENCY)
+# $(call make_cpython_build,NAME,CONFIGURE_LINE,AOT_DEPENDENCY,DESTDIR)
 define make_cpython_build
 $(eval
 
@@ -109,7 +109,7 @@ pyston/build/cpython_$(1)_build/pyston: pyston/build/cpython_$(1)_build/Makefile
 	touch $$@ # some cpython .c files don't affect the python executable
 
 pyston/build/cpython_$(1)_install/usr/bin/python3: pyston/build/cpython_$(1)_build/pyston
-	cd pyston/build/cpython_$(1)_build; $$(MAKE) install DESTDIR=$(abspath pyston/build/cpython_$(1)_install)
+	cd pyston/build/cpython_$(1)_build; $$(MAKE) install DESTDIR=$(4)
 $(1): pyston/build/$(1)_env/bin/python
 
 pyston/build/$(1)_env/bin/python: pyston/build/cpython_$(1)_install/usr/bin/python3 | $(VIRTUALENV)
@@ -142,16 +142,17 @@ unsafe_$(1):
 endef
 
 COMMA:=,
-$(call make_cpython_build,unopt,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc)
-$(call make_cpython_build,unoptshared,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --disable-debugging-features --enable-configure --enable-shared,pyston/build/aot_pic/aot_all.bc)
-$(call make_cpython_build,opt,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc)
-$(call make_cpython_build,optshared,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-debugging-features --enable-configure --enable-shared,pyston/build/aot_pic/aot_all.bc)
+$(call make_cpython_build,unopt,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=$(abspath pyston/build/cpython_unopt_install/usr) --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc)
+$(call make_cpython_build,unoptshared,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=$(abspath pyston/build/cpython_unoptshared_install/usr) --disable-debugging-features --enable-configure --enable-shared,pyston/build/aot_pic/aot_all.bc)
+$(call make_cpython_build,opt,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=$(abspath pyston/build/cpython_opt_install/usr) --enable-optimizations --with-lto --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc)
+$(call make_cpython_build,release,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc,$(abspath pyston/build/cpython_release_install))
+$(call make_cpython_build,releaseshared,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-debugging-features --enable-shared --enable-configure,pyston/build/aot/aot_all.bc,$(abspath pyston/build/cpython_releaseshared_install))
 # We have to --disable-debugging-features for consistency with the bc build
 # If we had a separate bc-dbg build then we could change this
-$(call make_cpython_build,dbg,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --with-pydebug --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc)
-$(call make_cpython_build,stock,PROFILE_TASK="$(PROFILE_TASK) || true" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-pyston --enable-configure,)
-$(call make_cpython_build,stockunopt,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=/usr --disable-pyston --enable-configure,)
-$(call make_cpython_build,stockdbg,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=/usr --disable-pyston --with-pydebug --enable-configure,)
+$(call make_cpython_build,dbg,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=$(abspath pyston/build/cpython_dbg_install/usr) --with-pydebug --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc)
+$(call make_cpython_build,stock,PROFILE_TASK="$(PROFILE_TASK) || true" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=$(abspath pyston/build/cpython_stock_install/usr) --enable-optimizations --with-lto --disable-pyston --enable-configure,)
+$(call make_cpython_build,stockunopt,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=$(abspath pyston/build/cpython_stockunopt_install/usr) --disable-pyston --enable-configure,)
+$(call make_cpython_build,stockdbg,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=$(abspath pyston/build/cpython_stockdbg_install/usr) --disable-pyston --with-pydebug --enable-configure,)
 
 define make_bolt_rule
 $(eval
