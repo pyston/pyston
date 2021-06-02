@@ -96,7 +96,7 @@ pyston/build/pypy_env/bin/python: | $(VIRTUALENV)
 	$(VIRTUALENV) -p pypy3 pyston/build/pypy_env
 
 # Usage:
-# $(call make_cpython_build,NAME,CONFIGURE_LINE,AOT_DEPENDENCY,DESTDIR)
+# $(call make_cpython_build,NAME,CONFIGURE_LINE,AOT_DEPENDENCY,DESTDIR,BOLT:[|binary|so])
 define make_cpython_build
 $(eval
 
@@ -112,8 +112,30 @@ pyston/build/cpython_$(1)_install/usr/bin/python3: pyston/build/cpython_$(1)_bui
 	cd pyston/build/cpython_$(1)_build; $$(MAKE) install DESTDIR=$(4)
 $(1): pyston/build/$(1)_env/bin/python
 
+ifeq ($(5),binary)
+
+pyston/build/cpython_$(1)_install/usr/bin/python3.bolt.fdata: pyston/build/cpython_$(1)_install/usr/bin/python3 $(BOLT) | $(VIRTUALENV)
+	rm -rf /tmp/tmp_env_$(1)
+	rm $$<.bolt*.fdata || true
+	$(BOLT) $$< -instrument -instrumentation-file-append-pid -instrumentation-file=$(abspath pyston/build/cpython_$(1)_install/usr/bin/python3.bolt) -o $$<.bolt_inst
+	$(VIRTUALENV) -p $$<.bolt_inst /tmp/tmp_env_$(1)
+	/tmp/tmp_env_$(1)/bin/pip install -r pyston/benchmark_requirements.txt
+	/tmp/tmp_env_$(1)/bin/python3 pyston/run_profile_task.py
+	$(MERGE_FDATA) $$<.*.fdata > $$@
+
+pyston/build/cpython_$(1)_install/usr/bin/python3.bolt: pyston/build/cpython_$(1)_install/usr/bin/python3.bolt.fdata
+	$(BOLT) pyston/build/cpython_$(1)_install/usr/bin/python3 -o $$@ -data=$$< -update-debug-sections -reorder-blocks=cache+ -reorder-functions=hfsort+ -split-functions=3 -icf=1 -inline-all -split-eh -reorder-functions-use-hot-size -peepholes=all -jump-tables=aggressive -inline-ap -indirect-call-promotion=all -dyno-stats -frame-opt=hot -use-gnu-stack
+
+pyston/build/$(1)_env/bin/python: pyston/build/cpython_$(1)_install/usr/bin/python3.bolt | $(VIRTUALENV)
+	$(VIRTUALENV) -p $$< pyston/build/$(1)_env
+
+else
+
 pyston/build/$(1)_env/bin/python: pyston/build/cpython_$(1)_install/usr/bin/python3 | $(VIRTUALENV)
 	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) $(VIRTUALENV) -p $$< pyston/build/$(1)_env
+
+endif
+
 
 pyston/build/$(1)_env/update.stamp: pyston/benchmark_requirements.txt pyston/benchmark_requirements_nonpypy.txt | pyston/build/$(1)_env/bin/python
 	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) pyston/build/$(1)_env/bin/pip install -r pyston/benchmark_requirements.txt -r pyston/benchmark_requirements_nonpypy.txt
@@ -142,36 +164,17 @@ unsafe_$(1):
 endef
 
 COMMA:=,
-$(call make_cpython_build,unopt,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=$(abspath pyston/build/cpython_unopt_install/usr) --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc)
+$(call make_cpython_build,unopt,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=$(abspath pyston/build/cpython_unopt_install/usr) --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc,,)
 $(call make_cpython_build,unoptshared,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=$(abspath pyston/build/cpython_unoptshared_install/usr) --disable-debugging-features --enable-configure --enable-shared,pyston/build/aot_pic/aot_all.bc)
-$(call make_cpython_build,opt,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=$(abspath pyston/build/cpython_opt_install/usr) --enable-optimizations --with-lto --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc)
-$(call make_cpython_build,release,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc,$(abspath pyston/build/cpython_release_install))
-$(call make_cpython_build,releaseshared,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-debugging-features --enable-shared --enable-configure,pyston/build/aot/aot_all.bc,$(abspath pyston/build/cpython_releaseshared_install))
+$(call make_cpython_build,opt,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=$(abspath pyston/build/cpython_opt_install/usr) --enable-optimizations --with-lto --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc,,binary)
+$(call make_cpython_build,release,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc,$(abspath pyston/build/cpython_release_install),binary)
+$(call make_cpython_build,releaseshared,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-debugging-features --enable-shared --enable-configure,pyston/build/aot/aot_all.bc,$(abspath pyston/build/cpython_releaseshared_install),so)
 # We have to --disable-debugging-features for consistency with the bc build
 # If we had a separate bc-dbg build then we could change this
 $(call make_cpython_build,dbg,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=$(abspath pyston/build/cpython_dbg_install/usr) --with-pydebug --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc)
 $(call make_cpython_build,stock,PROFILE_TASK="$(PROFILE_TASK) || true" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=$(abspath pyston/build/cpython_stock_install/usr) --enable-optimizations --with-lto --disable-pyston --enable-configure,)
 $(call make_cpython_build,stockunopt,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=$(abspath pyston/build/cpython_stockunopt_install/usr) --disable-pyston --enable-configure,)
 $(call make_cpython_build,stockdbg,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=$(abspath pyston/build/cpython_stockdbg_install/usr) --disable-pyston --with-pydebug --enable-configure,)
-
-define make_bolt_rule
-$(eval
-$(2).fdata: $(1) $(BOLT) | $(VIRTUALENV)
-	rm -rf /tmp/tmp_env
-	rm $(2)*.fdata || true
-	$(BOLT) $(1) -instrument -instrumentation-file-append-pid -instrumentation-file=$(abspath $(2)) -o $(1).bolt_inst
-	$(VIRTUALENV) -p $(1).bolt_inst /tmp/tmp_env
-	/tmp/tmp_env/bin/pip install -r pyston/benchmark_requirements.txt
-	/tmp/tmp_env/bin/python3 pyston/run_profile_task.py
-	$(MERGE_FDATA) $(2).*.fdata > $(2).fdata
-
-$(2): $(2).fdata
-	$(BOLT) $(1) -o $(2) -data=$(2).fdata -update-debug-sections -reorder-blocks=cache+ -reorder-functions=hfsort+ -split-functions=3 -icf=1 -inline-all -split-eh -reorder-functions-use-hot-size -peepholes=all -jump-tables=aggressive -inline-ap -indirect-call-promotion=all -dyno-stats -frame-opt=hot -use-gnu-stack
-)
-endef
-
-$(call make_bolt_rule,pyston/build/cpython_unopt_install/usr/bin/python3,pyston/build/cpython_unopt_install/usr/bin/python3.bolt)
-$(call make_bolt_rule,pyston/build/cpython_opt_install/usr/bin/python3,pyston/build/cpython_opt_install/usr/bin/python3.bolt)
 
 .PHONY: cpython
 cpython: pyston/build/bc_env/bin/python pyston/build/unopt_env/bin/python pyston/build/opt_env/bin/python

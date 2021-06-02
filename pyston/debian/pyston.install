@@ -3,7 +3,7 @@ build/cpython_opt_install/usr/bin/python3.bolt => usr/bin/pyston3.8
 build/cpython_opt_install/usr/bin/pip3.8 => usr/bin/pip-pyston3.8
 
 build/cpython_opt_install/usr/include usr/
-build/cpython_opt_install/usr/lib/pyston3.8 usr/lib/
+build/cpython_opt_install/usr/lib/python3.8-pyston2.2 usr/lib/
 
 # don't install man pages they would overwrite the normal cpython one
 #build/cpython_opt_install/usr/share usr/
