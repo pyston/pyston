@@ -136,6 +136,21 @@ pyston/build/$(1)_env/bin/python: pyston/build/cpython_$(1)_install/usr/bin/pyth
 
 endif
 
+ifeq ($(5),so)
+
+# WIP: should use INSTSONAME to install to a different name, use LD_PRELOAD to load the instrumentated so, and then have bolt write out the optimized so to the correct location
+pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0.bolt: pyston/build/cpython_$(1)_install/usr/bin/python3
+	bash -c "mv pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0{,.base}"
+	rm -rfv /tmp/tmp_env_$(1)
+	rm $$@.* || true
+	$(BOLT) pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0.base -instrument -instrumentation-file-append-pid -instrumentation-file=$(abspath $$@) -o pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0 -update-debug-sections
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) $(VIRTUALENV) -p $$< /tmp/tmp_env_$(1)
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) /tmp/tmp_env_$(1)/bin/pip install -r pyston/benchmark_requirements.txt
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) /tmp/tmp_env_$(1)/bin/python3 pyston/run_profile_task.py
+	$(MERGE_FDATA) $$@.*.fdata > $$@.fdata
+	$(BOLT) pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0.base -o $$@ -data=$$@.fdata -update-debug-sections -reorder-blocks=cache+ -reorder-functions=hfsort+ -split-functions=3 -icf=1 -inline-all -split-eh -reorder-functions-use-hot-size -peepholes=all -jump-tables=aggressive -inline-ap -indirect-call-promotion=all -dyno-stats -frame-opt=hot -use-gnu-stack
+
+endif
 
 pyston/build/$(1)_env/update.stamp: pyston/benchmark_requirements.txt pyston/benchmark_requirements_nonpypy.txt | pyston/build/$(1)_env/bin/python
 	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) pyston/build/$(1)_env/bin/pip install -r pyston/benchmark_requirements.txt -r pyston/benchmark_requirements_nonpypy.txt
@@ -211,8 +226,7 @@ pyston/build/$(1)/all.bc: pyston/build/cpython_bc_build/pyston $(LLVM_TOOLS) pys
 pyston/build/$(1)/aot_all.bc: pyston/build/$(1)/aot_profile.c
 	cd pyston/build/$(1); ../Release/llvm/bin/llvm-link aot_module*.bc -o aot_all.bc
 
-# The "%"s here are to force make to consider these as group targets and not run this target multiple times
-pyston/build/$(1)/aot_profile%c: pyston/build/$(1)/all.bc pyston/build/$(1)/aot_pre_trace.so pyston/build/cpython_bc_install/usr/bin/python3 pyston/aot/aot_gen.py pyston/build/Release/nitrous/libinterp.so pyston/build/Release/pystol/libpystol.so
+pyston/build/$(1)/aot_profile.c: pyston/build/$(1)/all.bc pyston/build/$(1)/aot_pre_trace.so pyston/build/cpython_bc_install/usr/bin/python3 pyston/aot/aot_gen.py pyston/build/Release/nitrous/libinterp.so pyston/build/Release/pystol/libpystol.so
 	cd pyston/build/$(1); rm -f aot_module*.bc
 	cd pyston/build/$(1); LD_LIBRARY_PATH="`pwd`/../Release/nitrous/:`pwd`/../Release/pystol/" ../cpython_bc_install/usr/bin/python3 ../../aot/aot_gen.py --action=trace $(2)
 	cd pyston/build/$(1); ls -al aot_module*.bc | wc -l
