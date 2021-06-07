@@ -25,7 +25,7 @@ We plan on explaining our techniques in more detail in future blog posts, but th
 First do
 
 ```
-git submodule update --init pyston/llvm pyston/bolt/bolt pyston/bolt/llvm pyston/LuaJIT pyston/macrobenchmarks
+git submodule update --init pyston/llvm pyston/bolt/bolt pyston/LuaJIT pyston/macrobenchmarks
 ```
 
 Pyston has the following build dependencies:

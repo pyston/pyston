@@ -7,10 +7,6 @@
 [submodule "pyston/llvm"]
 	path = pyston/llvm
 	url = https://github.com/llvm/llvm-project.git
-[submodule "pyston/bolt/llvm"]
-	path = pyston/bolt/llvm
-	url = https://github.com/llvm-mirror/llvm
-	ignore = dirty
 [submodule "pyston/tools/FlameGraph"]
 	path = pyston/tools/FlameGraph
 	url = https://github.com/brendangregg/FlameGraph

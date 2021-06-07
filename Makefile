@@ -55,15 +55,11 @@ LLVM_TOOLS:=$(CLANG)
 clang $(CLANG): | pyston/build/Release/build.ninja
 	cd pyston/build/Release; ninja clang llvm-dis llvm-as llvm-link opt compiler-rt llvm-profdata
 
-pyston/bolt/llvm/tools/llvm-bolt:
-	ln -fs $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))/pyston/bolt/bolt $@
-	cd pyston/bolt/llvm; patch -p 1 < tools/llvm-bolt/llvm.patch
-
 BOLT:=pyston/build/bolt/bin/llvm-bolt
 MERGE_FDATA:=pyston/build/bolt/bin/merge-fdata
-pyston/build/bolt/build.ninja: pyston/bolt/llvm/tools/llvm-bolt
+pyston/build/bolt/build.ninja:
 	mkdir -p pyston/build/bolt
-	cd pyston/build/bolt; cmake -G Ninja ../../bolt/llvm -DLLVM_TARGETS_TO_BUILD="X86" -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_INCLUDE_TESTS=0
+	cd pyston/build/bolt; cmake -G Ninja ../../bolt/bolt/llvm -DLLVM_TARGETS_TO_BUILD="X86" -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_INCLUDE_TESTS=0 -DLLVM_ENABLE_PROJECTS=bolt
 bolt: $(BOLT)
 $(BOLT): pyston/build/bolt/build.ninja
 	cd pyston/build/bolt; ninja llvm-bolt merge-fdata
