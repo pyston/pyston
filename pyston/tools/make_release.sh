@@ -21,8 +21,8 @@ do
 set -ex
 make package
 apt-get install -y patchelf
-make pyston/build/opt_env/bin/python3
-pyston/build/opt_env/bin/python3 pyston/tools/make_portable_dir.py pyston_${VERSION}_amd64.deb pyston_${VERSION}_${DIST}
+make pyston/build/release_env/bin/python3
+pyston/build/release_env/bin/python3 pyston/tools/make_portable_dir.py pyston_${VERSION}_amd64.deb pyston_${VERSION}_${DIST}
 chown -R $(id -u):$(id -g) pyston_${VERSION}_amd64.deb
 chown -R $(id -u):$(id -g) pyston_${VERSION}_${DIST}
 cp -ar pyston_${VERSION}_amd64.deb /host-volume/pyston_${VERSION}_${DIST}.deb
