@@ -5477,6 +5477,11 @@ PyType_Ready(PyTypeObject *type)
             inherit_slots(type, (PyTypeObject *)b);
     }
 
+    // We disable this error in pyston because cython has to workaround it
+    // by setting temporarily Py_TPFLAGS_HEAPTYPE on all PyTypeObjects which
+    // causes further issues for pyston.
+    // So instead we remove the error and don't pass the flag in cython.
+#if !PYSTON_SPEEDUPS
     /* All bases of statically allocated type should be statically allocated */
     if (!(type->tp_flags & Py_TPFLAGS_HEAPTYPE))
         for (i = 0; i < n; i++) {
@@ -5490,6 +5495,7 @@ PyType_Ready(PyTypeObject *type)
                 goto error;
             }
         }
+#endif
 
     /* Sanity check for tp_free. */
     if (PyType_IS_GC(type) && (type->tp_flags & Py_TPFLAGS_BASETYPE) &&
