@@ -194,6 +194,21 @@ $(call make_cpython_build,stock,PROFILE_TASK="$(PROFILE_TASK) || true" CC=gcc CF
 $(call make_cpython_build,stockunopt,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=$(abspath pyston/build/cpython_stockunopt_install/usr) --disable-pyston --enable-configure,)
 $(call make_cpython_build,stockdbg,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=$(abspath pyston/build/cpython_stockdbg_install/usr) --disable-pyston --with-pydebug --enable-configure,)
 
+# Usage: $(call combine_builds,NAME)
+define combine_builds
+$(eval
+pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0: pyston/build/cpython_$(1)_install/usr/bin/python3 pyston/build/cpython_$(1)shared_install/usr/bin/python3
+	bash -c "cp pyston/build/cpython_$(1){shared,}_install/usr/lib/python3.8-pyston2.2/_sysconfigdata__linux_x86_64-linux-gnu.py"
+	bash -c "cp pyston/build/cpython_$(1){shared,}_install/usr/lib/libpython3.8-pyston2.2.so.1.0"
+pyston/build/$(1)_env/bin/python: pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0
+)
+endef
+
+$(call combine_builds,unopt)
+$(call combine_builds,releaseunopt)
+$(call combine_builds,opt)
+$(call combine_builds,release)
+
 .PHONY: cpython
 cpython: pyston/build/bc_env/bin/python pyston/build/unopt_env/bin/python pyston/build/opt_env/bin/python
 
