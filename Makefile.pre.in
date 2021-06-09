@@ -508,8 +508,12 @@ profile-run-stamp:
 	touch $@
 
 ifeq ($(USE_AOT),true)
+# Hack: in --enable-shared mode, link aot_optimized.o into the instrumented binary.
+# This is because aot_optimized uses clang PGO, and the clang pgo runtime library
+# fails to find the symbol for the output filename when it is linked in via a shared library.
+# Hopefully this doesn't cause any issues with PGO working.
 build_all_generate_profile:
-	$(MAKE) @DEF_MAKE_RULE@ CFLAGS_NODIST="$(CFLAGS_NODIST) $(PGO_PROF_GEN_FLAG)" LDFLAGS_NODIST="$(LDFLAGS_NODIST) $(PGO_PROF_GEN_FLAG) -u__llvm_profile_runtime $(CLANG_RT_PROFILE)" LIBS="$(LIBS)"
+	$(MAKE) @DEF_MAKE_RULE@ CFLAGS_NODIST="$(CFLAGS_NODIST) $(PGO_PROF_GEN_FLAG)" LDFLAGS_NODIST="$(LDFLAGS_NODIST) $(PGO_PROF_GEN_FLAG) -u__llvm_profile_runtime $(CLANG_RT_PROFILE)" LIBS="$(LIBS)" $(if $(PY3LIBRARY),LDLAST="aot_optimized.o")
 else
 build_all_generate_profile:
 	$(MAKE) @DEF_MAKE_RULE@ CFLAGS_NODIST="$(CFLAGS_NODIST) $(PGO_PROF_GEN_FLAG)" LDFLAGS_NODIST="$(LDFLAGS_NODIST) $(PGO_PROF_GEN_FLAG)" LIBS="$(LIBS)"

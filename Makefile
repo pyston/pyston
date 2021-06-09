@@ -87,6 +87,7 @@ $(VIRTUALENV):
 
 pyston/build/bc_env/bin/python: pyston/build/cpython_bc_install/usr/bin/python3 | $(VIRTUALENV)
 	$(VIRTUALENV) -p $< pyston/build/bc_env
+bc: pyston/build/bc_env/bin/python
 pyston/build/system_env/bin/python: | $(VIRTUALENV)
 	$(VIRTUALENV) -p python3.8 pyston/build/system_env
 	pyston/build/system_env/bin/pip install six pyperf cython || (rm -rf pyston/build/system_env; false)
