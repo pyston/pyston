@@ -35,8 +35,5 @@ RUN git config --global user.name "Your Name"
 # copy over whole nitrous dir except of stuff excluded via .dockerignore
 COPY . /src/build/
 
-RUN cd pyston/bolt/llvm && git stash && cd /src/build/
-RUN rm pyston/bolt/llvm/tools/llvm-bolt pyston/bolt/llvm/include/llvm/Support/Alignment.h
-
 # run this to build the package
 #RUN make package
