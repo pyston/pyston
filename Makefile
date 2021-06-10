@@ -168,7 +168,7 @@ $(2).fdata: $(1) $(BOLT) | $(VIRTUALENV)
 	rm $(2)*.fdata || true
 	$(BOLT) $(1) -instrument -instrumentation-file-append-pid -instrumentation-file=$(abspath $(2)) -o $(1).bolt_inst
 	$(VIRTUALENV) -p $(1).bolt_inst /tmp/tmp_env
-	/tmp/tmp_env/bin/pip install -r pyston/benchmark_requirements.txt
+	/tmp/tmp_env/bin/pip install -r pyston/pgo_requirements.txt
 	/tmp/tmp_env/bin/python3 pyston/run_profile_task.py
 	$(MERGE_FDATA) $(2).*.fdata > $(2).fdata
 
