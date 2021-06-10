@@ -5,8 +5,14 @@ WORKDIR /src/build
 # have to set this else apt will ask for a config for tzdata
 ARG DEBIAN_FRONTEND=noninteractive
 
-# python3.8 is in universal 
+# python3.8 is in universal
 RUN echo 'deb-src http://archive.ubuntu.com/ubuntu/ bionic-updates universe' >> /etc/apt/sources.list
+
+# need newer cmake for bolts llvm
+RUN apt-get update
+RUN apt-get install -y apt-transport-https ca-certificates gnupg software-properties-common wget
+RUN wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | tee /etc/apt/trusted.gpg.d/kitware.gpg >/dev/null
+RUN add-apt-repository -y 'deb https://apt.kitware.com/ubuntu/ bionic main'
 
 RUN apt-get update
 RUN apt-get upgrade -y
@@ -42,9 +48,6 @@ RUN git config --global user.name "Your Name"
 
 # copy over whole nitrous dir except of stuff excluded via .dockerignore
 COPY . /src/build/
-
-RUN cd pyston/bolt/llvm && git stash && cd /src/build/
-RUN rm pyston/bolt/llvm/tools/llvm-bolt pyston/bolt/llvm/include/llvm/Support/Alignment.h
 
 # run this to build the package
 #RUN make package
