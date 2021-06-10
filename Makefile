@@ -340,6 +340,8 @@ pyperf_multi_system: pyston/pyperf_run_profile_task_system
 perf_multi_unopt: pyston/perf_run_profile_task_unopt
 perf_multi_opt: pyston/perf_run_profile_task_opt
 
+OPT_BENCH_ENV:=pyston/build/opt_env/update.stamp
+
 measure: $(OPT_BENCH_ENV) pyston/build/system_env/bin/python
 	rm -f results.json
 	@# Run the command a second time with output if it failed:
