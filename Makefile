@@ -168,7 +168,7 @@ $(2).fdata: $(1) $(BOLT) | $(VIRTUALENV)
 	rm $(2)*.fdata || true
 	$(BOLT) $(1) -instrument -instrumentation-file-append-pid -instrumentation-file=$(abspath $(2)) -o $(1).bolt_inst
 	$(VIRTUALENV) -p $(1).bolt_inst /tmp/tmp_env
-	/tmp/tmp_env/bin/pip install -r pyston/benchmark_requirements.txt
+	/tmp/tmp_env/bin/pip install -r pyston/pgo_requirements.txt
 	/tmp/tmp_env/bin/python3 pyston/run_profile_task.py
 	$(MERGE_FDATA) $(2).*.fdata > $(2).fdata
 
@@ -339,6 +339,8 @@ pyperf_multi_stock: pyston/pyperf_run_profile_task_stock
 pyperf_multi_system: pyston/pyperf_run_profile_task_system
 perf_multi_unopt: pyston/perf_run_profile_task_unopt
 perf_multi_opt: pyston/perf_run_profile_task_opt
+
+OPT_BENCH_ENV:=pyston/build/opt_env/update.stamp
 
 measure: $(OPT_BENCH_ENV) pyston/build/system_env/bin/python
 	rm -f results.json
