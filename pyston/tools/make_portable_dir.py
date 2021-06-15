@@ -103,11 +103,15 @@ def set_rpath(f, rpath):
 def is_so(filename):
     return filename.endswith(".so")
 
-
 def make_portable_dir(outdir):
     dependencies = recursive_get_dependencies(
         Dependency("pyston", outdir + "/usr/bin/pyston"))
-    path = outdir + "/usr/lib/pyston3.8/lib-dynload/"
+
+    # get output lib directory
+    paths = glob.glob(outdir + "/usr/lib/python3.8-pyston*/lib-dynload/")
+    assert len(paths) == 1 and paths[0].endswith("/")
+    path = paths[0]
+
     for f in filter(is_so, os.listdir(path)):
         dependencies |= recursive_get_dependencies(Dependency(f, path + f))
         set_rpath(path + f, "$ORIGIN/../../../lib")

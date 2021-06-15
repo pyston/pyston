@@ -440,8 +440,9 @@ stocktest: pyston/build/cpython_stockunopt_build/python
 	$(MAKE) -C pyston/build/cpython_stockunopt_build test
 dbg_test: python/test/dbg_method_call_unopt
 
+# llvm-bolt must be build outside of dpkg-buildpackage or it will segfault
 .PHONY: package
-package:
+package: bolt
 ifeq ($(shell lsb_release -sr),16.04)
 	# 16.04 needs this file but on newer ubuntu versions it will make it fail
 	echo 10 > pyston/debian/compat
