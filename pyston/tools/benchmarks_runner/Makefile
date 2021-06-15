@@ -56,12 +56,13 @@ $(call make_benchmark,gunicorn,10000)
 $(call make_benchmark,aiohttp,10000)
 $(call make_benchmark,json_bench,1000)
 $(call make_benchmark,thrift_bench,10000)
+$(call make_benchmark,kinto_bench,30000)
 
 .PHONY: analyze
 analyze: all_results # pypybench_results
 	python3 analyze.py
 
-quick_analyze: results/djangocms-system.json results/djangocms-opt.json results/flaskblogging-system.json results/flaskblogging-opt.json
+quick_analyze: results/djangocms-system.json results/djangocms-opt.json results/flaskblogging-system.json results/flaskblogging-opt.json results/kinto_bench-system.json results/kinto_bench-opt.json
 	python3 analyze.py
 
 clean:

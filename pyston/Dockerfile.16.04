@@ -18,6 +18,12 @@ RUN apt-get update
 RUN apt-get install -y software-properties-common
 RUN add-apt-repository -y --enable-source ppa:deadsnakes/ppa
 
+# need newer cmake for bolts llvm
+RUN apt-get update
+RUN apt-get install -y apt-transport-https ca-certificates gnupg software-properties-common wget
+RUN wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | tee /etc/apt/trusted.gpg.d/kitware.gpg >/dev/null
+RUN add-apt-repository -y 'deb https://apt.kitware.com/ubuntu/ xenial main'
+
 RUN apt-get update
 RUN apt-get upgrade -y
 RUN apt-get install -y build-essential ninja-build cmake clang libssl-dev libsqlite3-dev luajit libjemalloc-dev
@@ -46,9 +52,6 @@ RUN git config --global user.name "Your Name"
 
 # copy over whole nitrous dir except of stuff excluded via .dockerignore
 COPY . /src/build/
-
-RUN cd pyston/bolt/llvm && git stash && cd /src/build/
-RUN rm pyston/bolt/llvm/tools/llvm-bolt pyston/bolt/llvm/include/llvm/Support/Alignment.h
 
 # run this to build the package
 #RUN make package
