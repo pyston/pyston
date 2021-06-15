@@ -5942,7 +5942,7 @@ $as_echo "#define Py_ENABLE_SHARED 1" >>confdefs.h
 	  INSTSONAME="$LDLIBRARY".$SOVERSION
 	  if test "$with_pydebug" != yes
 	  then
-	      PY3LIBRARY=$LDLIBRARY
+	      PY3LIBRARY=libpyston3.so
 	  fi
           ;;
     Linux*|GNU*|NetBSD*|FreeBSD*|DragonFly*|OpenBSD*)
@@ -5952,7 +5952,7 @@ $as_echo "#define Py_ENABLE_SHARED 1" >>confdefs.h
 	  INSTSONAME="$LDLIBRARY".$SOVERSION
 	  if test "$with_pydebug" != yes
           then
-	      PY3LIBRARY=$LDLIBRARY
+	      PY3LIBRARY=libpyston3.so
 	  fi
 	  ;;
     hp*|HP*)

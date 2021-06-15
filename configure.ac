@@ -1144,7 +1144,7 @@ if test $enable_shared = "yes"; then
 	  INSTSONAME="$LDLIBRARY".$SOVERSION
 	  if test "$with_pydebug" != yes
 	  then
-	      PY3LIBRARY=$LDLIBRARY
+	      PY3LIBRARY=libpyston3.so
 	  fi
           ;;
     Linux*|GNU*|NetBSD*|FreeBSD*|DragonFly*|OpenBSD*)
@@ -1154,7 +1154,7 @@ if test $enable_shared = "yes"; then
 	  INSTSONAME="$LDLIBRARY".$SOVERSION
 	  if test "$with_pydebug" != yes
           then
-	      PY3LIBRARY=$LDLIBRARY
+	      PY3LIBRARY=libpyston3.so
 	  fi
 	  ;;
     hp*|HP*)
