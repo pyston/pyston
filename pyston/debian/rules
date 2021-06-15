@@ -27,7 +27,6 @@ override_dh_auto_configure:
 
 
 override_dh_auto_build:
-	make -C .. pyston/build/opt_env/bin/python
-	# don't package libpyston3.8.a for now
-	rm build/cpython_opt_install/usr/lib/pyston3.8/config-3.8-x86_64-linux-gnu/libpyston3.8.a
-
+	make -C .. pyston/build/release_env/bin/python
+	# Don't package pkgconfig:
+	rm -rf build/cpython_release_install/usr/lib/pkgconfig

@@ -1117,6 +1117,8 @@ void* LLVMJit::finish(LLVMEvaluator& eval) {
     llvm::raw_fd_ostream OS(file_name, EC, llvm::sys::fs::F_None);
     llvm::Module* mod = func->getParent();
     for (auto&& f : mod->globals()) {
+        if (nitrous_pic)
+            f.setDSOLocal(false); // this is like -fPIC
         if (f.isMaterializable()) {
             f.setLinkage(llvm::GlobalValue::PrivateLinkage);
             continue;
@@ -1128,6 +1130,8 @@ void* LLVMJit::finish(LLVMEvaluator& eval) {
     }
 
     for (auto&& f : mod->functions()) {
+        if (nitrous_pic)
+            f.setDSOLocal(false); // this is like -fPIC
         if (!f.isDeclaration())
             continue;
         f.setLinkage(llvm::GlobalValue::ExternalLinkage);

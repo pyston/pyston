@@ -131,7 +131,7 @@ rm confdefs.h
 mv confdefs.h.new confdefs.h
 
 AC_SUBST(VERSION)
-VERSION=PYTHON_VERSION
+VERSION=PYTHON_VERSION-pyston"PYSTON_VERSION"
 
 # Version number of Python's own shared library file.
 AC_SUBST(SOVERSION)
@@ -988,7 +988,7 @@ AC_SUBST(LIBRARY)
 AC_MSG_CHECKING(LIBRARY)
 if test -z "$LIBRARY"
 then
-	LIBRARY='libpyston$(VERSION)$(ABIFLAGS).a'
+	LIBRARY='libpython$(VERSION)$(ABIFLAGS).a'
 fi
 AC_MSG_RESULT($LIBRARY)
 
@@ -1085,6 +1085,12 @@ then
 fi
 AC_MSG_RESULT($enable_shared)
 
+AOT_DIR="../aot"
+if test $enable_shared = "yes"; then
+    AOT_DIR="../aot_pic"
+fi
+AC_SUBST(AOT_DIR)
+
 AC_MSG_CHECKING(for --enable-profiling)
 AC_ARG_ENABLE(profiling,
               AS_HELP_STRING([--enable-profiling], [enable C-level code profiling]))
@@ -1128,48 +1134,48 @@ if test $enable_shared = "yes"; then
   AC_DEFINE(Py_ENABLE_SHARED, 1, [Defined if Python is built as a shared library.])
   case $ac_sys_system in
     CYGWIN*)
-          LDLIBRARY='libpyston$(LDVERSION).dll.a'
-          DLLLIBRARY='libpyston$(LDVERSION).dll'
+          LDLIBRARY='libpython$(LDVERSION).dll.a'
+          DLLLIBRARY='libpython$(LDVERSION).dll'
           ;;
     SunOS*)
-	  LDLIBRARY='libpyston$(LDVERSION).so'
-	  BLDLIBRARY='-Wl,-R,$(LIBDIR) -L. -lpyston$(LDVERSION)'
+	  LDLIBRARY='libpython$(LDVERSION).so'
+	  BLDLIBRARY='-Wl,-R,$(LIBDIR) -L. -lpython$(LDVERSION)'
 	  RUNSHARED=LD_LIBRARY_PATH=`pwd`${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
 	  INSTSONAME="$LDLIBRARY".$SOVERSION
 	  if test "$with_pydebug" != yes
 	  then
-	      PY3LIBRARY=libpython3.so
+	      PY3LIBRARY=$LDLIBRARY
 	  fi
           ;;
     Linux*|GNU*|NetBSD*|FreeBSD*|DragonFly*|OpenBSD*)
-	  LDLIBRARY='libpyston$(LDVERSION).so'
-	  BLDLIBRARY='-L. -lpyston$(LDVERSION)'
+	  LDLIBRARY='libpython$(LDVERSION).so'
+	  BLDLIBRARY='-L. -lpython$(LDVERSION)'
 	  RUNSHARED=LD_LIBRARY_PATH=`pwd`${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
 	  INSTSONAME="$LDLIBRARY".$SOVERSION
 	  if test "$with_pydebug" != yes
           then
-	      PY3LIBRARY=libpython3.so
+	      PY3LIBRARY=$LDLIBRARY
 	  fi
 	  ;;
     hp*|HP*)
 	  case `uname -m` in
 		ia64)
-			LDLIBRARY='libpyston$(LDVERSION).so'
+			LDLIBRARY='libpython$(LDVERSION).so'
 			;;
 		*)
-			LDLIBRARY='libpyston$(LDVERSION).sl'
+			LDLIBRARY='libpython$(LDVERSION).sl'
 			;;
 	  esac
-	  BLDLIBRARY='-Wl,+b,$(LIBDIR) -L. -lpyston$(LDVERSION)'
+	  BLDLIBRARY='-Wl,+b,$(LIBDIR) -L. -lpython$(LDVERSION)'
 	  RUNSHARED=SHLIB_PATH=`pwd`${SHLIB_PATH:+:${SHLIB_PATH}}
 	  ;;
     Darwin*)
-    	LDLIBRARY='libpyston$(LDVERSION).dylib'
-	BLDLIBRARY='-L. -lpyston$(LDVERSION)'
+    	LDLIBRARY='libpython$(LDVERSION).dylib'
+	BLDLIBRARY='-L. -lpython$(LDVERSION)'
 	RUNSHARED=DYLD_LIBRARY_PATH=`pwd`${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}
 	;;
     AIX*)
-	LDLIBRARY='libpyston$(LDVERSION).so'
+	LDLIBRARY='libpython$(LDVERSION).so'
 	RUNSHARED=LIBPATH=`pwd`${LIBPATH:+:${LIBPATH}}
 	;;
 
@@ -1179,7 +1185,7 @@ else # shared is disabled
   case $ac_sys_system in
     CYGWIN*)
           BLDLIBRARY='$(LIBRARY)'
-          LDLIBRARY='libpyston$(LDVERSION).dll.a'
+          LDLIBRARY='libpython$(LDVERSION).dll.a'
           ;;
   esac
 fi
@@ -2650,8 +2656,8 @@ then
 		else
 			# No framework, use the Python app as bundle-loader
 			BLDSHARED="$LDSHARED "'-bundle_loader $(BUILDPYTHON)'
-			LDSHARED="$LDSHARED "'-bundle_loader $(BINDIR)/pyston$(VERSION)$(EXE)'
-			LDCXXSHARED="$LDCXXSHARED "'-bundle_loader $(BINDIR)/pyston$(VERSION)$(EXE)'
+			LDSHARED="$LDSHARED "'-bundle_loader $(BINDIR)/python$(VERSION)$(EXE)'
+			LDCXXSHARED="$LDCXXSHARED "'-bundle_loader $(BINDIR)/python$(VERSION)$(EXE)'
 		fi ;;
 	Darwin/*)
 		# Use -undefined dynamic_lookup whenever possible (10.3 and later).
@@ -2675,8 +2681,8 @@ then
 			else
 				# No framework, use the Python app as bundle-loader
 				BLDSHARED="$LDSHARED "'-bundle_loader $(BUILDPYTHON)'
-				LDSHARED="$LDSHARED "'-bundle_loader $(BINDIR)/pyston$(VERSION)$(EXE)'
-				LDCXXSHARED="$LDCXXSHARED "'-bundle_loader $(BINDIR)/pyston$(VERSION)$(EXE)'
+				LDSHARED="$LDSHARED "'-bundle_loader $(BINDIR)/python$(VERSION)$(EXE)'
+				LDCXXSHARED="$LDCXXSHARED "'-bundle_loader $(BINDIR)/python$(VERSION)$(EXE)'
 			fi
 		else
 			# building for OS X 10.3 and later
@@ -4774,7 +4780,7 @@ AC_MSG_RESULT($LDVERSION)
 # On Android and Cygwin the shared libraries must be linked with libpython.
 AC_SUBST(LIBPYTHON)
 if test -n "$ANDROID_API_LEVEL" -o "$MACHDEP" = "cygwin"; then
-  LIBPYTHON="-lpyston${VERSION}${ABIFLAGS}"
+  LIBPYTHON="-lpython${VERSION}${ABIFLAGS}"
 else
   LIBPYTHON=''
 fi
@@ -4782,9 +4788,9 @@ fi
 dnl define LIBPL after ABIFLAGS and LDVERSION is defined.
 AC_SUBST(PY_ENABLE_SHARED)
 if test x$PLATFORM_TRIPLET = x; then
-  LIBPL='$(prefix)'"/lib/pyston${VERSION}/config-${LDVERSION}"
+  LIBPL='$(prefix)'"/lib/python${VERSION}/config-${LDVERSION}"
 else
-  LIBPL='$(prefix)'"/lib/pyston${VERSION}/config-${LDVERSION}-${PLATFORM_TRIPLET}"
+  LIBPL='$(prefix)'"/lib/python${VERSION}/config-${LDVERSION}-${PLATFORM_TRIPLET}"
 fi
 AC_SUBST(LIBPL)
 

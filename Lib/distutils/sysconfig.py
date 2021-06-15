@@ -82,7 +82,7 @@ def get_python_version():
     leaving off the patchlevel.  Sample return values could be '1.5'
     or '2.2'.
     """
-    return '%d.%d' % sys.version_info[:2]
+    return get_config_var("VERSION")
 
 
 def get_python_inc(plat_specific=0, prefix=None):
@@ -110,7 +110,7 @@ def get_python_inc(plat_specific=0, prefix=None):
             else:
                 incdir = os.path.join(get_config_var('srcdir'), 'Include')
                 return os.path.normpath(incdir)
-        python_dir = 'pyston' + get_python_version() + build_flags
+        python_dir = 'python' + get_python_version() + build_flags
         return os.path.join(prefix, "include", python_dir)
     elif os.name == "nt":
         if python_build:
@@ -147,7 +147,7 @@ def get_python_lib(plat_specific=0, standard_lib=0, prefix=None):
 
     if os.name == "posix":
         libpython = os.path.join(prefix,
-                                 "lib", "pyston" + get_python_version())
+                                 "lib", "python" + get_python_version())
         if standard_lib:
             return libpython
         else:

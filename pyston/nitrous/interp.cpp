@@ -1060,11 +1060,13 @@ void addMallocLikeFunc(const char* name) {
 } // namespace nitrous
 
 int nitrous_verbosity;
+bool nitrous_pic;
 
 extern "C" {
-void initializeJIT(int verbosity) {
+void initializeJIT(int verbosity, int pic) {
     //verbosity = 1;
     nitrous_verbosity = verbosity;
+    nitrous_pic = pic;
 
     nitrous::symbol_finder.reset(new nitrous::SymbolFinder());
     nitrous::compiler.reset(new nitrous::LLVMCompiler(nitrous::symbol_finder.get()));

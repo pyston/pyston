@@ -60,7 +60,7 @@ GNULD=		@GNULD@
 # Shell used by make (some versions default to the login shell, which is bad)
 SHELL=		/bin/sh
 
-# Use this to make a link between pyston$(VERSION) and python in $(BINDIR)
+# Use this to make a link between python$(VERSION) and python in $(BINDIR)
 LN=		@LN@
 
 # Portable install script (configure doesn't always guess right)
@@ -77,6 +77,7 @@ MKDIR_P=	@MKDIR_P@
 MAKESETUP=      $(srcdir)/Modules/makesetup
 
 USE_AOT =  @USE_AOT@
+AOT_DIR =  @AOT_DIR@
 
 # Compiler options
 OPT=		@OPT@
@@ -103,7 +104,7 @@ PY_CFLAGS_NODIST=$(CONFIGURE_CFLAGS_NODIST) $(CFLAGS_NODIST) -I$(srcdir)/Include
 # environment variables
 PY_CPPFLAGS=	$(BASECPPFLAGS) -I. -I$(srcdir)/Include $(CONFIGURE_CPPFLAGS) $(CPPFLAGS)
 ifeq ($(USE_AOT),true)
-	PY_CPPFLAGS:=$(PY_CPPFLAGS) -I../../aot
+	PY_CPPFLAGS:=$(PY_CPPFLAGS) -I$(AOT_DIR)
 endif
 PY_LDFLAGS=	$(CONFIGURE_LDFLAGS) $(LDFLAGS)
 PY_LDFLAGS_NODIST=$(CONFIGURE_LDFLAGS_NODIST) $(LDFLAGS_NODIST)
@@ -152,10 +153,10 @@ SCRIPTDIR=	$(prefix)/lib
 ABIFLAGS=	@ABIFLAGS@
 
 # Detailed destination directories
-BINLIBDEST=	$(LIBDIR)/pyston$(VERSION)
-LIBDEST=	$(SCRIPTDIR)/pyston$(VERSION)
-INCLUDEPY=	$(INCLUDEDIR)/pyston$(LDVERSION)
-CONFINCLUDEPY=	$(CONFINCLUDEDIR)/pyston$(LDVERSION)
+BINLIBDEST=	$(LIBDIR)/python$(VERSION)
+LIBDEST=	$(SCRIPTDIR)/python$(VERSION)
+INCLUDEPY=	$(INCLUDEDIR)/python$(LDVERSION)
+CONFINCLUDEPY=	$(CONFINCLUDEDIR)/python$(LDVERSION)
 
 # Symbols used for using shared libraries
 SHLIB_SUFFIX=	@SHLIB_SUFFIX@
@@ -443,7 +444,7 @@ LIBRARY_OBJS=	\
 
 ifeq ($(USE_AOT),true)
 	PYTHON_OBJS:=$(PYTHON_OBJS) Python/aot_ceval.o Python/aot_ceval_jit.o Python/aot_ceval_jit_helper.o
-	LIBRARY_OBJS:=$(LIBRARY_OBJS) aot_optimized.o ../../aot/aot_profile.o
+	LIBRARY_OBJS:=$(LIBRARY_OBJS) aot_optimized.o $(AOT_DIR)/aot_profile.o
 endif
 
 
@@ -507,8 +508,12 @@ profile-run-stamp:
 	touch $@
 
 ifeq ($(USE_AOT),true)
+# Hack: in --enable-shared mode, link aot_optimized.o into the instrumented binary.
+# This is because aot_optimized uses clang PGO, and the clang pgo runtime library
+# fails to find the symbol for the output filename when it is linked in via a shared library.
+# Hopefully this doesn't cause any issues with PGO working.
 build_all_generate_profile:
-	$(MAKE) @DEF_MAKE_RULE@ CFLAGS_NODIST="$(CFLAGS_NODIST) $(PGO_PROF_GEN_FLAG)" LDFLAGS_NODIST="$(LDFLAGS_NODIST) $(PGO_PROF_GEN_FLAG) -u__llvm_profile_runtime $(CLANG_RT_PROFILE)" LIBS="$(LIBS)"
+	$(MAKE) @DEF_MAKE_RULE@ CFLAGS_NODIST="$(CFLAGS_NODIST) $(PGO_PROF_GEN_FLAG)" LDFLAGS_NODIST="$(LDFLAGS_NODIST) $(PGO_PROF_GEN_FLAG) -u__llvm_profile_runtime $(CLANG_RT_PROFILE)" LIBS="$(LIBS)" $(if $(PY3LIBRARY),LDLAST="aot_optimized.o")
 else
 build_all_generate_profile:
 	$(MAKE) @DEF_MAKE_RULE@ CFLAGS_NODIST="$(CFLAGS_NODIST) $(PGO_PROF_GEN_FLAG)" LDFLAGS_NODIST="$(LDFLAGS_NODIST) $(PGO_PROF_GEN_FLAG)" LIBS="$(LIBS)"
@@ -636,7 +641,7 @@ $(LIBRARY): $(LIBRARY_OBJS)
 	-rm -f $@
 	$(AR) $(ARFLAGS) $@ $(LIBRARY_OBJS)
 
-libpyston$(LDVERSION).so: $(LIBRARY_OBJS) $(DTRACE_OBJS)
+libpython$(LDVERSION).so: $(LIBRARY_OBJS) $(DTRACE_OBJS)
 	if test $(INSTSONAME) != $(LDLIBRARY); then \
 		$(BLDSHARED) -Wl,-h$(INSTSONAME) -o $(INSTSONAME) $(LIBRARY_OBJS) $(MODLIBS) $(SHLIBS) $(LIBC) $(LIBM); \
 		$(LN) -f $(INSTSONAME) $@; \
@@ -644,14 +649,14 @@ libpyston$(LDVERSION).so: $(LIBRARY_OBJS) $(DTRACE_OBJS)
 		$(BLDSHARED) -o $@ $(LIBRARY_OBJS) $(MODLIBS) $(SHLIBS) $(LIBC) $(LIBM); \
 	fi
 
-libpython3.so:	libpyston$(LDVERSION).so
+libpyston3.so:	libpython$(LDVERSION).so
 	$(BLDSHARED) $(NO_AS_NEEDED) -o $@ -Wl,-h$@ $^
 
-libpyston$(LDVERSION).dylib: $(LIBRARY_OBJS)
-	 $(CC) -dynamiclib -Wl,-single_module $(PY_CORE_LDFLAGS) -undefined dynamic_lookup -Wl,-install_name,$(prefix)/lib/libpyston$(LDVERSION).dylib -Wl,-compatibility_version,$(VERSION) -Wl,-current_version,$(VERSION) -o $@ $(LIBRARY_OBJS) $(DTRACE_OBJS) $(SHLIBS) $(LIBC) $(LIBM); \
+libpython$(LDVERSION).dylib: $(LIBRARY_OBJS)
+	 $(CC) -dynamiclib -Wl,-single_module $(PY_CORE_LDFLAGS) -undefined dynamic_lookup -Wl,-install_name,$(prefix)/lib/libpython$(LDVERSION).dylib -Wl,-compatibility_version,$(VERSION) -Wl,-current_version,$(VERSION) -o $@ $(LIBRARY_OBJS) $(DTRACE_OBJS) $(SHLIBS) $(LIBC) $(LIBM); \
 
 
-libpyston$(VERSION).sl: $(LIBRARY_OBJS)
+libpython$(VERSION).sl: $(LIBRARY_OBJS)
 	$(LDSHARED) -o $@ $(LIBRARY_OBJS) $(MODLIBS) $(SHLIBS) $(LIBC) $(LIBM)
 
 # Copy up the gdb python hooks into a position where they can be automatically
@@ -689,7 +694,7 @@ $(PYTHONFRAMEWORKDIR)/Versions/$(VERSION)/$(PYTHONFRAMEWORK): \
 
 # This rule builds the Cygwin Python DLL and import library if configured
 # for a shared core library; otherwise, this rule is a noop.
-$(DLLLIBRARY) libpyston$(LDVERSION).dll.a: $(LIBRARY_OBJS)
+$(DLLLIBRARY) libpython$(LDVERSION).dll.a: $(LIBRARY_OBJS)
 	if test -n "$(DLLLIBRARY)"; then \
 		$(LDSHARED) -Wl,--out-implib=$@ -o $(DLLLIBRARY) $^ \
 			$(LIBS) $(MODLIBS) $(SYSLIBS); \
@@ -1248,15 +1253,15 @@ altbininstall: $(BUILDPYTHON) @FRAMEWORKPYTHONW@
 		fi; \
 	done
 	if test "$(PYTHONFRAMEWORKDIR)" = "no-framework" ; then \
-		$(INSTALL_PROGRAM) $(BUILDPYTHON) $(DESTDIR)$(BINDIR)/pyston$(LDVERSION)$(EXE); \
+		$(INSTALL_PROGRAM) $(BUILDPYTHON) $(DESTDIR)$(BINDIR)/python$(LDVERSION)$(EXE); \
 	else \
-		$(INSTALL_PROGRAM) $(STRIPFLAG) Mac/pythonw $(DESTDIR)$(BINDIR)/pyston$(LDVERSION)$(EXE); \
+		$(INSTALL_PROGRAM) $(STRIPFLAG) Mac/pythonw $(DESTDIR)$(BINDIR)/python$(LDVERSION)$(EXE); \
 	fi
 	-if test "$(VERSION)" != "$(LDVERSION)"; then \
-		if test -f $(DESTDIR)$(BINDIR)/pyston$(VERSION)$(EXE) -o -h $(DESTDIR)$(BINDIR)/pyston$(VERSION)$(EXE); \
-		then rm -f $(DESTDIR)$(BINDIR)/pyston$(VERSION)$(EXE); \
+		if test -f $(DESTDIR)$(BINDIR)/python$(VERSION)$(EXE) -o -h $(DESTDIR)$(BINDIR)/python$(VERSION)$(EXE); \
+		then rm -f $(DESTDIR)$(BINDIR)/python$(VERSION)$(EXE); \
 		fi; \
-		(cd $(DESTDIR)$(BINDIR); $(LN) pyston$(LDVERSION)$(EXE) pyston$(VERSION)$(EXE)); \
+		(cd $(DESTDIR)$(BINDIR); $(LN) python$(LDVERSION)$(EXE) python$(VERSION)$(EXE)); \
 	fi
 	if test -f $(LDLIBRARY) && test "$(PYTHONFRAMEWORKDIR)" = "no-framework" ; then \
 		if test -n "$(DLLLIBRARY)" ; then \
@@ -1273,10 +1278,10 @@ altbininstall: $(BUILDPYTHON) @FRAMEWORKPYTHONW@
 	else	true; \
 	fi
 	if test "x$(LIPO_32BIT_FLAGS)" != "x" ; then \
-		rm -f $(DESTDIR)$(BINDIR)pyston$(VERSION)-32$(EXE); \
+		rm -f $(DESTDIR)$(BINDIR)python$(VERSION)-32$(EXE); \
 		lipo $(LIPO_32BIT_FLAGS) \
-			-output $(DESTDIR)$(BINDIR)/pyston$(VERSION)-32$(EXE) \
-			$(DESTDIR)$(BINDIR)/pyston$(VERSION)$(EXE); \
+			-output $(DESTDIR)$(BINDIR)/python$(VERSION)-32$(EXE) \
+			$(DESTDIR)$(BINDIR)/python$(VERSION)$(EXE); \
 	fi
 
 bininstall: altbininstall
@@ -1288,19 +1293,19 @@ bininstall: altbininstall
 	then rm -f $(DESTDIR)$(BINDIR)/pyston3$(EXE); \
 	else true; \
 	fi
-	(cd $(DESTDIR)$(BINDIR); $(LN) -sf pyston$(VERSION)$(EXE) python3$(EXE))
-	(cd $(DESTDIR)$(BINDIR); $(LN) -sf pyston$(VERSION)$(EXE) python$(VERSION)$(EXE))
-	(cd $(DESTDIR)$(BINDIR); $(LN) -sf pyston$(VERSION)$(EXE) pyston$(EXE))
+	(cd $(DESTDIR)$(BINDIR); $(LN) -sf python$(VERSION)$(EXE) python3$(EXE))
+	(cd $(DESTDIR)$(BINDIR); $(LN) -sf python$(VERSION)$(EXE) pyston3$(EXE))
+	(cd $(DESTDIR)$(BINDIR); $(LN) -sf python$(VERSION)$(EXE) pyston$(EXE))
 	-if test "$(VERSION)" != "$(LDVERSION)"; then \
-		rm -f $(DESTDIR)$(BINDIR)/pyston$(VERSION)-config; \
-		(cd $(DESTDIR)$(BINDIR); $(LN) -s pyston$(LDVERSION)-config pyston$(VERSION)-config); \
+		rm -f $(DESTDIR)$(BINDIR)/python$(VERSION)-config; \
+		(cd $(DESTDIR)$(BINDIR); $(LN) -s python$(LDVERSION)-config python$(VERSION)-config); \
 		rm -f $(DESTDIR)$(LIBPC)/python-$(LDVERSION).pc; \
 		(cd $(DESTDIR)$(LIBPC); $(LN) -s python-$(VERSION).pc python-$(LDVERSION).pc); \
 		rm -f $(DESTDIR)$(LIBPC)/python-$(LDVERSION)-embed.pc; \
 		(cd $(DESTDIR)$(LIBPC); $(LN) -s python-$(VERSION)-embed.pc python-$(LDVERSION)-embed.pc); \
 	fi
 	-rm -f $(DESTDIR)$(BINDIR)/python3-config
-	(cd $(DESTDIR)$(BINDIR); $(LN) -s pyston$(VERSION)-config python3-config)
+	(cd $(DESTDIR)$(BINDIR); $(LN) -s python$(VERSION)-config python3-config)
 	-rm -f $(DESTDIR)$(LIBPC)/python3.pc
 	(cd $(DESTDIR)$(LIBPC); $(LN) -s python-$(VERSION).pc python3.pc)
 	-rm -f $(DESTDIR)$(LIBPC)/python3-embed.pc
@@ -1313,7 +1318,7 @@ bininstall: altbininstall
 	(cd $(DESTDIR)$(BINDIR); $(LN) -s 2to3-$(VERSION) 2to3)
 	if test "x$(LIPO_32BIT_FLAGS)" != "x" ; then \
 		rm -f $(DESTDIR)$(BINDIR)/python3-32$(EXE); \
-		(cd $(DESTDIR)$(BINDIR); $(LN) -s pyston$(VERSION)-32$(EXE) python3-32$(EXE)) \
+		(cd $(DESTDIR)$(BINDIR); $(LN) -s python$(VERSION)-32$(EXE) python3-32$(EXE)) \
 	fi
 
 # Install the versioned manual page
@@ -1327,12 +1332,12 @@ altmaninstall:
 		fi; \
 	done
 	$(INSTALL_DATA) $(srcdir)/Misc/python.man \
-		$(DESTDIR)$(MANDIR)/man1/pyston$(VERSION).1
+		$(DESTDIR)$(MANDIR)/man1/python$(VERSION).1
 
 # Install the unversioned manual page
 maninstall:	altmaninstall
 	-rm -f $(DESTDIR)$(MANDIR)/man1/python3.1
-	(cd $(DESTDIR)$(MANDIR)/man1; $(LN) -s pyston$(VERSION).1 python3.1)
+	(cd $(DESTDIR)$(MANDIR)/man1; $(LN) -s python$(VERSION).1 python3.1)
 
 # Install the library
 XMLLIBSUBDIRS=  xml xml/dom xml/etree xml/parsers xml/sax
@@ -1514,7 +1519,7 @@ libinstall:	build_all $(srcdir)/Modules/xxmodule.c
 python-config: $(srcdir)/Misc/python-config.in Misc/python-config.sh
 	@ # Substitution happens here, as the completely-expanded BINDIR
 	@ # is not available in configure
-	sed -e "s,@EXENAME@,$(BINDIR)/pyston$(LDVERSION)$(EXE)," < $(srcdir)/Misc/python-config.in >python-config.py
+	sed -e "s,@EXENAME@,$(BINDIR)/python$(LDVERSION)$(EXE)," < $(srcdir)/Misc/python-config.in >python-config.py
 	@ # Replace makefile compat. variable references with shell script compat. ones; $(VAR) -> ${VAR}
 	LC_ALL=C sed -e 's,\$$(\([A-Za-z0-9_]*\)),\$$\{\1\},g' < Misc/python-config.sh >python-config
 	@ # On Darwin, always use the python version of the script, the shell
@@ -1603,7 +1608,7 @@ libainstall:	@DEF_MAKE_RULE@ python-config
 	$(INSTALL_SCRIPT) $(srcdir)/Modules/makesetup $(DESTDIR)$(LIBPL)/makesetup
 	$(INSTALL_SCRIPT) $(srcdir)/install-sh $(DESTDIR)$(LIBPL)/install-sh
 	$(INSTALL_SCRIPT) python-config.py $(DESTDIR)$(LIBPL)/python-config.py
-	$(INSTALL_SCRIPT) python-config $(DESTDIR)$(BINDIR)/pyston$(LDVERSION)-config
+	$(INSTALL_SCRIPT) python-config $(DESTDIR)$(BINDIR)/python$(LDVERSION)-config
 	@if [ -s Modules/python.exp -a \
 		"`echo $(MACHDEP) | sed 's/^\(...\).*/\1/'`" = "aix" ]; then \
 		echo; echo "Installing support files for building shared extension modules on AIX:"; \
@@ -1662,7 +1667,7 @@ frameworkinstallstructure:	$(LDLIBRARY)
 		else	true; \
 		fi; \
 	done
-	$(LN) -fsn include/pyston$(LDVERSION) $(DESTDIR)$(prefix)/Headers
+	$(LN) -fsn include/python$(LDVERSION) $(DESTDIR)$(prefix)/Headers
 	sed 's/%VERSION%/'"`$(RUNSHARED) ./$(BUILDPYTHON) -c 'import platform; print(platform.python_version())'`"'/g' < $(RESSRCDIR)/Info.plist > $(DESTDIR)$(prefix)/Resources/Info.plist
 	$(LN) -fsn $(VERSION) $(DESTDIR)$(PYTHONFRAMEWORKINSTALLDIR)/Versions/Current
 	$(LN) -fsn Versions/Current/$(PYTHONFRAMEWORK) $(DESTDIR)$(PYTHONFRAMEWORKINSTALLDIR)/$(PYTHONFRAMEWORK)
@@ -1674,12 +1679,12 @@ frameworkinstallstructure:	$(LDLIBRARY)
 # Install a number of symlinks to keep software that expects a normal unix
 # install (which includes python-config) happy.
 frameworkinstallmaclib:
-	$(LN) -fs "../../../$(PYTHONFRAMEWORK)" "$(DESTDIR)$(LIBPL)/libpyston$(LDVERSION).a"
-	$(LN) -fs "../../../$(PYTHONFRAMEWORK)" "$(DESTDIR)$(LIBPL)/libpyston$(LDVERSION).dylib"
-	$(LN) -fs "../../../$(PYTHONFRAMEWORK)" "$(DESTDIR)$(LIBPL)/libpyston$(VERSION).a"
-	$(LN) -fs "../../../$(PYTHONFRAMEWORK)" "$(DESTDIR)$(LIBPL)/libpyston$(VERSION).dylib"
-	$(LN) -fs "../$(PYTHONFRAMEWORK)" "$(DESTDIR)$(prefix)/lib/libpyston$(LDVERSION).dylib"
-	$(LN) -fs "../$(PYTHONFRAMEWORK)" "$(DESTDIR)$(prefix)/lib/libpyston$(VERSION).dylib"
+	$(LN) -fs "../../../$(PYTHONFRAMEWORK)" "$(DESTDIR)$(LIBPL)/libpython$(LDVERSION).a"
+	$(LN) -fs "../../../$(PYTHONFRAMEWORK)" "$(DESTDIR)$(LIBPL)/libpython$(LDVERSION).dylib"
+	$(LN) -fs "../../../$(PYTHONFRAMEWORK)" "$(DESTDIR)$(LIBPL)/libpython$(VERSION).a"
+	$(LN) -fs "../../../$(PYTHONFRAMEWORK)" "$(DESTDIR)$(LIBPL)/libpython$(VERSION).dylib"
+	$(LN) -fs "../$(PYTHONFRAMEWORK)" "$(DESTDIR)$(prefix)/lib/libpython$(LDVERSION).dylib"
+	$(LN) -fs "../$(PYTHONFRAMEWORK)" "$(DESTDIR)$(prefix)/lib/libpython$(VERSION).dylib"
 
 # This installs the IDE, the Launcher and other apps into /Applications
 frameworkinstallapps:
@@ -1726,7 +1731,7 @@ config.status:	$(srcdir)/configure
 Python/dtoa.o: Python/dtoa.c
 	$(CC) -c $(PY_CORE_CFLAGS) $(CFLAGS_ALIASING) -o $@ $<
 
-Python/aot_ceval.o: Python/aot_ceval.c ../../aot/aot.h
+Python/aot_ceval.o: Python/aot_ceval.c $(AOT_DIR)/aot.h
 	$(CC) -c $(PY_CORE_CFLAGS) -Wno-unused-label -o $@ $<
 
 Python/aot_ceval_jit.o: Python/aot_ceval_jit.c
@@ -1743,20 +1748,20 @@ Python/aot_ceval_jit_helper.o: Python/aot_ceval_jit_helper.c
 	# also disabled fcf-protection because our JIT does not generate them but this is not required
 	$(CC) -c $(filter-out -flto -fuse-linker-plugin -ffat-lto-objects -flto-partition=none,$(PY_CORE_CFLAGS)) -std=gnu99 $(FCF_FLAG) -o $@ $<
 
-aot_optimized.o: ../../aot/aot_all.bc
+aot_optimized.o: $(AOT_DIR)/aot_all.bc
 	@if [ "$(findstring fprofile-generate, $(PY_CORE_CFLAGS))" != "" ]; \
 	then \
 		echo "traces are compiled with instrumentation"; \
-		rm -rf ../../aot/aot_prof; \
-		$(CLANG) -c -O2 -fprofile-generate=`realpath ../../aot/aot_prof` -o $@ ../../aot/aot_all.bc; \
-	elif [ -d ../../aot/aot_prof ]; \
+		rm -rf $(AOT_DIR)/aot_prof; \
+		$(CLANG) -c -O2 $(CFLAGSFORSHARED) -fprofile-generate=`realpath $(AOT_DIR)/aot_prof` -o $@ $(AOT_DIR)/aot_all.bc; \
+	elif [ -d $(AOT_DIR)/aot_prof ]; \
 	then \
 		echo "traces are using PGO"; \
-		../../build/Release/llvm/bin/llvm-profdata merge -output=../../aot/aot_prof.profdata ../../aot/aot_prof/*.profraw || exit 1; \
-		$(CLANG) -c -O2 -fprofile-use=`realpath ../../aot/aot_prof.profdata` -o $@ ../../aot/aot_all.bc; \
+		../../build/Release/llvm/bin/llvm-profdata merge -output=$(AOT_DIR)/aot_prof.profdata $(AOT_DIR)/aot_prof/*.profraw || exit 1; \
+		$(CLANG) -c -O2 $(CFLAGSFORSHARED) -fprofile-use=`realpath $(AOT_DIR)/aot_prof.profdata` -o $@ $(AOT_DIR)/aot_all.bc; \
 	else \
 		echo "traces are not using PGO"; \
-		$(CLANG) -c -O2 -o $@ ../../aot/aot_all.bc; \
+		$(CLANG) -c -O2 $(CFLAGSFORSHARED) -o $@ $(AOT_DIR)/aot_all.bc; \
 	fi;
 
 # Run reindent on the library
@@ -1824,7 +1829,7 @@ clean: pycremoval
 	-rm -f Include/pydtrace_probes.h
 	-rm -f profile-gen-stamp
 ifeq ($(USE_AOT),true)
-	-rm ../../aot/aot_profile.o
+	-rm $(AOT_DIR)/aot_profile.o
 endif
 
 profile-removal:

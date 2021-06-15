@@ -12,11 +12,9 @@ all: pyston3
 pyston3: pyston/build/opt_env/bin/python
 	ln -sf $< $@
 
-unopt: pyston/build/unopt_env/bin/python
-
 .PHONY: clean
 clean:
-	rm -rf pyston/build/*_env pyston/build/cpython_* pyston/aot/*.o pyston/aot/*.so pyston/aot/*.bc pyston/aot/*.c pyston/aot/*.gcda pyston/aot/aot_prof pyston/aot/*.profdata
+	rm -rf pyston/build/*_env pyston/build/cpython_* pyston/build/aot*
 
 tune: pyston/build/system_env/bin/python
 	PYTHONPATH=pyston/tools pyston/build/system_env/bin/python -c "import tune; tune.tune()"
@@ -74,63 +72,13 @@ MAKEFILE_DEPENDENCIES:=Makefile.pre.in configure
 pyston/build/cpython_bc_build/Makefile: $(CLANG) $(MAKEFILE_DEPENDENCIES)
 	mkdir -p pyston/build/cpython_bc_build
 	cd pyston/build/cpython_bc_build; WRAPPER_REALCC=$(realpath $(CLANG)) WRAPPER_OUTPUT_PREFIX=../cpython_bc CC=../../../pyston/clang_wrapper.py CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -Wno-unused-command-line-argument" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=/usr --disable-aot --disable-debugging-features --enable-configure
-pyston/build/cpython_unopt_build/Makefile: $(MAKEFILE_DEPENDENCIES)
-	mkdir -p pyston/build/cpython_unopt_build
-	cd pyston/build/cpython_unopt_build; CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl,--emit-relocs" ../../../configure --prefix=/usr --disable-debugging-features --enable-configure
-pyston/build/cpython_opt_build/Makefile: $(MAKEFILE_DEPENDENCIES)
-	mkdir -p pyston/build/cpython_opt_build
-	cd pyston/build/cpython_opt_build; PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl,--emit-relocs" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-debugging-features --enable-configure
-# We have to --disable-debugging-features for consistency with the bc build
-# If we had a separate bc-dbg build then we could change this
-pyston/build/cpython_dbg_build/Makefile: $(MAKEFILE_DEPENDENCIES)
-	mkdir -p pyston/build/cpython_dbg_build
-	cd pyston/build/cpython_dbg_build; CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl,--emit-relocs" ../../../configure --prefix=/usr --with-pydebug --disable-debugging-features --enable-configure
-pyston/build/cpython_stock_build/Makefile: $(MAKEFILE_DEPENDENCIES)
-	mkdir -p pyston/build/cpython_stock_build
-	cd pyston/build/cpython_stock_build; PROFILE_TASK="$(PROFILE_TASK) || true" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-pyston --enable-configure
-pyston/build/cpython_stockunopt_build/Makefile: $(MAKEFILE_DEPENDENCIES)
-	mkdir -p pyston/build/cpython_stockunopt_build
-	cd pyston/build/cpython_stockunopt_build; CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=/usr --disable-pyston --enable-configure
-pyston/build/cpython_stockdbg_build/Makefile: $(MAKEFILE_DEPENDENCIES)
-	mkdir -p pyston/build/cpython_stockdbg_build
-	cd pyston/build/cpython_stockdbg_build; CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=/usr --disable-pyston --with-pydebug --enable-configure
 
 pyston/build/cpython_bc_build/pyston: pyston/build/cpython_bc_build/Makefile $(filter-out $(wildcard Python/aot*.c),$(wildcard */*.c)) $(wildcard */*.h)
 	cd pyston/build/cpython_bc_build; WRAPPER_REALCC=$(realpath $(CLANG)) WRAPPER_OUTPUT_PREFIX=../cpython_bc $(MAKE)
 	touch $@ # some cpython .c files don't affect the python executable
-pyston/build/cpython_unopt_build/pyston: pyston/build/cpython_unopt_build/Makefile $(wildcard */*.c) $(wildcard */*.h) pyston/aot/aot_all.bc
-	cd pyston/build/cpython_unopt_build; $(MAKE)
-	touch $@ # some cpython .c files don't affect the python executable
-pyston/build/cpython_opt_build/pyston: pyston/build/cpython_opt_build/Makefile $(wildcard */*.c) $(wildcard */*.h) pyston/aot/aot_all.bc
-	cd pyston/build/cpython_opt_build; $(MAKE)
-	touch $@ # some cpython .c files don't affect the python executable
-pyston/build/cpython_dbg_build/pyston: pyston/build/cpython_dbg_build/Makefile $(wildcard */*.c) $(wildcard */*.h) pyston/aot/aot_all.bc
-	cd pyston/build/cpython_dbg_build; $(MAKE)
-	touch $@ # some cpython .c files don't affect the python executable
-pyston/build/cpython_stock_build/pyston: pyston/build/cpython_stock_build/Makefile $(wildcard */*.c) $(wildcard */*.h)
-	cd pyston/build/cpython_stock_build; $(MAKE)
-	touch $@ # some cpython .c files don't affect the python executable
-pyston/build/cpython_stockunopt_build/pyston: pyston/build/cpython_stockunopt_build/Makefile $(wildcard */*.c) $(wildcard */*.h)
-	cd pyston/build/cpython_stockunopt_build; $(MAKE)
-	touch $@ # some cpython .c files don't affect the python executable
-pyston/build/cpython_stockdbg_build/pyston: pyston/build/cpython_stockdbg_build/Makefile $(wildcard */*.c) $(wildcard */*.h)
-	cd pyston/build/cpython_stockdbg_build; $(MAKE)
-	touch $@ # some cpython .c files don't affect the python executable
 
 pyston/build/cpython_bc_install/usr/bin/python3: pyston/build/cpython_bc_build/pyston
 	cd pyston/build/cpython_bc_build; WRAPPER_REALCC=$(realpath $(CLANG)) WRAPPER_OUTPUT_PREFIX=../cpython_bc $(MAKE) install DESTDIR=$(abspath pyston/build/cpython_bc_install)
-pyston/build/cpython_unopt_install/usr/bin/python3: pyston/build/cpython_unopt_build/pyston
-	cd pyston/build/cpython_unopt_build; $(MAKE) install DESTDIR=$(abspath pyston/build/cpython_unopt_install)
-pyston/build/cpython_opt_install/usr/bin/python3: pyston/build/cpython_opt_build/pyston
-	cd pyston/build/cpython_opt_build; $(MAKE) install DESTDIR=$(abspath pyston/build/cpython_opt_install)
-pyston/build/cpython_dbg_install/usr/bin/python3: pyston/build/cpython_dbg_build/pyston
-	cd pyston/build/cpython_dbg_build; $(MAKE) install DESTDIR=$(abspath pyston/build/cpython_dbg_install)
-pyston/build/cpython_stock_install/usr/bin/python3: pyston/build/cpython_stock_build/pyston
-	cd pyston/build/cpython_stock_build; $(MAKE) install DESTDIR=$(abspath pyston/build/cpython_stock_install)
-pyston/build/cpython_stockunopt_install/usr/bin/python3: pyston/build/cpython_stockunopt_build/pyston
-	cd pyston/build/cpython_stockunopt_build; $(MAKE) install DESTDIR=$(abspath pyston/build/cpython_stockunopt_install)
-pyston/build/cpython_stockdbg_install/usr/bin/python3: pyston/build/cpython_stockdbg_build/pyston
-	cd pyston/build/cpython_stockdbg_build; $(MAKE) install DESTDIR=$(abspath pyston/build/cpython_stockdbg_install)
 
 VIRTUALENV:=pyston/build/bootstrap_env/bin/virtualenv
 $(VIRTUALENV):
@@ -139,20 +87,7 @@ $(VIRTUALENV):
 
 pyston/build/bc_env/bin/python: pyston/build/cpython_bc_install/usr/bin/python3 | $(VIRTUALENV)
 	$(VIRTUALENV) -p $< pyston/build/bc_env
-pyston/build/unopt_env/bin/python: pyston/build/cpython_unopt_install/usr/bin/python3 | $(VIRTUALENV)
-	$(VIRTUALENV) -p $< pyston/build/unopt_env
-pyston/build/optnobolt_env/bin/python: pyston/build/cpython_opt_install/usr/bin/python3 | $(VIRTUALENV)
-	$(VIRTUALENV) -p $< pyston/build/optnobolt_env
-pyston/build/opt_env/bin/python: pyston/build/cpython_opt_install/usr/bin/python3.bolt | $(VIRTUALENV)
-	$(VIRTUALENV) -p $< pyston/build/opt_env
-pyston/build/stock_env/bin/python: pyston/build/cpython_stock_install/usr/bin/python3 | $(VIRTUALENV)
-	$(VIRTUALENV) -p $< pyston/build/stock_env
-pyston/build/stockunopt_env/bin/python: pyston/build/cpython_stockunopt_install/usr/bin/python3 | $(VIRTUALENV)
-	$(VIRTUALENV) -p $< pyston/build/stockunopt_env
-pyston/build/stockdbg_env/bin/python: pyston/build/cpython_stockdbg_install/usr/bin/python3 | $(VIRTUALENV)
-	$(VIRTUALENV) -p $< pyston/build/stockdbg_env
-pyston/build/dbg_env/bin/python: pyston/build/cpython_dbg_install/usr/bin/python3 | $(VIRTUALENV)
-	$(VIRTUALENV) -p $< pyston/build/dbg_env
+bc: pyston/build/bc_env/bin/python
 pyston/build/system_env/bin/python: | $(VIRTUALENV)
 	$(VIRTUALENV) -p python3.8 pyston/build/system_env
 	pyston/build/system_env/bin/pip install six pyperf cython || (rm -rf pyston/build/system_env; false)
@@ -161,24 +96,119 @@ pyston/build/systemdbg_env/bin/python: | $(VIRTUALENV)
 pyston/build/pypy_env/bin/python: | $(VIRTUALENV)
 	$(VIRTUALENV) -p pypy3 pyston/build/pypy_env
 
-define make_bolt_rule
+# Usage:
+# $(call make_cpython_build,NAME,CONFIGURE_LINE,AOT_DEPENDENCY,DESTDIR,BOLT:[|binary|so])
+define make_cpython_build
 $(eval
-$(2).fdata: $(1) $(BOLT) | $(VIRTUALENV)
-	rm -rf /tmp/tmp_env
-	rm $(2)*.fdata || true
-	$(BOLT) $(1) -instrument -instrumentation-file-append-pid -instrumentation-file=$(abspath $(2)) -o $(1).bolt_inst
-	$(VIRTUALENV) -p $(1).bolt_inst /tmp/tmp_env
-	/tmp/tmp_env/bin/pip install -r pyston/pgo_requirements.txt
-	/tmp/tmp_env/bin/python3 pyston/run_profile_task.py
-	$(MERGE_FDATA) $(2).*.fdata > $(2).fdata
 
-$(2): $(2).fdata
-	$(BOLT) $(1) -o $(2) -data=$(2).fdata -update-debug-sections -reorder-blocks=cache+ -reorder-functions=hfsort+ -split-functions=3 -icf=1 -inline-all -split-eh -reorder-functions-use-hot-size -peepholes=all -jump-tables=aggressive -inline-ap -indirect-call-promotion=all -dyno-stats -frame-opt=hot -use-gnu-stack
+pyston/build/cpython_$(1)_build/Makefile: $(MAKEFILE_DEPENDENCIES)
+	mkdir -p pyston/build/cpython_$(1)_build
+	cd pyston/build/cpython_$(1)_build; $(2)
+
+pyston/build/cpython_$(1)_build/pyston: pyston/build/cpython_$(1)_build/Makefile $(wildcard */*.c) $(wildcard */*.h) $(3)
+	cd pyston/build/cpython_$(1)_build; $$(MAKE)
+	touch $$@ # some cpython .c files don't affect the python executable
+
+pyston/build/cpython_$(1)_install/usr/bin/python3: pyston/build/cpython_$(1)_build/pyston
+	cd pyston/build/cpython_$(1)_build; $$(MAKE) install DESTDIR=$(4)
+$(1): pyston/build/$(1)_env/bin/python
+
+ifeq ($(5),binary)
+
+pyston/build/cpython_$(1)_install/usr/bin/python3.bolt.fdata: pyston/build/cpython_$(1)_install/usr/bin/python3 $(BOLT) | $(VIRTUALENV)
+	rm -rf /tmp/tmp_env_$(1)
+	rm $$<.bolt*.fdata || true
+	$(BOLT) $$< -instrument -instrumentation-file-append-pid -instrumentation-file=$(abspath pyston/build/cpython_$(1)_install/usr/bin/python3.bolt) -o $$<.bolt_inst
+	$(VIRTUALENV) -p $$<.bolt_inst /tmp/tmp_env_$(1)
+	/tmp/tmp_env_$(1)/bin/pip install -r pyston/pgo_requirements.txt
+	/tmp/tmp_env_$(1)/bin/python3 pyston/run_profile_task.py
+	$(MERGE_FDATA) $$<.*.fdata > $$@
+
+pyston/build/cpython_$(1)_install/usr/bin/python3.bolt: pyston/build/cpython_$(1)_install/usr/bin/python3.bolt.fdata
+	$(BOLT) pyston/build/cpython_$(1)_install/usr/bin/python3 -o $$@ -data=$$< -update-debug-sections -reorder-blocks=cache+ -reorder-functions=hfsort+ -split-functions=3 -icf=1 -inline-all -split-eh -reorder-functions-use-hot-size -peepholes=all -jump-tables=aggressive -inline-ap -indirect-call-promotion=all -dyno-stats -frame-opt=hot -use-gnu-stack
+
+pyston/build/$(1)_env/bin/python: pyston/build/cpython_$(1)_install/usr/bin/python3.bolt | $(VIRTUALENV)
+	$(VIRTUALENV) -p $$< pyston/build/$(1)_env
+
+else
+
+pyston/build/$(1)_env/bin/python: pyston/build/cpython_$(1)_install/usr/bin/python3 | $(VIRTUALENV)
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) $(VIRTUALENV) -p $$< pyston/build/$(1)_env
+
+endif
+
+ifeq ($(5),so)
+
+# WIP: should use INSTSONAME to install to a different name, use LD_PRELOAD to load the instrumentated so, and then have bolt write out the optimized so to the correct location
+pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0.bolt: pyston/build/cpython_$(1)_install/usr/bin/python3
+	bash -c "mv pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0{,.base}"
+	rm -rfv /tmp/tmp_env_$(1)
+	rm $$@.* || true
+	$(BOLT) pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0.base -instrument -instrumentation-file-append-pid -instrumentation-file=$(abspath $$@) -o pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0 -update-debug-sections
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) $(VIRTUALENV) -p $$< /tmp/tmp_env_$(1)
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) /tmp/tmp_env_$(1)/bin/pip install -r pyston/benchmark_requirements.txt
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) /tmp/tmp_env_$(1)/bin/python3 pyston/run_profile_task.py
+	$(MERGE_FDATA) $$@.*.fdata > $$@.fdata
+	$(BOLT) pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0.base -o $$@ -data=$$@.fdata -update-debug-sections -reorder-blocks=cache+ -reorder-functions=hfsort+ -split-functions=3 -icf=1 -inline-all -split-eh -reorder-functions-use-hot-size -peepholes=all -jump-tables=aggressive -inline-ap -indirect-call-promotion=all -dyno-stats -frame-opt=hot -use-gnu-stack
+
+endif
+
+pyston/build/$(1)_env/update.stamp: pyston/benchmark_requirements.txt pyston/benchmark_requirements_nonpypy.txt | pyston/build/$(1)_env/bin/python
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) pyston/build/$(1)_env/bin/pip install -r pyston/benchmark_requirements.txt -r pyston/benchmark_requirements_nonpypy.txt
+	touch $$@
+
+%_$(1): %.py pyston/build/$(1)_env/update.stamp
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) time pyston/build/$(1)_env/bin/python3 $$< $$(ARGS)
+
+perf_%_$(1): %.py pyston/build/$(1)_env/update.stamp
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) JIT_PERF_MAP=1 perf record -g ./pyston/build/$(1)_env/bin/python3 $$< $$(ARGS)
+	$$(MAKE) perf_report
+
+pyperf_%_$(1): %.py ./pyston/build/$(1)_env/bin/update.stamp pyston/build/system_env/bin/python
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) $$(PYPERF) pyston/build/$(1)_env/bin/python3 $$< $$(ARGS)
+)
+
+# UNSAFE build target
+# If you're making changes to cpython but don't want to rebuild the traces or anything beyond the python binary,
+# you can call this target for a much faster build.
+# Skips cpython_bc_build, aot_gen, and cpython_$(1)_install
+# If you want to run the skipped steps, you will have to touch a file before doing a (safe) rebuild
+unsafe_$(1):
+	$(MAKE) -C pyston/build/cpython_$(1)_build
+	/bin/cp pyston/build/cpython_$(1)_build/pyston pyston/build/cpython_$(1)_install/usr/bin/python3.8
+
+endef
+
+COMMA:=,
+$(call make_cpython_build,unopt,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=$(abspath pyston/build/cpython_unopt_install/usr) --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc,,)
+$(call make_cpython_build,unoptshared,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=$(abspath pyston/build/cpython_unoptshared_install/usr) --disable-debugging-features --enable-configure --enable-shared,pyston/build/aot_pic/aot_all.bc,,so)
+$(call make_cpython_build,opt,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=$(abspath pyston/build/cpython_opt_install/usr) --enable-optimizations --with-lto --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc,,binary)
+$(call make_cpython_build,optshared,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=$(abspath pyston/build/cpython_optshared_install/usr) --enable-optimizations --with-lto --disable-debugging-features --enable-shared --enable-configure,pyston/build/aot_pic/aot_all.bc,,so)
+$(call make_cpython_build,releaseunopt,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc,$(abspath pyston/build/cpython_releaseunopt_install))
+$(call make_cpython_build,releaseunoptshared,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --disable-debugging-features --enable-shared --enable-configure,pyston/build/aot_pic/aot_all.bc,$(abspath pyston/build/cpython_releaseunoptshared_install))
+$(call make_cpython_build,release,      PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc,$(abspath pyston/build/cpython_release_install),binary)
+$(call make_cpython_build,releaseshared,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=/usr --enable-optimizations --with-lto --disable-debugging-features --enable-shared --enable-configure,pyston/build/aot_pic/aot_all.bc,$(abspath pyston/build/cpython_releaseshared_install),so)
+# We have to --disable-debugging-features for consistency with the bc build
+# If we had a separate bc-dbg build then we could change this
+$(call make_cpython_build,dbg,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=$(abspath pyston/build/cpython_dbg_install/usr) --with-pydebug --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc)
+$(call make_cpython_build,stock,PROFILE_TASK="$(PROFILE_TASK) || true" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=$(abspath pyston/build/cpython_stock_install/usr) --enable-optimizations --with-lto --disable-pyston --enable-configure,)
+$(call make_cpython_build,stockunopt,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=$(abspath pyston/build/cpython_stockunopt_install/usr) --disable-pyston --enable-configure,)
+$(call make_cpython_build,stockdbg,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../../configure --prefix=$(abspath pyston/build/cpython_stockdbg_install/usr) --disable-pyston --with-pydebug --enable-configure,)
+
+# Usage: $(call combine_builds,NAME)
+define combine_builds
+$(eval
+pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0: pyston/build/cpython_$(1)_install/usr/bin/python3 pyston/build/cpython_$(1)shared_install/usr/bin/python3
+	bash -c "cp pyston/build/cpython_$(1){shared,}_install/usr/lib/python3.8-pyston2.2/_sysconfigdata__linux_x86_64-linux-gnu.py"
+	bash -c "cp pyston/build/cpython_$(1){shared,}_install/usr/lib/libpython3.8-pyston2.2.so.1.0"
+pyston/build/$(1)_env/bin/python: pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0
 )
 endef
 
-$(call make_bolt_rule,pyston/build/cpython_unopt_install/usr/bin/python3,pyston/build/cpython_unopt_install/usr/bin/python3.bolt)
-$(call make_bolt_rule,pyston/build/cpython_opt_install/usr/bin/python3,pyston/build/cpython_opt_install/usr/bin/python3.bolt)
+$(call combine_builds,unopt)
+$(call combine_builds,releaseunopt)
+$(call combine_builds,opt)
+$(call combine_builds,release)
 
 .PHONY: cpython
 cpython: pyston/build/bc_env/bin/python pyston/build/unopt_env/bin/python pyston/build/opt_env/bin/python
@@ -194,37 +224,47 @@ cpython: pyston/build/bc_env/bin/python pyston/build/unopt_env/bin/python pyston
 find_similar_traces: $(patsubst %.bc,%.normalized_ll,$(wildcard pyston/aot/*.bc))
 	python3 pyston/aot/aot_diff_ir.py
 
-pyston/aot/aot_pre_trace.c: pyston/aot/aot_gen.py pyston/build/cpython_bc_install/usr/bin/python3
-	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../build/Release/nitrous/:`pwd`/../build/Release/pystol/" ../build/cpython_bc_install/usr/bin/python3 aot_gen.py --action=pretrace
-pyston/aot/aot_pre_trace.bc: pyston/aot/aot_pre_trace.c
-	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $< -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/ -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/internal/ -Ipyston/nitrous/ -emit-llvm -c -o $@
-pyston/aot/aot_pre_trace.so: pyston/aot/aot_pre_trace.c pyston/build/Release/nitrous/libinterp.so
-	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $< -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/ -Ipyston/build/cpython_bc_install/usr/include/pyston3.8/internal/ -Ipyston/nitrous/ -shared -Lpyston/build/Release/nitrous -linterp -o $@
+ONLY?=null
 
-pyston/aot/all.bc: pyston/build/cpython_bc_build/pyston $(LLVM_TOOLS) pyston/aot/aot_pre_trace.bc
-	pyston/build/Release/llvm/bin/llvm-link $(filter-out %_testembed.o.bc %frozenmain.o.bc pyston/build/cpython_bc/Modules/%,$(wildcard pyston/build/cpython_bc/*/*.bc)) pyston/build/cpython_bc/Modules/gcmodule.o.bc pyston/build/cpython_bc/Modules/getpath.o.bc pyston/build/cpython_bc/Modules/main.o.bc pyston/build/cpython_bc/Modules/config.o.bc pyston/aot/aot_pre_trace.bc -o=$@
+# Usage:
+# $(call make_aot_build,NAME,FLAGS)
+define make_aot_build
+$(eval
+pyston/build/$(1)/aot_pre_trace.c: pyston/aot/aot_gen.py pyston/build/cpython_bc_install/usr/bin/python3
+	mkdir -p pyston/build/$(1)
+	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../Release/nitrous/:`pwd`/../Release/pystol/" ../build/cpython_bc_install/usr/bin/python3 aot_gen.py --action=pretrace -o $$(abspath $$@) $(2)
+pyston/build/$(1)/aot_pre_trace.bc: pyston/build/$(1)/aot_pre_trace.c
+	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $$< -Ipyston/build/cpython_bc_install/usr/include/python3.8-pyston2.2/ -Ipyston/build/cpython_bc_install/usr/include/python3.8-pyston2.2/internal/ -Ipyston/nitrous/ -emit-llvm -c -o $$@
+pyston/build/$(1)/aot_pre_trace.so: pyston/build/$(1)/aot_pre_trace.c pyston/build/Release/nitrous/libinterp.so
+	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $$< -Ipyston/build/cpython_bc_install/usr/include/python3.8-pyston2.2/ -Ipyston/build/cpython_bc_install/usr/include/python3.8-pyston2.2/internal/ -Ipyston/nitrous/ -shared -Lpyston/build/Release/nitrous -linterp -o $$@
+
+pyston/build/$(1)/all.bc: pyston/build/cpython_bc_build/pyston $(LLVM_TOOLS) pyston/build/$(1)/aot_pre_trace.bc
+	pyston/build/Release/llvm/bin/llvm-link $$(filter-out %_testembed.o.bc %frozenmain.o.bc pyston/build/cpython_bc/Modules/%,$$(wildcard pyston/build/cpython_bc/*/*.bc)) pyston/build/cpython_bc/Modules/gcmodule.o.bc pyston/build/cpython_bc/Modules/getpath.o.bc pyston/build/cpython_bc/Modules/main.o.bc pyston/build/cpython_bc/Modules/config.o.bc pyston/build/$(1)/aot_pre_trace.bc -o=$$@
+
+# Not really dependent on aot_profile.c, but aot_profile.c gets generated at the same time as the real dependencies
+pyston/build/$(1)/aot_all.bc: pyston/build/$(1)/aot_profile.c
+	cd pyston/build/$(1); ../Release/llvm/bin/llvm-link aot_module*.bc -o aot_all.bc
+
+pyston/build/$(1)/aot_profile.c: pyston/build/$(1)/all.bc pyston/build/$(1)/aot_pre_trace.so pyston/build/cpython_bc_install/usr/bin/python3 pyston/aot/aot_gen.py pyston/build/Release/nitrous/libinterp.so pyston/build/Release/pystol/libpystol.so
+	cd pyston/build/$(1); rm -f aot_module*.bc
+	cd pyston/build/$(1); LD_LIBRARY_PATH="`pwd`/../Release/nitrous/:`pwd`/../Release/pystol/" ../cpython_bc_install/usr/bin/python3 ../../aot/aot_gen.py --action=trace $(2)
+	cd pyston/build/$(1); ls -al aot_module*.bc | wc -l
+)
+endef
+
+$(call make_aot_build,aot,)
+$(call make_aot_build,aot_pic,--pic)
 
 dbg_aot_trace: pyston/aot/all.bc pyston/aot/aot_pre_trace.so pyston/aot/aot_gen.py pyston/build/cpython_bc_install/usr/bin/python3 build_dbg
 	cd pyston/aot; rm -f aot_module*.bc
 	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../build/PartialDebug/nitrous/:`pwd`/../build/PartialDebug/pystol/" gdb --args ../build/cpython_bc_install/usr/bin/python3 aot_gen.py -vv --action=trace
 	cd pyston/aot; ls -al aot_module*.bc | wc -l
 
-ONLY?=null
 aot_trace_only: pyston/aot/all.bc pyston/aot/aot_pre_trace.so pyston/aot/aot_gen.py pyston/build/cpython_bc_install/usr/bin/python3 pyston/build/Release/nitrous/libinterp.so pyston/build/Release/pystol/libpystol.so
 	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../build/Release/nitrous/:`pwd`/../build/Release/pystol/" ../build/cpython_bc_install/usr/bin/python3 aot_gen.py --action=trace -vv --only=$(ONLY)
 
 dbg_aot_trace_only: pyston/aot/all.bc pyston/aot/aot_pre_trace.so pyston/aot/aot_gen.py pyston/build/cpython_bc_install/usr/bin/python3 build_dbg
 	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../build/PartialDebug/nitrous/:`pwd`/../build/PartialDebug/pystol/" gdb --ex run --args ../build/cpython_bc_install/usr/bin/python3 aot_gen.py --action=trace -vv --only=$(ONLY)
-
-# Not really dependent on aot_profile.c, but aot_profile.c gets generated at the same time as the real dependencies
-pyston/aot/aot_all.bc: pyston/aot/aot_profile.c
-	cd pyston/aot; ../build/Release/llvm/bin/llvm-link aot_module*.bc -o aot_all.bc
-
-# The "%"s here are to force make to consider these as group targets and not run this target multiple times
-pyston/aot/aot_profile%c: pyston/aot/all.bc pyston/aot/aot_pre_trace.so pyston/build/cpython_bc_install/usr/bin/python3 pyston/aot/aot_gen.py pyston/build/Release/nitrous/libinterp.so pyston/build/Release/pystol/libpystol.so
-	cd pyston/aot; rm -f aot_module*.bc
-	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../build/Release/nitrous/:`pwd`/../build/Release/pystol/" ../build/cpython_bc_install/usr/bin/python3 aot_gen.py --action=trace
-	cd pyston/aot; ls -al aot_module*.bc | wc -l
 
 PYPERF:=pyston/build/system_env/bin/pyperf command -w 0 -l 1 -p 1 -n $(or $(N),$(N),3) -v --affinity 0
 linktest:
@@ -237,39 +277,11 @@ linktest:
 
 
 BC_BENCH_ENV:=pyston/build/bc_env/update.stamp
-DBG_BENCH_ENV:=pyston/build/dbg_env/update.stamp
-UNOPT_BENCH_ENV:=pyston/build/unopt_env/update.stamp
-OPTNOBOLT_BENCH_ENV:=pyston/build/optnobolt_env/update.stamp
-OPT_BENCH_ENV:=pyston/build/opt_env/update.stamp
-STOCK_BENCH_ENV:=pyston/build/stock_env/update.stamp
-STOCKUNOPT_BENCH_ENV:=pyston/build/stockunopt_env/update.stamp
-STOCKDBG_BENCH_ENV:=pyston/build/stockdbg_env/update.stamp
 SYSTEM_BENCH_ENV:=pyston/build/system_env/update.stamp
 SYSTEMDBG_BENCH_ENV:=pyston/build/systemdbg_env/update.stamp
 PYPY_BENCH_ENV:=pyston/build/pypy_env/update.stamp
 $(BC_BENCH_ENV): pyston/benchmark_requirements.txt pyston/benchmark_requirements_nonpypy.txt | pyston/build/bc_env/bin/python
 	pyston/build/bc_env/bin/pip install -r pyston/benchmark_requirements.txt -r pyston/benchmark_requirements_nonpypy.txt
-	touch $@
-$(DBG_BENCH_ENV): pyston/benchmark_requirements.txt pyston/benchmark_requirements_nonpypy.txt | pyston/build/dbg_env/bin/python
-	pyston/build/dbg_env/bin/pip install -r pyston/benchmark_requirements.txt -r pyston/benchmark_requirements_nonpypy.txt
-	touch $@
-$(UNOPT_BENCH_ENV): pyston/benchmark_requirements.txt pyston/benchmark_requirements_nonpypy.txt | pyston/build/unopt_env/bin/python
-	pyston/build/unopt_env/bin/pip install -r pyston/benchmark_requirements.txt -r pyston/benchmark_requirements_nonpypy.txt
-	touch $@
-$(OPTNOBOLT_BENCH_ENV): pyston/benchmark_requirements.txt pyston/benchmark_requirements_nonpypy.txt | pyston/build/optnobolt_env/bin/python
-	pyston/build/optnobolt_env/bin/pip install -r pyston/benchmark_requirements.txt -r pyston/benchmark_requirements_nonpypy.txt
-	touch $@
-$(OPT_BENCH_ENV): pyston/benchmark_requirements.txt pyston/benchmark_requirements_nonpypy.txt | pyston/build/opt_env/bin/python
-	pyston/build/opt_env/bin/pip install -r pyston/benchmark_requirements.txt -r pyston/benchmark_requirements_nonpypy.txt
-	touch $@
-$(STOCK_BENCH_ENV): pyston/benchmark_requirements.txt pyston/benchmark_requirements_nonpypy.txt | pyston/build/stock_env/bin/python
-	pyston/build/stock_env/bin/pip install -r pyston/benchmark_requirements.txt -r pyston/benchmark_requirements_nonpypy.txt
-	touch $@
-$(STOCKUNOPT_BENCH_ENV): pyston/benchmark_requirements.txt pyston/benchmark_requirements_nonpypy.txt | pyston/build/stockunopt_env/bin/python
-	pyston/build/stockunopt_env/bin/pip install -r pyston/benchmark_requirements.txt -r pyston/benchmark_requirements_nonpypy.txt
-	touch $@
-$(STOCKDBG_BENCH_ENV): pyston/benchmark_requirements.txt pyston/benchmark_requirements_nonpypy.txt | pyston/build/stockdbg_env/bin/python
-	pyston/build/stockdbg_env/bin/pip install -r pyston/benchmark_requirements.txt -r pyston/benchmark_requirements_nonpypy.txt
 	touch $@
 $(SYSTEM_BENCH_ENV): pyston/benchmark_requirements.txt pyston/benchmark_requirements_nonpypy.txt | pyston/build/system_env/bin/python
 	pyston/build/system_env/bin/pip install -r pyston/benchmark_requirements.txt -r pyston/benchmark_requirements_nonpypy.txt
@@ -285,20 +297,6 @@ update_envs:
 
 %_bc: %.py $(BC_BENCH_ENV)
 	time pyston/build/bc_env/bin/python3 $< $(ARGS)
-%_unopt: %.py $(UNOPT_BENCH_ENV)
-	time pyston/build/unopt_env/bin/python3 $< $(ARGS)
-%_optnobolt: %.py $(OPTNOBOLT_BENCH_ENV)
-	time pyston/build/optnobolt_env/bin/python3 $< $(ARGS)
-%_opt: %.py $(OPT_BENCH_ENV)
-	time pyston/build/opt_env/bin/python3 $< $(ARGS)
-%_dbg: %.py $(DBG_BENCH_ENV)
-	time pyston/build/dbg_env/bin/python3 $< $(ARGS)
-%_stock: %.py $(STOCK_BENCH_ENV)
-	time pyston/build/stock_env/bin/python3 $< $(ARGS)
-%_stockunopt: %.py $(STOCKUNOPT_BENCH_ENV)
-	time pyston/build/stockunopt_env/bin/python3 $< $(ARGS)
-%_stockdbg: %.py $(STOCKDBG_BENCH_ENV)
-	time pyston/build/stockdbg_env/bin/python3 $< $(ARGS)
 %_system: %.py $(SYSTEM_BENCH_ENV)
 	time pyston/build/system_env/bin/python3 $< $(ARGS)
 %_system_dbg: %.py $(SYSTEMDBG_BENCH_ENV)
@@ -309,21 +307,7 @@ update_envs:
 
 perf_report:
 	perf report -n --no-children --objdump=pyston/tools/perf_jit.py
-perf_%_unopt: %.py $(UNOPT_BENCH_ENV)
-	JIT_PERF_MAP=1 perf record -g ./pyston/build/unopt_env/bin/python3 $< $(ARGS)
-	$(MAKE) perf_report
-perf_%_optnobolt: %.py $(OPTNOBOLT_BENCH_ENV)
-	JIT_PERF_MAP=1 perf record -g ./pyston/build/optnobolt_env/bin/python3 $< $(ARGS)
-	$(MAKE) perf_report
-perf_% perf_%_opt: %.py $(OPT_BENCH_ENV)
-	JIT_PERF_MAP=1 perf record -g ./pyston/build/opt_env/bin/python3 $< $(ARGS)
-	$(MAKE) perf_report
-perf_%_stock: %.py $(STOCK_BENCH_ENV)
-	JIT_PERF_MAP=1 perf record -g ./pyston/build/stock_env/bin/python3 $< $(ARGS)
-	$(MAKE) perf_report
-perf_%_stockunopt: %.py $(STOCKUNOPT_BENCH_ENV)
-	JIT_PERF_MAP=1 perf record -g ./pyston/build/stockunopt_env/bin/python3 $< $(ARGS)
-	$(MAKE) perf_report
+perf_%: perf_%_opt
 perf_%_system: %.py $(SYSTEM_BENCH_ENV)
 	JIT_PERF_MAP=1 perf record -g ./pyston/build/system_env/bin/python3 $< $(ARGS)
 	$(MAKE) perf_report
@@ -362,25 +346,12 @@ compare: pyston/build/system_env/bin/python
 
 pyperf_%_bc: %.py $(BC_BENCH_ENV) pyston/build/system_env/bin/python
 	$(PYPERF) pyston/build/bc_env/bin/python3 $< $(ARGS)
-pyperf_%_unopt: %.py $(UNOPT_BENCH_ENV) pyston/build/system_env/bin/python
-	$(PYPERF) pyston/build/unopt_env/bin/python3 $< $(ARGS)
-pyperf_%_optnobolt: %.py $(OPT_BENCH_ENV) pyston/build/system_env/bin/python
-	$(PYPERF) pyston/build/optnobolt_env/bin/python3 $< $(ARGS)
-pyperf_%_opt: %.py $(OPT_BENCH_ENV) pyston/build/system_env/bin/python
-	$(PYPERF) pyston/build/opt_env/bin/python3 $< $(ARGS)
-pyperf_%_stock: %.py $(STOCK_BENCH_ENV) pyston/build/system_env/bin/python
-	$(PYPERF) pyston/build/stock_env/bin/python3 $< $(ARGS)
-pyperf_%_stockunopt: %.py $(STOCKUNOPT_BENCH_ENV) pyston/build/system_env/bin/python
-	$(PYPERF) pyston/build/stockunopt_env/bin/python3 $< $(ARGS)
 pyperf_%_system: %.py $(SYSTEM_BENCH_ENV) pyston/build/system_env/bin/python
 	$(PYPERF) pyston/build/system_env/bin/python3 $< $(ARGS)
 pyperf_%_pypy: %.py $(PYPY_BENCH_ENV) pyston/build/system_env/bin/python
 	$(PYPERF) pyston/build/pypy_env/bin/python3 $< $(ARGS)
 
-dbg_%_unopt: %.py $(UNOPT_BENCH_ENV)
-	gdb --args pyston/build/unopt_env/bin/python $< $(ARGS)
-dbg_%: %.py $(DBG_BENCH_ENV)
-	gdb --args pyston/build/dbg_env/bin/python $< $(ARGS)
+dbg_%: dbg_%_dbg
 
 
 # UNSAFE build target
@@ -388,9 +359,6 @@ dbg_%: %.py $(DBG_BENCH_ENV)
 # you can call this target for a much faster build.
 # Skips cpython_bc_build, aot_gen, and cpython_unopt_install
 # If you want to run the skipped steps, you will have to touch a file before doing a (safe) rebuild
-unsafe_unopt:
-	$(MAKE) -C pyston/build/cpython_unopt_build
-	/bin/cp pyston/build/cpython_unopt_build/pyston pyston/build/cpython_unopt_install/usr/bin/python3.8
 unsafe_dbg:
 	$(MAKE) -C pyston/build/cpython_dbg_build
 	/bin/cp pyston/build/cpython_dbg_build/pyston pyston/build/cpython_dbg_install/usr/bin/python3.8

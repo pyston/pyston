@@ -19,5 +19,6 @@
 #define NITROUS_VERBOSITY_IR 2
 #define NITROUS_VERBOSITY_INTERPRETING 3
 extern int nitrous_verbosity;
+extern bool nitrous_pic;
 
 #endif

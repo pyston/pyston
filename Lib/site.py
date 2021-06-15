@@ -265,6 +265,7 @@ def _getuserbase():
 # Same to sysconfig.get_path('purelib', os.name+'_user')
 def _get_path(userbase):
     version = sys.version_info
+    pyston_version = sys.pyston_version_info
 
     if os.name == 'nt':
         return f'{userbase}\\Python{version[0]}{version[1]}\\site-packages'
@@ -272,7 +273,7 @@ def _get_path(userbase):
     if sys.platform == 'darwin' and sys._framework:
         return f'{userbase}/lib/python/site-packages'
 
-    return f'{userbase}/lib/pyston{version[0]}.{version[1]}/site-packages'
+    return f'{userbase}/lib/python{version[0]}.{version[1]}-pyston{pyston_version[0]}.{pyston_version[1]}/site-packages'
 
 
 def getuserbase():
@@ -336,7 +337,7 @@ def getsitepackages(prefixes=None):
 
         if os.sep == '/':
             sitepackages.append(os.path.join(prefix, "lib",
-                                        "pyston%d.%d" % sys.version_info[:2],
+                                        "python%d.%d-pyston%d.%d" % (sys.version_info[:2] + sys.pyston_version_info[:2]),
                                         "site-packages"))
         else:
             sitepackages.append(prefix)
