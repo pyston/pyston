@@ -707,11 +707,47 @@ static void emit_write_vs(Jit* Dst, int r_idx, int stack_offset) {
     | mov [vsp - (8*stack_offset)], Rq(r_idx)
 }
 
+static void emit_dec_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
+    // the JIT always emits code to address which fit into 32bit
+    // but if PIC is enabled non JIT code may use a larger address space.
+    // This causes issues because x86_64 rip memory access only use 32bit offsets.
+    // To solve this issue we have to load the pointer into a register.
+    if (IS_32BIT_VAL(ptr)) {
+        | dec qword [&ptr]
+    } else {
+        // unfortunately we can't modify any register here :/
+        // which means we will have to safe an restore via the stack
+        if (!can_use_tmp_reg) {
+            | push tmp
+        }
+        | mov64 tmp, (unsigned long)ptr
+        | dec qword [tmp]
+        if (!can_use_tmp_reg) {
+            | pop tmp
+        }
+    }
+}
+static void emit_inc_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
+    if (IS_32BIT_VAL(ptr)) {
+        | inc qword [&ptr]
+    } else {
+        if (!can_use_tmp_reg) {
+            | push tmp
+        }
+        | mov64 tmp, (unsigned long)ptr
+        | inc qword [tmp]
+        if (!can_use_tmp_reg) {
+            | pop tmp
+        }
+    }
+}
+
 static void emit_incref(Jit* Dst, int r_idx) {
     _Static_assert(offsetof(PyObject, ob_refcnt) == 0,  "add needs to be modified");
 #ifdef Py_REF_DEBUG
+    // calling code assumes that we are not modifying tmp_reg
     _Static_assert(sizeof(_Py_RefTotal) == 8,  "adjust inc qword");
-    | inc qword [&_Py_RefTotal]
+    emit_inc_qword_ptr(Dst, &_Py_RefTotal, 0 /*=can't use tmp_reg*/);
 #endif
     | inc qword [Rq(r_idx)]
 }
@@ -825,7 +861,7 @@ static void emit_call_ext_func(Jit* Dst, void* addr) {
 static void emit_decref(Jit* Dst, int r_idx, int preserve_res) {
     _Static_assert(offsetof(PyObject, ob_refcnt) == 0,  "sub needs to be modified");
 #ifdef Py_REF_DEBUG
-    | dec qword [&_Py_RefTotal]
+    emit_dec_qword_ptr(Dst, &_Py_RefTotal, 1 /* can_use_tmp_reg  */);
 #endif
     | dec qword [Rq(r_idx)]
 
@@ -1350,7 +1386,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             emit_mov_imm(Dst, res_idx, (unsigned long)lg->ptr);
             emit_incref(Dst, res_idx);
             if (jit_stats_enabled) {
-                | inc qword [&jit_stat_load_global_hit]
+                emit_inc_qword_ptr(Dst, &jit_stat_load_global_hit, 1 /*=can use tmp_reg*/);
             }
             |4:
             // fallthrough to next opcode
@@ -1359,7 +1395,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             switch_section(Dst, SECTION_COLD);
             | 1:
             if (jit_stats_enabled) {
-                | inc qword [&jit_stat_load_global_miss]
+                emit_inc_qword_ptr(Dst, &jit_stat_load_global_miss, 1 /*=can use tmp_reg*/);
             }
             emit_mov_imm2(Dst, arg1_idx, (unsigned long)PyTuple_GET_ITEM(Dst->co_names, oparg),
                                 arg2_idx, co_opcache);
@@ -1557,7 +1593,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
 
             |4:
             if (jit_stats_enabled) {
-                | inc qword [opcode == LOAD_ATTR ? &jit_stat_load_attr_hit : &jit_stat_load_method_hit]
+                emit_inc_qword_ptr(Dst, opcode == LOAD_ATTR ? &jit_stat_load_attr_hit : &jit_stat_load_method_hit, 1 /*=can use tmp_reg*/);
             }
             if (opcode == LOAD_ATTR) {
                 if (ref_status == OWNED) {
@@ -1579,7 +1615,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             switch_section(Dst, SECTION_COLD);
             | 1:
             if (jit_stats_enabled) {
-                | inc qword [opcode == LOAD_ATTR ? &jit_stat_load_attr_miss : &jit_stat_load_method_miss]
+                emit_inc_qword_ptr(Dst, opcode == opcode == LOAD_ATTR ? &jit_stat_load_attr_miss : &jit_stat_load_method_miss, 1 /*=can use tmp_reg*/);
             }
             if (opcode == LOAD_ATTR) {
                 | mov arg2, arg1
@@ -1608,7 +1644,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                     emit_decref(Dst, tmp_preserved_reg_idx, 0 /*=  don't preserve res */);
                 }
                 if (jit_stats_enabled) {
-                    | inc qword [opcode == LOAD_ATTR ? &jit_stat_load_attr_hit : &jit_stat_load_method_hit]
+                    emit_inc_qword_ptr(Dst, opcode == LOAD_ATTR ? &jit_stat_load_attr_hit : &jit_stat_load_method_hit, 1 /*=can use tmp_reg*/);
                 }
                 | jmp ->error
             }
