@@ -425,10 +425,12 @@ def loadCases():
              "Bool": [(bool, (1,), (False,))],
              "Type": [(type, (1,))],
              "Object": [(object, ())],
-             # "Tuple": [(tuple, ([1,2,3], ), ((1,2,3), ))]
+             "Tuple": [(tuple, ([1,2,3], ), ((1,2,3), ))],
+             "List": [(list, ([1,2,3], ), ((1,2,3), ))],
+             "Set": [(set, ([1,2,3], ), ((1,2,3), ))],
 
              # TODO: e.g.:
-             # super, list, tuple, set, staticmethod, classmethod, property
+             # super, staticmethod, classmethod, property
              # what can we do for python classes?
 
              }
