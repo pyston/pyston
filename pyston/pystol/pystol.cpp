@@ -1006,6 +1006,7 @@ void pystolAddConstObj(PyObject* x) {
 void pystolAddConstType(PyTypeObject* x) {
     // refcount is never zero but not const!
     MARKNOTZERO(&x->ob_base.ob_base.ob_refcnt, sizeof(x->ob_base.ob_base.ob_refcnt));
+    MARKCONST(&x->ob_base.ob_base.ob_type, sizeof(x->ob_base.ob_base.ob_type));
 
     MARKCONST(&x->tp_name, sizeof(x->tp_name));
     MARKCONST(&x->tp_basicsize, sizeof(x->tp_basicsize));
@@ -1076,5 +1077,7 @@ void pystolAddConstType(PyTypeObject* x) {
 
     // not const in AOT mode:
     // addImmortalTuple(x->tp_mro);
+
+    MARKCONST(&x->tp_vectorcall, sizeof(x->tp_vectorcall));
 }
 }
