@@ -201,6 +201,7 @@ $(eval
 pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0: pyston/build/cpython_$(1)_install/usr/bin/python3 pyston/build/cpython_$(1)shared_install/usr/bin/python3
 	bash -c "cp pyston/build/cpython_$(1){shared,}_install/usr/lib/python3.8-pyston2.2/_sysconfigdata__linux_x86_64-linux-gnu.py"
 	bash -c "cp pyston/build/cpython_$(1){shared,}_install/usr/lib/libpython3.8-pyston2.2.so.1.0"
+	bash -c "cp -P pyston/build/cpython_$(1){shared,}_install/usr/lib/libpython3.8-pyston2.2.so"
 pyston/build/$(1)_env/bin/python: pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0
 )
 endef
