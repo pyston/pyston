@@ -4,6 +4,11 @@ CLANG:=pyston/build/Release/llvm/bin/clang
 GDB:=gdb
 .DEFAULT_GOAL:=all
 
+PYTHON_MAJOR:=3
+PYTHON_MINOR:=8
+PYSTON_MAJOR:=2
+PYSTON_MINOR:=2
+
 -include Makefile.local
 
 .PHONY: all
@@ -89,10 +94,10 @@ pyston/build/bc_env/bin/python: pyston/build/cpython_bc_install/usr/bin/python3 
 	$(VIRTUALENV) -p $< pyston/build/bc_env
 bc: pyston/build/bc_env/bin/python
 pyston/build/system_env/bin/python: | $(VIRTUALENV)
-	$(VIRTUALENV) -p python3.8 pyston/build/system_env
+	$(VIRTUALENV) -p python$(PYTHON_MAJOR).$(PYTHON_MINOR) pyston/build/system_env
 	pyston/build/system_env/bin/pip install six pyperf cython || (rm -rf pyston/build/system_env; false)
 pyston/build/systemdbg_env/bin/python: | $(VIRTUALENV)
-	$(VIRTUALENV) -p python3.8-dbg pyston/build/systemdbg_env
+	$(VIRTUALENV) -p python$(PYTHON_MAJOR).$(PYTHON_MINOR)-dbg pyston/build/systemdbg_env
 pyston/build/pypy_env/bin/python: | $(VIRTUALENV)
 	$(VIRTUALENV) -p pypy3 pyston/build/pypy_env
 
@@ -140,16 +145,16 @@ endif
 ifeq ($(5),so)
 
 # WIP: should use INSTSONAME to install to a different name, use LD_PRELOAD to load the instrumentated so, and then have bolt write out the optimized so to the correct location
-pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0.bolt: pyston/build/cpython_$(1)_install/usr/bin/python3
-	bash -c "mv pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0{,.base}"
+pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.bolt: pyston/build/cpython_$(1)_install/usr/bin/python3
+	bash -c "mv pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0{,.base}"
 	rm -rfv /tmp/tmp_env_$(1)
 	rm $$@.* || true
-	$(BOLT) pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0.base -instrument -instrumentation-file-append-pid -instrumentation-file=$(abspath $$@) -o pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0 -update-debug-sections
+	$(BOLT) pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.base -instrument -instrumentation-file-append-pid -instrumentation-file=$(abspath $$@) -o pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0 -update-debug-sections
 	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) $(VIRTUALENV) -p $$< /tmp/tmp_env_$(1)
 	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) /tmp/tmp_env_$(1)/bin/pip install -r pyston/benchmark_requirements.txt
 	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) /tmp/tmp_env_$(1)/bin/python3 pyston/run_profile_task.py
 	$(MERGE_FDATA) $$@.*.fdata > $$@.fdata
-	$(BOLT) pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0.base -o $$@ -data=$$@.fdata -update-debug-sections -reorder-blocks=cache+ -reorder-functions=hfsort+ -split-functions=3 -icf=1 -inline-all -split-eh -reorder-functions-use-hot-size -peepholes=all -jump-tables=aggressive -inline-ap -indirect-call-promotion=all -dyno-stats -frame-opt=hot -use-gnu-stack
+	$(BOLT) pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.base -o $$@ -data=$$@.fdata -update-debug-sections -reorder-blocks=cache+ -reorder-functions=hfsort+ -split-functions=3 -icf=1 -inline-all -split-eh -reorder-functions-use-hot-size -peepholes=all -jump-tables=aggressive -inline-ap -indirect-call-promotion=all -dyno-stats -frame-opt=hot -use-gnu-stack
 
 endif
 
@@ -175,7 +180,7 @@ pyperf_%_$(1): %.py ./pyston/build/$(1)_env/bin/update.stamp pyston/build/system
 # If you want to run the skipped steps, you will have to touch a file before doing a (safe) rebuild
 unsafe_$(1):
 	$(MAKE) -C pyston/build/cpython_$(1)_build
-	/bin/cp pyston/build/cpython_$(1)_build/pyston pyston/build/cpython_$(1)_install/usr/bin/python3.8
+	/bin/cp pyston/build/cpython_$(1)_build/pyston pyston/build/cpython_$(1)_install/usr/bin/python$(PYTHON_MAJOR).$(PYTHON_MINOR)
 
 endef
 
@@ -198,11 +203,11 @@ $(call make_cpython_build,stockdbg,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)
 # Usage: $(call combine_builds,NAME)
 define combine_builds
 $(eval
-pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0: pyston/build/cpython_$(1)_install/usr/bin/python3 pyston/build/cpython_$(1)shared_install/usr/bin/python3
-	bash -c "cp pyston/build/cpython_$(1){shared,}_install/usr/lib/python3.8-pyston2.2/_sysconfigdata__linux_x86_64-linux-gnu.py"
-	bash -c "cp pyston/build/cpython_$(1){shared,}_install/usr/lib/libpython3.8-pyston2.2.so.1.0"
-	bash -c "cp -P pyston/build/cpython_$(1){shared,}_install/usr/lib/libpython3.8-pyston2.2.so"
-pyston/build/$(1)_env/bin/python: pyston/build/cpython_$(1)_install/usr/lib/libpython3.8-pyston2.2.so.1.0
+pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0: pyston/build/cpython_$(1)shared_install/usr/bin/python3 | pyston/build/cpython_$(1)_install/usr/bin/python3
+	bash -c "cp pyston/build/cpython_$(1){shared,}_install/usr/lib/python$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR)/_sysconfigdata__linux_x86_64-linux-gnu.py"
+	bash -c "cp pyston/build/cpython_$(1){shared,}_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0"
+	bash -c "cp -P pyston/build/cpython_$(1){shared,}_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so"
+pyston/build/$(1)_env/bin/python: pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0
 )
 endef
 
@@ -235,9 +240,9 @@ pyston/build/$(1)/aot_pre_trace.c: pyston/aot/aot_gen.py pyston/build/cpython_bc
 	mkdir -p pyston/build/$(1)
 	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../Release/nitrous/:`pwd`/../Release/pystol/" ../build/cpython_bc_install/usr/bin/python3 aot_gen.py --action=pretrace -o $$(abspath $$@) $(2)
 pyston/build/$(1)/aot_pre_trace.bc: pyston/build/$(1)/aot_pre_trace.c
-	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $$< -Ipyston/build/cpython_bc_install/usr/include/python3.8-pyston2.2/ -Ipyston/build/cpython_bc_install/usr/include/python3.8-pyston2.2/internal/ -Ipyston/nitrous/ -emit-llvm -c -o $$@
+	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $$< -Ipyston/build/cpython_bc_install/usr/include/python$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR)/ -Ipyston/build/cpython_bc_install/usr/include/python$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR)/internal/ -Ipyston/nitrous/ -emit-llvm -c -o $$@
 pyston/build/$(1)/aot_pre_trace.so: pyston/build/$(1)/aot_pre_trace.c pyston/build/Release/nitrous/libinterp.so
-	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $$< -Ipyston/build/cpython_bc_install/usr/include/python3.8-pyston2.2/ -Ipyston/build/cpython_bc_install/usr/include/python3.8-pyston2.2/internal/ -Ipyston/nitrous/ -shared -Lpyston/build/Release/nitrous -linterp -o $$@
+	$(CLANG) -O2 -g -fPIC -Wno-incompatible-pointer-types -Wno-int-conversion $$< -Ipyston/build/cpython_bc_install/usr/include/python$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR)/ -Ipyston/build/cpython_bc_install/usr/include/python$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR)/internal/ -Ipyston/nitrous/ -shared -Lpyston/build/Release/nitrous -linterp -o $$@
 
 pyston/build/$(1)/all.bc: pyston/build/cpython_bc_build/pyston $(LLVM_TOOLS) pyston/build/$(1)/aot_pre_trace.bc
 	pyston/build/Release/llvm/bin/llvm-link $$(filter-out %_testembed.o.bc %frozenmain.o.bc pyston/build/cpython_bc/Modules/%,$$(wildcard pyston/build/cpython_bc/*/*.bc)) pyston/build/cpython_bc/Modules/gcmodule.o.bc pyston/build/cpython_bc/Modules/getpath.o.bc pyston/build/cpython_bc/Modules/main.o.bc pyston/build/cpython_bc/Modules/config.o.bc pyston/build/$(1)/aot_pre_trace.bc -o=$$@
@@ -268,13 +273,6 @@ dbg_aot_trace_only: pyston/aot/all.bc pyston/aot/aot_pre_trace.so pyston/aot/aot
 	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../build/PartialDebug/nitrous/:`pwd`/../build/PartialDebug/pystol/" gdb --ex run --args ../build/cpython_bc_install/usr/bin/python3 aot_gen.py --action=trace -vv --only=$(ONLY)
 
 PYPERF:=pyston/build/system_env/bin/pyperf command -w 0 -l 1 -p 1 -n $(or $(N),$(N),3) -v --affinity 0
-linktest:
-	$(PYPERF) python3.8 nbody.py 3000
-	$(PYPERF) ~/debian/python3.8-3.8.0/build-static/python nbody.py 3000
-	$(PYPERF) ~/debian/extracted/usr/bin/python3.8 nbody.py 3000
-	$(PYPERF) pyston/build/cpython_stock_build/python nbody.py 3000
-	$(PYPERF) pyston/build/cpython_stock_build/python_linkopt nbody.py 3000
-	$(PYPERF) pyston/build/cpython_opt_build/python_linkopt nbody.py 3000
 
 
 BC_BENCH_ENV:=pyston/build/bc_env/update.stamp
@@ -362,7 +360,7 @@ dbg_%: dbg_%_dbg
 # If you want to run the skipped steps, you will have to touch a file before doing a (safe) rebuild
 unsafe_dbg:
 	$(MAKE) -C pyston/build/cpython_dbg_build
-	/bin/cp pyston/build/cpython_dbg_build/pyston pyston/build/cpython_dbg_install/usr/bin/python3.8
+	/bin/cp pyston/build/cpython_dbg_build/pyston pyston/build/cpython_dbg_install/usr/bin/python$(PYTHON_MAJOR).$(PYTHON_MINOR)
 unsafe_% unsafe_%_unopt: %.py unsafe_unopt
 	time pyston/build/unopt_env/bin/python3 $< $(ARGS)
 unsafe_dbg_%: %.py unsafe_unopt
