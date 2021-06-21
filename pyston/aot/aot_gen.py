@@ -237,14 +237,14 @@ class CallableHandler(Handler):
             arg_names = ["f"]
             nargs = signature.nargs
             print(
-                f"PyObject* {name}(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg)", "{", file=f)
+                f"PyObject* {name}(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg)", "{", file=f)
             print(f"  if (unlikely(oparg != {nargs-1}))", "{" , file=f)
             if name.startswith("call_method_"):
                 # CALL_METHOD can call the function with a different number of args
                 # depending if LOAD_METHOD returned true or false which means we need
                 # to add this additional guard.
                 print(f"    SET_JIT_AOT_FUNC({self.case.unspecialized_name});", file=f)
-                print(f"    PyObject* ret = {self.case.unspecialized_name}(tstate, pp_stack, oparg);", file=f)
+                print(f"    PyObject* ret = {self.case.unspecialized_name}(tstate, stack, oparg);", file=f)
                 # this makes sure the compiler is not merging the calls into a single one
                 print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
                 print(f"    return ret;", file=f)
@@ -254,15 +254,15 @@ class CallableHandler(Handler):
             else:
                 assert 0
             print("  }", file=f)
-            print(f"  PyObject* f = *((*pp_stack) - oparg - 1);", file=f)
+            print(f"  PyObject* f = *(stack - oparg - 1);", file=f)
             print(f"  if (unlikely(!({signature.getGuard(arg_names)})))", "{", file=f)
             print(f"    SET_JIT_AOT_FUNC({self.case.unspecialized_name});", file=f)
-            print(f"    PyObject* ret = {self.case.unspecialized_name}(tstate, pp_stack, oparg);", file=f)
+            print(f"    PyObject* ret = {self.case.unspecialized_name}(tstate, stack, oparg);", file=f)
             # this makes sure the compiler is not merging the calls into a single one
             print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
             print(f"    return ret;", file=f)
             print("  }", file=f)
-            print(f"  return {self.case.unspecialized_name}(tstate, pp_stack, oparg);", file=f)
+            print(f"  return {self.case.unspecialized_name}(tstate, stack, oparg);", file=f)
             print("}", file=f)
 
     def createJitTarget(self, target_func, ntraces):
@@ -280,31 +280,31 @@ class CallableHandler(Handler):
     def write_profile_func(self, traced, header_f, profile_f):
         func = self.case.unspecialized_name
         profile_func = self.case.unspecialized_name + 'Profile'
-        print(f"PyObject* {func}(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg);", file=header_f)
+        print(f"PyObject* {func}(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);", file=header_f)
 
         for signature, name in self.case.getSignatures():
             print(
-                f"PyObject* {name}(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg);", file=header_f)
+                f"PyObject* {name}(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);", file=header_f)
             print(
-                f"PyObject* {name}(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg);", file=profile_f)
+                f"PyObject* {name}(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);", file=profile_f)
 
         print(
-            f"PyObject* {func}Profile(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg);", file=header_f)
+            f"PyObject* {func}Profile(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);", file=header_f)
         print(
-            f"PyObject* {func}Profile(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg)", "{", file=profile_f)
-        print("PyObject* f = *((*pp_stack) - oparg - 1);", file=profile_f)
+            f"PyObject* {func}Profile(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg)", "{", file=profile_f)
+        print("PyObject* f = *(stack - oparg - 1);", file=profile_f)
 
         for signature, name in traced:
             guard = signature.getGuard(["f"])
             nargs = signature.nargs
             print(f"  if (oparg == {nargs-1} && {guard})", "{", file=profile_f)
             print(f"    SET_JIT_AOT_FUNC({name});", file=profile_f)
-            print(f"    return {name}(tstate, pp_stack, oparg);", file=profile_f)
+            print(f"    return {name}(tstate, stack, oparg);", file=profile_f)
             print("}", file=profile_f)
         print(
             rf'  DBG("Missing {func} %s\n", f->ob_type == &PyType_Type ? ((PyTypeObject*)f)->tp_name : f->ob_type->tp_name);', file=profile_f)
         print(f"  SET_JIT_AOT_FUNC({func});", file=profile_f)
-        print(f"  return {func}(tstate, pp_stack, oparg);", file=profile_f)
+        print(f"  return {func}(tstate, stack, oparg);", file=profile_f)
         print("}", file=profile_f)
 
 
@@ -675,7 +675,7 @@ def print_helper_funcs(f):
         print(f"PyObject* cmp_outcome{cmp}(PyObject *v, PyObject *w);", file=f)
 
     for func in ("call_function_ceval_no_kw", "call_method_ceval_no_kw"):
-        print(f"PyObject* {func}(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg);", file=f)
+        print(f"PyObject* {func}(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);", file=f)
 
     print("/* this directly modifies the destination of the jit generated call instruction */\\", file=f)
     print("#define SET_JIT_AOT_FUNC(dst_addr) do { \\", file=f)
@@ -720,7 +720,7 @@ def create_pre_traced_funcs(output_file):
                 f'  for (int i=0;i<({num_args}+1); ++i) Py_INCREF(array[i]);', file=f)
             print(f"  PyObject** sp = &array[{num_args+1}];", file=f)
             print(
-                f'  return runJitTarget4(target, tstate, &sp, {num_args} /* oparg */, 0);', file=f)
+                f'  return runJitTarget4(target, tstate, sp, {num_args} /* oparg */, 0);', file=f)
             print('}', file=f)
 
         print(f"#include <interp.h>", file=f)

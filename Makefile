@@ -263,16 +263,16 @@ endef
 $(call make_aot_build,aot,)
 $(call make_aot_build,aot_pic,--pic)
 
-dbg_aot_trace: pyston/aot/all.bc pyston/aot/aot_pre_trace.so pyston/aot/aot_gen.py pyston/build/cpython_bc_install/usr/bin/python3 build_dbg
-	cd pyston/aot; rm -f aot_module*.bc
-	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../build/PartialDebug/nitrous/:`pwd`/../build/PartialDebug/pystol/" gdb --args ../build/cpython_bc_install/usr/bin/python3 aot_gen.py -vv --action=trace
-	cd pyston/aot; ls -al aot_module*.bc | wc -l
+dbg_aot_trace: pyston/build/aot/all.bc pyston/build/aot/aot_pre_trace.so pyston/aot/aot_gen.py pyston/build/cpython_bc_install/usr/bin/python3 build_dbg
+	cd pyston/build/aot; rm -f aot_module*.bc
+	cd pyston/build/aot; LD_LIBRARY_PATH="`pwd`/../PartialDebug/nitrous/:`pwd`/../PartialDebug/pystol/" gdb --args ../cpython_bc_install/usr/bin/python3 ../../aot/aot_gen.py -vv --action=trace
+	cd pyston/build/aot; ls -al aot_module*.bc | wc -l
 
-aot_trace_only: pyston/aot/all.bc pyston/aot/aot_pre_trace.so pyston/aot/aot_gen.py pyston/build/cpython_bc_install/usr/bin/python3 pyston/build/Release/nitrous/libinterp.so pyston/build/Release/pystol/libpystol.so
-	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../build/Release/nitrous/:`pwd`/../build/Release/pystol/" ../build/cpython_bc_install/usr/bin/python3 aot_gen.py --action=trace -vv --only=$(ONLY)
+aot_trace_only: pyston/build/aot/all.bc pyston/build/aot/aot_pre_trace.so pyston/aot/aot_gen.py pyston/build/cpython_bc_install/usr/bin/python3 pyston/build/Release/nitrous/libinterp.so pyston/build/Release/pystol/libpystol.so
+	cd pyston/build/aot; LD_LIBRARY_PATH="`pwd`/../Release/nitrous/:`pwd`/../Release/pystol/" ../cpython_bc_install/usr/bin/python3 ../../aot/aot_gen.py --action=trace -vv --only=$(ONLY)
 
-dbg_aot_trace_only: pyston/aot/all.bc pyston/aot/aot_pre_trace.so pyston/aot/aot_gen.py pyston/build/cpython_bc_install/usr/bin/python3 build_dbg
-	cd pyston/aot; LD_LIBRARY_PATH="`pwd`/../build/PartialDebug/nitrous/:`pwd`/../build/PartialDebug/pystol/" gdb --ex run --args ../build/cpython_bc_install/usr/bin/python3 aot_gen.py --action=trace -vv --only=$(ONLY)
+dbg_aot_trace_only: pyston/build/aot/all.bc pyston/build/aot/aot_pre_trace.so pyston/aot/aot_gen.py pyston/build/cpython_bc_install/usr/bin/python3 build_dbg
+	cd pyston/build/aot; LD_LIBRARY_PATH="`pwd`/../PartialDebug/nitrous/:`pwd`/../PartialDebug/pystol/" gdb --ex run --args ../cpython_bc_install/usr/bin/python3 ../../aot/aot_gen.py --action=trace -vv --only=$(ONLY)
 
 PYPERF:=pyston/build/system_env/bin/pyperf command -w 0 -l 1 -p 1 -n $(or $(N),$(N),3) -v --affinity 0
 

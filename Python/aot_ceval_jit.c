@@ -2163,9 +2163,8 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             deferred_vs_apply(Dst);
             | mov arg1, tstate
 
-            // arg2 = &sp
-            | mov [rsp], vsp
-            | mov arg2, rsp
+            // arg2 = vsp
+            | mov arg2, vsp
 
             emit_mov_imm(Dst, arg3_idx, oparg);
 
