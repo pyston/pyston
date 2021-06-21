@@ -239,11 +239,20 @@ class CallableHandler(Handler):
             print(
                 f"PyObject* {name}(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg)", "{", file=f)
             print(f"  if (unlikely(oparg != {nargs-1}))", "{" , file=f)
-            print(f"    SET_JIT_AOT_FUNC({self.case.unspecialized_name});", file=f)
-            print(f"    PyObject* ret = {self.case.unspecialized_name}(tstate, pp_stack, oparg);", file=f)
-            # this makes sure the compiler is not merging the calls into a single one
-            print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
-            print(f"    return ret;", file=f)
+            if name.startswith("call_method_"):
+                # CALL_METHOD can call the function with a different number of args
+                # depending if LOAD_METHOD returned true or false which means we need
+                # to add this additional guard.
+                print(f"    SET_JIT_AOT_FUNC({self.case.unspecialized_name});", file=f)
+                print(f"    PyObject* ret = {self.case.unspecialized_name}(tstate, pp_stack, oparg);", file=f)
+                # this makes sure the compiler is not merging the calls into a single one
+                print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
+                print(f"    return ret;", file=f)
+            elif name.startswith("call_function_"):
+                # CALL_FUNCTION always passes the same number of arguments
+                print(f"    __builtin_unreachable();", file=f)
+            else:
+                assert 0
             print("  }", file=f)
             print(f"  PyObject* f = *((*pp_stack) - oparg - 1);", file=f)
             print(f"  if (unlikely(!({signature.getGuard(arg_names)})))", "{", file=f)
