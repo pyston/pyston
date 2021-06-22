@@ -76,6 +76,7 @@ make script_opt
 2. add a `pyston/debian/changelog` entry (make sure the date is correct or the build fails in odd ways)
 3. adjust `PYSTON_*_VERSION` inside `Include/patchlevel.h`
 4. adjust `PYSTON_VERSION` inside `configure.ac` and run `autoconf`
+5. update `PYSTON_MINOR` and similar inside Makefile
 
 ## Release packaging
 We use a script which builds automatically packages for all supported distributions via docker (will take several hours):
