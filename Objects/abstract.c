@@ -187,6 +187,45 @@ PyObject_GetItem(PyObject *o, PyObject *key)
     return type_error("'%.200s' object is not subscriptable", o);
 }
 
+#ifdef PYSTON_SPEEDUPS
+PyObject *
+PyObject_GetItemLong(PyObject *o, PyLongObject *key, Py_ssize_t key_value)
+{
+    PyMappingMethods *m;
+    PySequenceMethods *ms;
+
+    if (o == NULL || key == NULL) {
+        return null_error();
+    }
+
+    m = o->ob_type->tp_as_mapping;
+    if (m && m->mp_subscript) {
+        PyObject *item = m->mp_subscript(o, key);
+        assert((item != NULL) ^ (PyErr_Occurred() != NULL));
+        return item;
+    }
+
+    ms = o->ob_type->tp_as_sequence;
+    if (ms && ms->sq_item) {
+        return PySequence_GetItem(o, key_value);
+    }
+
+    if (PyType_Check(o)) {
+        PyObject *meth, *result, *stack[1] = {key};
+        if (_PyObject_LookupAttrId(o, &PyId___class_getitem__, &meth) < 0) {
+            return NULL;
+        }
+        if (meth) {
+            result = _PyObject_FastCall(meth, stack, 1);
+            Py_DECREF(meth);
+            return result;
+        }
+    }
+
+    return type_error("'%.200s' object is not subscriptable", o);
+}
+#endif
+
 int
 PyObject_SetItem(PyObject *o, PyObject *key, PyObject *value)
 {

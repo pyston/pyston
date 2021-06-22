@@ -282,6 +282,13 @@ PyAPI_FUNC(Py_ssize_t) PyObject_Length(PyObject *o);
   This is the equivalent of the Python expression: o[key] */
 PyAPI_FUNC(PyObject *) PyObject_GetItem(PyObject *o, PyObject *key);
 
+#if PYSTON_SPEEDUPS
+/* This is equivalent to PyObject_GetItem but specialized for where the key is a
+   64-bit long. The value of the long should be passed as key_val so that it
+   does not need to be recomputed. */
+PyAPI_FUNC(PyObject *) PyObject_GetItemLong(PyObject *o, PyLongObject *key, Py_ssize_t key_val);
+#endif
+
 
 /* Map the object 'key' to the value 'v' into 'o'.
 
