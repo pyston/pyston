@@ -2922,6 +2922,24 @@ error:
     return NULL;
 }
 
+/*static*/ PyObject *
+type_vectorcall(PyObject *metatype, PyObject *const *args,
+                 size_t nargsf, PyObject *kwnames)
+{
+    Py_ssize_t nargs = PyVectorcall_NARGS(nargsf);
+    if (nargs == 1 && metatype == (PyObject *)&PyType_Type){
+        if (!_PyArg_NoKwnames("type", kwnames)) {
+            return NULL;
+        }
+        PyTypeObject* type = Py_TYPE(args[0]);
+        Py_INCREF(type);
+        return type;
+    }
+    /* In other (much less common) cases, fall back to
+       more flexible calling conventions. */
+    return _PyObject_MakeTpCall(metatype, args, nargs, kwnames);
+}
+
 /* static */ const short slotoffsets[] = {
     -1, /* invalid slot */
 #include "typeslots.inc"
@@ -3738,7 +3756,7 @@ PyTypeObject PyType_Type = {
     sizeof(PyHeapTypeObject),                   /* tp_basicsize */
     sizeof(PyMemberDef),                        /* tp_itemsize */
     (destructor)type_dealloc,                   /* tp_dealloc */
-    0,                                          /* tp_vectorcall_offset */
+    offsetof(PyTypeObject, tp_vectorcall),      /* tp_vectorcall_offset */
     0,                                          /* tp_getattr */
     0,                                          /* tp_setattr */
     0,                                          /* tp_as_async */
@@ -3753,7 +3771,8 @@ PyTypeObject PyType_Type = {
     (setattrofunc)type_setattro,                /* tp_setattro */
     0,                                          /* tp_as_buffer */
     Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC |
-        Py_TPFLAGS_BASETYPE | Py_TPFLAGS_TYPE_SUBCLASS,         /* tp_flags */
+    Py_TPFLAGS_BASETYPE | Py_TPFLAGS_TYPE_SUBCLASS |
+    _Py_TPFLAGS_HAVE_VECTORCALL,                /* tp_flags */
     type_doc,                                   /* tp_doc */
     (traverseproc)type_traverse,                /* tp_traverse */
     (inquiry)type_clear,                        /* tp_clear */
@@ -3774,6 +3793,7 @@ PyTypeObject PyType_Type = {
     type_new,                                   /* tp_new */
     PyObject_GC_Del,                            /* tp_free */
     (inquiry)type_is_gc,                        /* tp_is_gc */
+    .tp_vectorcall = type_vectorcall,
 };
 
 

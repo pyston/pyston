@@ -5039,12 +5039,12 @@ call_function_ceval(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t opar
 }
 
 PyObject * _Py_HOT_FUNCTION
-call_function_ceval_no_kw(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg) {
-    return call_function_ceval(tstate, pp_stack, oparg, NULL /*kwnames*/);
+call_function_ceval_no_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg) {
+    return call_function_ceval(tstate, &stack, oparg, NULL /*kwnames*/);
 }
 PyObject * _Py_HOT_FUNCTION
-call_method_ceval_no_kw(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg) {
-    return call_function_ceval(tstate, pp_stack, oparg, NULL /*kwnames*/);
+call_method_ceval_no_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg) {
+    return call_function_ceval(tstate, &stack, oparg, NULL /*kwnames*/);
 }
 PyObject* PyNumber_PowerNone(PyObject *v, PyObject *w) {
   return PyNumber_Power(v, w, Py_None);

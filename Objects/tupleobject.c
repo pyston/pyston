@@ -843,6 +843,25 @@ tuple_new_impl(PyTypeObject *type, PyObject *iterable)
 }
 
 /* static */ PyObject *
+tuple_vectorcall(PyObject *type, PyObject * const*args,
+                 size_t nargsf, PyObject *kwnames)
+{
+    if (!_PyArg_NoKwnames("tuple", kwnames)) {
+        return NULL;
+    }
+
+    Py_ssize_t nargs = PyVectorcall_NARGS(nargsf);
+    if (!_PyArg_CheckPositional("tuple", nargs, 0, 1)) {
+        return NULL;
+    }
+
+    if (nargs) {
+        return tuple_new_impl((PyTypeObject *)type, args[0]);
+    }
+    return PyTuple_New(0);
+}
+
+/* static */ PyObject *
 tuple_subtype_new(PyTypeObject *type, PyObject *iterable)
 {
     PyObject *tmp, *newobj, *item;
@@ -1002,6 +1021,7 @@ PyTypeObject PyTuple_Type = {
     0,                                          /* tp_alloc */
     tuple_new,                                  /* tp_new */
     PyObject_GC_Del,                            /* tp_free */
+    .tp_vectorcall = tuple_vectorcall,
 };
 
 /* The following function breaks the notion that tuples are immutable:
