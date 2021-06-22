@@ -482,7 +482,10 @@ def loadCases():
     # We currently don't do any specialization on the key argument for GetItem / SetItem / DelItem / IN / NOT_IN
     # so collapse all those traces into a single one
 
-    getitem_signatures = makeSignatures(type_classes.values(), [placeholder_class])
+    getitem_signatures = []
+    for name in "List", "Tuple", "Unicode", "Range":
+        getitem_signatures += makeSignatures([type_classes[name]], [type_classes["Long"], type_classes["Slice"]])
+    getitem_signatures += makeSignatures([type_classes["Dict"]], [placeholder_class])
     # getitem_signatures = [s for s in getitem_signatures if s.argument_classes[0].name != "Range"]
     cases.append(NormalHandler(FunctionCases("PyObject_GetItem", getitem_signatures)))
 
