@@ -421,6 +421,8 @@ void pystolGlobalPythonSetup() {
 
     registerFactDeriver(make_unique<PystolFactDeriver>());
     registerPassFactory([] { return new RemoveRecursionChecksPass(); });
+    registerPassFactory(createExceptionTrackingPass);
+    registerPassFactory(createMiscOptsPass);
 }
 
 void pystolAddConstObj(PyObject* x) {

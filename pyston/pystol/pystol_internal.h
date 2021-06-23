@@ -240,4 +240,7 @@ public:
     bool runOnFunction(llvm::Function &F) override;
 };
 
+llvm::FunctionPass* createExceptionTrackingPass();
+llvm::FunctionPass* createMiscOptsPass();
+
 } // namespace pystol
