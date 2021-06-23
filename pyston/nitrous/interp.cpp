@@ -2,6 +2,7 @@
 #include <dlfcn.h>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <ffi.h>
@@ -34,6 +35,7 @@ namespace nitrous {
 static unique_ptr<SymbolFinder> symbol_finder;
 static unique_ptr<LLVMCompiler> compiler;
 static unique_ptr<JitConsts> jit_consts;
+static unordered_set<string> do_not_trace;
 
 string findNameForAddress(void* address) {
     return symbol_finder->lookupAddress(address);
@@ -234,7 +236,11 @@ public:
             return true;
         return false;
     }
+
     bool shouldTraceInto(llvm::StringRef function_name) {
+        if (do_not_trace.count(function_name))
+            return false;
+
         if (function_name == "PyObject_Malloc")
             return false;
         if (function_name == "_PyObject_GC_Malloc")
@@ -1104,6 +1110,15 @@ void loadBitcode(const char* bitcode_filename) {
            1000 * (end.tv_sec - start.tv_sec)
                + (end.tv_nsec - start.tv_nsec) / 1000000, bitcode_filename);
 }
+
+void clearDoNotTrace() {
+    nitrous::do_not_trace.clear();
+}
+
+void addDoNotTrace(const char* function_name) {
+    nitrous::do_not_trace.insert(function_name);
+}
+
 JitTarget* createJitTarget(void* function, int num_args, int num_traces_until_jit) {
     RELEASE_ASSERT(num_traces_until_jit >= 1, "");
     auto r = new JitTarget{ function, num_args, 0, nullptr, nullptr, num_traces_until_jit, 0 };

@@ -168,8 +168,14 @@ class FunctionCases(object):
         return f'<FunctionCases of {self.unspecialized_name} with {len(self.signatures)} cases>'
 
 class Handler(object):
-    def __init__(self, case):
+    def __init__(self, case, do_not_trace=[]):
         self.case = case
+        self.do_not_trace = list(do_not_trace)
+
+    def setDoNotTrace(self):
+        clearDoNotTrace()
+        for name in self.do_not_trace:
+            addDoNotTrace(name.encode("ascii"))
 
 class NormalHandler(Handler):
     """
@@ -177,8 +183,8 @@ class NormalHandler(Handler):
     Such as PyNumber_Add
     """
 
-    def __init__(self, case):
-        super(NormalHandler, self).__init__(case)
+    def __init__(self, case, do_not_trace=[]):
+        super(NormalHandler, self).__init__(case, do_not_trace)
         self.need_res_wrap = case.unspecialized_name in funcs_need_res_wrap
         self.nargs = case.nargs
 
@@ -274,6 +280,7 @@ class NormalHandler(Handler):
         print("}", file=profile_f)
 
     def trace(self, jit_target, args):
+        self.setDoNotTrace()
         return runJitTarget(jit_target, *args, wrap_result=self.need_res_wrap)
 
 class CallableHandler(Handler):
@@ -363,6 +370,7 @@ class CallableHandler(Handler):
 
 
     def trace(self, jit_target, args):
+        self.setDoNotTrace()
         return call_helper(jit_target, *args)
 
 # These lambdas have to be defined at the global level.
@@ -580,6 +588,14 @@ def loadLibs():
     global loadBitcode
     loadBitcode = nitrous_so.loadBitcode
     loadBitcode.argtypes = [ctypes.c_char_p]
+
+    global clearDoNotTrace
+    clearDoNotTrace = nitrous_so.clearDoNotTrace
+    clearDoNotTrace.argtypes = []
+
+    global addDoNotTrace
+    addDoNotTrace = nitrous_so.addDoNotTrace
+    addDoNotTrace.argtypes = [ctypes.c_char_p]
 
     global createJitTarget
     createJitTarget = nitrous_so.createJitTarget
