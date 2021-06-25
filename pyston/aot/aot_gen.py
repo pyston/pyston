@@ -557,7 +557,7 @@ def loadCases():
     unguarded_cint_class = CLongClass([ctypes.c_long(0)])
     for name in "List", "Tuple", "Unicode", "Range":
         getitemlong_signatures += makeSignatures([type_classes[name]], [unguarded_int_class], [unguarded_cint_class])
-    cases.append(NormalHandler(FunctionCases("PyObject_GetItemLong", getitemlong_signatures)))
+    cases.append(NormalHandler(FunctionCases("PyObject_GetItemLong", getitemlong_signatures), do_not_trace=["PyLong_AsSsize_t"]))
 
     setitem_signatures = makeSignatures([type_classes["List"]], [type_classes["Long"], type_classes["Slice"]], [placeholder_class])
     setitem_signatures += makeSignatures([type_classes["Dict"]], [placeholder_class], [placeholder_class])
