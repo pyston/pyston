@@ -20,6 +20,15 @@ funcs_need_res_wrap = [
 VERBOSITY = 0
 
 
+class NullObjectGuard(object):
+    def getGuard(self, variable_name):
+        return None
+
+    def getAssumptions(self, variable_name):
+        return [f'{variable_name} != NULL', f'((PyObject*){variable_name})->ob_refcnt > 0']
+Unspecialized = NullObjectGuard()
+NullObjectGuard.__init__ = None
+
 class AttributeGuard(object):
     def __init__(self, accessor, guard_val):
         " accessor is expected to be something like '->ob_type' "
@@ -29,8 +38,8 @@ class AttributeGuard(object):
     def getGuard(self, variable_name):
         return f'{variable_name}{self.accessor} == {self.guard_val}'
 
-    def getAssumption(self, variable_name):
-        return f'{variable_name} != NULL'
+    def getAssumptions(self, variable_name):
+        return Unspecialized.getAssumptions(variable_name)
 
 class TypeGuard(AttributeGuard):
     def __init__(self, guard_val):
@@ -47,24 +56,15 @@ class KnownType:
     def getGuard(self, variable_name):
         return None
 
-    def getAssumption(self, variable_name):
-        return f'{variable_name} != NULL && {variable_name}->ob_type == &{self.type_name}'
-
-class NullObjectGuard(object):
-    def getGuard(self, variable_name):
-        return None
-
-    def getAssumption(self, variable_name):
-        return f'{variable_name} != NULL'
-Unspecialized = NullObjectGuard()
-NullObjectGuard.__init__ = None
+    def getAssumptions(self, variable_name):
+        return Unspecialized.getAssumptions(variable_name) + [f'{variable_name} != NULL', f'{variable_name}->ob_type == &{self.type_name}']
 
 class NullGuard(object):
     def getGuard(self, variable_name):
         return None
 
-    def getAssumption(self, variable_name):
-        return None
+    def getAssumptions(self, variable_name):
+        return []
 UnspecializedCLong = NullGuard()
 NullGuard.__init__ = None
 
@@ -108,8 +108,9 @@ class Signature(object):
         return " && ".join(guards)
 
     def getAssumptions(self, argument_names):
-        assumptions = [cls.guard.getAssumption(name) for (cls, name) in zip(self.argument_classes, argument_names)]
-        assumptions = [a for a in assumptions if a]
+        assumptions = []
+        for cls, name in zip(self.argument_classes, argument_names):
+            assumptions += cls.guard.getAssumptions(name)
 
         return assumptions
 
