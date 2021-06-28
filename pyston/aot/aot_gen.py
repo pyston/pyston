@@ -37,6 +37,16 @@ class IdentityGuard(AttributeGuard):
     def __init__(self, guard_val):
         super(IdentityGuard, self).__init__("", guard_val)
 
+class Tuple1ElementIdentityGuard(IdentityGuard):
+    """
+    Guards that a tuple has a single entry with a specific guard_val
+    """
+    def __init__(self, guard_val):
+        super(Tuple1ElementIdentityGuard, self).__init__(guard_val)
+
+    def getGuard(self, variable_name):
+        return f'PyTuple_CheckExact({variable_name}) && PyTuple_GET_SIZE({variable_name}) == 1 && PyTuple_GET_ITEM({variable_name}, 0){self.accessor} == {self.guard_val}'
+
 class NullGuard(object):
     def getGuard(self, variable_name):
         return "1"
@@ -78,6 +88,9 @@ class Signature(object):
         for x in itertools.product(*[cls.examples for cls in self.argument_classes]):
             yield copy.deepcopy(x)
 
+    def getSpecialTracingCode(self, argument_names):
+        return ()
+
     def __repr__(self):
         return "<Signature %s>" % self.name
 
@@ -98,11 +111,31 @@ class CompoundSignature(object):
         for s in self.signatures:
             yield from s.getExamples()
 
+    def getSpecialTracingCode(self, argument_names):
+        return ()
+
     @property
     def nargs(self):
         nargs = [s.nargs for s in self.signatures]
         assert len(set(nargs)) == 1
         return nargs[0]
+
+# add special cases for 'isinstance'
+# we add a fast PyType_FastSubclass() check which just checks tp_flags internally.
+class IsInstanceSignature(Signature):
+    def getSpecialTracingCode(self, argument_names):
+        c = self.argument_classes[2]
+        if c.guard != Unspecialized:
+            var = argument_names[1]
+            if isinstance(c, Tuple1ElementIdentityGuard):
+                var = f"PyTuple_GET_ITEM({var}, 0)"
+            code = [f"if (__builtin_expect(tstate->use_tracing, 0) == 0 && Py{c.name}_Check({var}))" + "{"]
+            for arg in reversed(argument_names):
+                code.append(f"  Py_DECREF({arg});")
+            code.append("  Py_RETURN_TRUE;")
+            code.append("}")
+            return code
+        return ()
 
 class FunctionCases(object):
     def __init__(self, c_func_name, signatures):
@@ -234,7 +267,7 @@ class CallableHandler(Handler):
 
     def writePretraceFunctions(self, f):
         for signature, name in self.case.getSignatures():
-            arg_names = ["f"]
+            arg_names = ["f"] + [f"stack[-oparg+{i}]" for i in range(signature.nargs-1)]
             nargs = signature.nargs
             print(
                 f"PyObject* {name}(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg)", "{", file=f)
@@ -254,7 +287,7 @@ class CallableHandler(Handler):
             else:
                 assert 0
             print("  }", file=f)
-            print(f"  PyObject* f = *(stack - oparg - 1);", file=f)
+            print(f"  PyObject* f = stack[-oparg - 1];", file=f)
             print(f"  if (unlikely(!({signature.getGuard(arg_names)})))", "{", file=f)
             print(f"    SET_JIT_AOT_FUNC({self.case.unspecialized_name});", file=f)
             print(f"    PyObject* ret = {self.case.unspecialized_name}(tstate, stack, oparg);", file=f)
@@ -262,6 +295,8 @@ class CallableHandler(Handler):
             print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
             print(f"    return ret;", file=f)
             print("  }", file=f)
+            for line in signature.getSpecialTracingCode(arg_names):
+                print(f"  {line}", file=f)
             print(f"  return {self.case.unspecialized_name}(tstate, stack, oparg);", file=f)
             print("}", file=f)
 
@@ -295,7 +330,8 @@ class CallableHandler(Handler):
         print("PyObject* f = *(stack - oparg - 1);", file=profile_f)
 
         for signature, name in traced:
-            guard = signature.getGuard(["f"])
+            arg_names = ["f"] + [f"stack[-oparg+{i}]" for i in range(signature.nargs-1)]
+            guard = signature.getGuard(arg_names)
             nargs = signature.nargs
             print(f"  if (oparg == {nargs-1} && {guard})", "{", file=profile_f)
             print(f"    SET_JIT_AOT_FUNC({name});", file=profile_f)
@@ -438,6 +474,41 @@ def loadCases():
     cases = []
 
     call_signatures = []
+
+    # generate traces for builtin 'isinstance()'
+    # we try to specialice on the 2. argument and generate a special version for tuples with a single fixed type
+    # this are all types where PyType_FastSubclass() checks exist except BaseException
+    for name, example in {  # name: (args to isinstance)
+                            "Long": (1, int),
+                            "List" : ([1], list),
+                            "Tuple": ((1), tuple),
+                            "Bytes": (bytes(), bytes),
+                            "Unicode": ("str", str),
+                            "Dict": (dict(), dict),
+                            "Type": (int, type),
+                            "": (1.0, float), # non type specialized isinstance case
+                            }.items():
+        def createIsInstanceSignature(name, arg1, arg2):
+            classes = []
+            tuple1element = isinstance(arg2, tuple) and len(arg2) == 1
+            classes.append(ObjectClass("isinstanceT1" if tuple1element else "isinstance", IdentityGuard(f"(PyObject*)builtin_isinstance_obj"), [isinstance]))
+            # add two examples for isinstance one where it returns true and one false
+            classes.append(ObjectClass("", Unspecialized, [arg1, foo0]))
+
+            if name and tuple1element: # specialize on isinstance(x, (type,))
+                guard = Tuple1ElementIdentityGuard(f"(PyObject*)&{getCTypeName(name)}")
+            elif name: # specialize on isinstance(x, type)
+                guard = IdentityGuard(f"(PyObject*)&{getCTypeName(name)}")
+            else: # generic
+                guard = Unspecialized
+            classes.append(ObjectClass(name, guard, [arg2]))
+            return IsInstanceSignature(classes)
+
+        call_signatures.append(createIsInstanceSignature(name, example[0], example[1]))
+        if name: # create isinstance(x, (type,)) version
+            call_signatures.append(createIsInstanceSignature(name, example[0], (example[1], )))
+
+
     for name, l in callables.items():
         signatures = {}
         for example in l:
@@ -611,6 +682,8 @@ def do_trace(work):
         print("tracing", name)
 
     for args in copy.deepcopy(train_success):
+        if VERBOSITY >= 1:
+            print("tracing", name, "with args:", args)
         handler.trace(target, args)
 
 def trace_all_funcs(only=None):
@@ -664,6 +737,8 @@ def print_includes(f):
     print('#define unlikely(x) __builtin_expect(!!(x), 0)', file=f)
     print('', file=f)
 
+    print('extern PyObject* builtin_isinstance_obj;', file=f)
+
     print('', file=f)
 
 def print_helper_funcs(f):
@@ -704,6 +779,7 @@ def create_pre_traced_funcs(output_file):
         print(f"#define Py_BUILD_CORE 1", file=f)
         print(f"#include <interp.h>", file=f)
         print(f"#include <pycore_pystate.h>", file=f)
+        print(f"", file=f)
 
         for num_args in range(10):
             args = ["JitTarget* target", "PyObject *func"] + \
