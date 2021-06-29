@@ -1058,6 +1058,18 @@ static void deferred_vs_emit(Jit* Dst) {
     }
 }
 
+// Look at the top value of the value stack and if its a constant return the constant value,
+// otherwise return NULL
+static PyObject* deferred_vs_peek_const(Jit* Dst) {
+    if (Dst->deferred_vs_next == 0)
+        return NULL;
+
+    DeferredValueStackEntry* entry = &Dst->deferred_vs[Dst->deferred_vs_next - 1];
+    if (entry->loc == CONST)
+        return PyTuple_GET_ITEM(Dst->co_consts, entry->val);
+    return NULL;
+}
+
 // if there are any deferred python value stack operations they will be emitted
 // and the value stack variables are reset
 static void deferred_vs_apply(Jit* Dst) {
@@ -2119,9 +2131,23 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         case BINARY_SUBSCR:
         {
             RefStatus ref_status[2];
+
+            PyObject* const_val = deferred_vs_peek_const(Dst);
             deferred_vs_pop2(Dst, arg2_idx, arg1_idx, ref_status);
             deferred_vs_convert_reg_to_stack(Dst);
+
             void* func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
+            if (opcode == BINARY_SUBSCR && const_val && PyLong_CheckExact(const_val)) {
+                Py_ssize_t n = PyLong_AsSsize_t(const_val);
+
+                if (n == -1 && PyErr_Occurred()) {
+                    PyErr_Clear();
+                } else {
+                    func = jit_use_aot ? PyObject_GetItemLongProfile : PyObject_GetItemLong;
+                    emit_mov_imm(Dst, arg3_idx, n);
+                }
+            }
+
             emit_call_decref_args2(Dst, func, arg2_idx, arg1_idx, ref_status);
             emit_if_res_0_error(Dst);
             deferred_vs_push(Dst, REGISTER, res_idx);

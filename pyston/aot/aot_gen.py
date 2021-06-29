@@ -20,6 +20,15 @@ funcs_need_res_wrap = [
 VERBOSITY = 0
 
 
+class NullObjectGuard(object):
+    def getGuard(self, variable_name):
+        return None
+
+    def getAssumptions(self, variable_name):
+        return [f'{variable_name} != NULL', f'((PyObject*){variable_name})->ob_refcnt > 0']
+Unspecialized = NullObjectGuard()
+NullObjectGuard.__init__ = None
+
 class AttributeGuard(object):
     def __init__(self, accessor, guard_val):
         " accessor is expected to be something like '->ob_type' "
@@ -29,6 +38,9 @@ class AttributeGuard(object):
     def getGuard(self, variable_name):
         return f'{variable_name}{self.accessor} == {self.guard_val}'
 
+    def getAssumptions(self, variable_name):
+        return Unspecialized.getAssumptions(variable_name)
+
 class TypeGuard(AttributeGuard):
     def __init__(self, guard_val):
         super(TypeGuard, self).__init__("->ob_type", guard_val)
@@ -36,6 +48,18 @@ class TypeGuard(AttributeGuard):
 class IdentityGuard(AttributeGuard):
     def __init__(self, guard_val):
         super(IdentityGuard, self).__init__("", guard_val)
+
+# No guard here: this is how we specify that we already know what
+# the type of an argument is
+class AssumedTypeGuard:
+    def __init__(self, type_name):
+        self.type_name = type_name
+
+    def getGuard(self, variable_name):
+        return None
+
+    def getAssumptions(self, variable_name):
+        return Unspecialized.getAssumptions(variable_name) + [f'{variable_name} != NULL', f'{variable_name}->ob_type == &{self.type_name}']
 
 class Tuple1ElementIdentityGuard(IdentityGuard):
     """
@@ -49,11 +73,15 @@ class Tuple1ElementIdentityGuard(IdentityGuard):
 
 class NullGuard(object):
     def getGuard(self, variable_name):
-        return "1"
-Unspecialized = NullGuard()
+        return None
+
+    def getAssumptions(self, variable_name):
+        return []
+UnspecializedCLong = NullGuard()
 NullGuard.__init__ = None
 
 class ObjectClass(object):
+    c_type_name = "PyObject*"
     def __init__(self, name, guard, examples):
         # TODO: do some name-clash detection?
         # We currently have a name clash though between Float as an argument type
@@ -65,6 +93,13 @@ class ObjectClass(object):
 
     def __repr__(self):
         return "<ObjectClass %s>" % self.name
+
+class CLongClass(object):
+    c_type_name = "Py_ssize_t"
+    def __init__(self, examples):
+        self.name = ""
+        self.guard = UnspecializedCLong
+        self.examples = examples
 
 class Signature(object):
     def __init__(self, argument_classes):
@@ -80,9 +115,16 @@ class Signature(object):
 
         assert len(names) == len(self.argument_classes), (len(names), len(self.argument_classes), argument_names)
         guards = [cls.guard.getGuard(name) for (cls, name) in zip(self.argument_classes, names)]
-        guards = [g for g in guards if g != "1"]
+        guards = [g for g in guards if g]
 
         return " && ".join(guards)
+
+    def getAssumptions(self, argument_names):
+        assumptions = []
+        for cls, name in zip(self.argument_classes, argument_names):
+            assumptions += cls.guard.getAssumptions(name)
+
+        return assumptions
 
     def getExamples(self):
         for x in itertools.product(*[cls.examples for cls in self.argument_classes]):
@@ -106,6 +148,12 @@ class CompoundSignature(object):
         guards = [s.getGuard(argument_names) for s in self.signatures]
         assert len(set(guards)) == 1, set(guards)
         return guards[0]
+
+    def getAssumptions(self, argument_names):
+        assumptions = [s.getAssumptions(argument_names) for s in self.signatures]
+        for i in range(1, len(assumptions)):
+            assert assumptions[0] == assumptions[i], assumptions
+        return assumptions[0]
 
     def getExamples(self):
         for s in self.signatures:
@@ -156,8 +204,14 @@ class FunctionCases(object):
         return f'<FunctionCases of {self.unspecialized_name} with {len(self.signatures)} cases>'
 
 class Handler(object):
-    def __init__(self, case):
+    def __init__(self, case, do_not_trace=[]):
         self.case = case
+        self.do_not_trace = list(do_not_trace)
+
+    def setDoNotTrace(self):
+        clearDoNotTrace()
+        for name in self.do_not_trace:
+            addDoNotTrace(name.encode("ascii"))
 
 class NormalHandler(Handler):
     """
@@ -165,8 +219,8 @@ class NormalHandler(Handler):
     Such as PyNumber_Add
     """
 
-    def __init__(self, case):
-        super(NormalHandler, self).__init__(case)
+    def __init__(self, case, do_not_trace=[]):
+        super(NormalHandler, self).__init__(case, do_not_trace)
         self.need_res_wrap = case.unspecialized_name in funcs_need_res_wrap
         self.nargs = case.nargs
 
@@ -174,7 +228,7 @@ class NormalHandler(Handler):
         unspecialized_name = self.case.unspecialized_name
         for signature, name in self.case.getSignatures():
             arg_names = [f"o{i}" for i in range(signature.nargs)]
-            parameters = [f"PyObject *{name}" for name in arg_names]
+            parameters = [f"{cls.c_type_name} {name}" for (name, cls) in zip(arg_names, signature.argument_classes)]
             pass_args = ", ".join(arg_names)
 
             print(f"{self._get_ret_type()} {name}({', '.join(parameters)})", "{", file=f)
@@ -186,8 +240,8 @@ class NormalHandler(Handler):
             print(f"    return ret;",  file=f)
             print("  }", file=f)
 
-            for arg in arg_names:
-                print(f"  __builtin_assume({arg} != NULL);", file=f)
+            for assumption in signature.getAssumptions(arg_names):
+                print(f"  __builtin_assume({assumption});", file=f)
 
             print(f"  return {unspecialized_name}({pass_args});", file=f)
             print("}", file=f)
@@ -198,11 +252,20 @@ class NormalHandler(Handler):
     def call(self, target_func, args):
         assert len(args) == self.case.nargs
 
-        target_func.argtypes = [ctypes.py_object] * len(args)
+        target_func.argtypes = []
+        converted_args = []
+        for a in args:
+            if isinstance(a, ctypes._SimpleCData):
+                target_func.argtypes.append(type(a))
+                converted_args.append(a)
+            else:
+                target_func.argtypes.append(ctypes.py_object)
+                converted_args.append(ctypes.py_object(a))
+
         if not self.need_res_wrap:
             target_func.restype = ctypes.py_object
 
-        return target_func(*map(ctypes.py_object, args))
+        return target_func(*converted_args)
 
     def _o_args_names(self):
         return [f"o{i}" for i in range(self.nargs)]
@@ -253,6 +316,7 @@ class NormalHandler(Handler):
         print("}", file=profile_f)
 
     def trace(self, jit_target, args):
+        self.setDoNotTrace()
         return runJitTarget(jit_target, *args, wrap_result=self.need_res_wrap)
 
 class CallableHandler(Handler):
@@ -345,6 +409,7 @@ class CallableHandler(Handler):
 
 
     def trace(self, jit_target, args):
+        self.setDoNotTrace()
         return call_helper(jit_target, *args)
 
 # These lambdas have to be defined at the global level.
@@ -553,9 +618,19 @@ def loadCases():
     # We currently don't do any specialization on the key argument for GetItem / SetItem / DelItem / IN / NOT_IN
     # so collapse all those traces into a single one
 
-    getitem_signatures = makeSignatures(type_classes.values(), [placeholder_class])
+    getitem_signatures = []
+    for name in "List", "Tuple", "Unicode", "Range":
+        getitem_signatures += makeSignatures([type_classes[name]], [type_classes["Long"], type_classes["Slice"]])
+    getitem_signatures += makeSignatures([type_classes["Dict"]], [placeholder_class])
     # getitem_signatures = [s for s in getitem_signatures if s.argument_classes[0].name != "Range"]
     cases.append(NormalHandler(FunctionCases("PyObject_GetItem", getitem_signatures)))
+
+    getitemlong_signatures = []
+    unguarded_int_class = ObjectClass("", AssumedTypeGuard("PyLong_Type"), [0])
+    unguarded_cint_class = CLongClass([ctypes.c_long(0)])
+    for name in "List", "Tuple", "Unicode", "Range":
+        getitemlong_signatures += makeSignatures([type_classes[name]], [unguarded_int_class], [unguarded_cint_class])
+    cases.append(NormalHandler(FunctionCases("PyObject_GetItemLong", getitemlong_signatures), do_not_trace=["PyLong_AsSsize_t"]))
 
     setitem_signatures = makeSignatures([type_classes["List"]], [type_classes["Long"], type_classes["Slice"]], [placeholder_class])
     setitem_signatures += makeSignatures([type_classes["Dict"]], [placeholder_class], [placeholder_class])
@@ -588,6 +663,14 @@ def loadLibs():
     loadBitcode = nitrous_so.loadBitcode
     loadBitcode.argtypes = [ctypes.c_char_p]
 
+    global clearDoNotTrace
+    clearDoNotTrace = nitrous_so.clearDoNotTrace
+    clearDoNotTrace.argtypes = []
+
+    global addDoNotTrace
+    addDoNotTrace = nitrous_so.addDoNotTrace
+    addDoNotTrace.argtypes = [ctypes.c_char_p]
+
     global createJitTarget
     createJitTarget = nitrous_so.createJitTarget
     createJitTarget.argtypes = [ctypes.c_void_p, ctypes.c_long, ctypes.c_long]
@@ -606,13 +689,14 @@ def loadLibs():
         for arg_num in range(5):
             c = aot_pre_trace_so[f"runJitTarget{arg_num}{wrap}_helper"]
             c.restype = ctypes.py_object
-            c.argtypes = [ctypes.c_void_p] + [ctypes.py_object] * arg_num
             runJitTargets[(arg_num, bool(len(wrap)))] = c
 
     # wrap_result: if true wraps c int return value as PyLong
     def runJitTarget_wrapper(target, *args, wrap_result=False):
-        py_args = map(makeCType, args)
-        return runJitTargets[(len(args), wrap_result)](target, *py_args)
+        py_args = list(map(makeCType, args))
+        func = runJitTargets[(len(args), wrap_result)]
+        func.argtypes = [ctypes.c_void_p] + list(map(type, py_args))
+        return func(target, *py_args)
     global runJitTarget
     runJitTarget = runJitTarget_wrapper
 

@@ -951,10 +951,12 @@ private:
         if (filename.startswith("../../..")) {
             real_filename = ("pyston/build/Release/" + filename).str();
         }
-        buf = MemoryBuffer::getFile(path_prefix + real_filename);
+        if (real_filename[0] != '/')
+            real_filename = path_prefix + real_filename;
+        buf = MemoryBuffer::getFile(real_filename);
 
         if (error_code ec = buf.getError())
-            return "Could not read file " + (path_prefix + real_filename) + ": " + ec.message();
+            return "Could not read file " + real_filename + ": " + ec.message();
 
         line_iterator it(**buf);
 
@@ -985,8 +987,8 @@ private:
 public:
     DebugInfoPrinter() {
         // Try to find the path to the nitrous directory
-        if (sys::fs::exists("../nitrous") && sys::fs::exists("../pystol"))
-            path_prefix = "../../";
+        if (sys::fs::exists("../../nitrous") && sys::fs::exists("../../pystol"))
+            path_prefix = "../../../";
     }
 
     void printInliningInfo(DILocation* loc) {

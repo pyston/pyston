@@ -20,6 +20,7 @@
 #include "optimization_hooks.h"
 
 #include "pystol.h"
+#include "pystol_internal.h"
 
 #define LOCFOR(type, name) Location(offsetof(type, name), sizeof(type::name))
 
@@ -89,7 +90,7 @@ public:
     bool deriveFacts(Value* v, FactSet& facts, LLVMEvaluator& eval) override;
 };
 
-static bool isNamedStructPointer(Type* t, const char* name) {
+bool isNamedStructPointer(Type* t, const char* name) {
     auto p = dyn_cast<PointerType>(t);
     if (!p)
         return false;
@@ -289,683 +290,115 @@ static string getBBName(BasicBlock* bb) {
     return s.substr(1, idx-1).str();
 }
 
-class BlockMatcher {
-    /* BlockMatcher:
-     * Computes whether two basic blocks are "matched".
-     * Blocks A and B are matched if the execution occurrences
-     * of A and B match the pattern (AB)*
-     * ie they alternate, with A starting first, and ending with B
-     * Note that this relationship is not symmetric.
-     *
-     * If there are blocks ending with an "unreachable" instruction,
-     * the pattern is allowed to be (AB)*AX where X is the block ending
-     * with unreachable.
-     *
-     * In terms of implementation, the "matched" relationship
-     * is broken down into the intersection of two propreties.
-     * In the string of A and B occurrences:
-     * - B can only come after an A (not after a B or at the beginning)
-     * - After each A must be a B (not an A or the end)
-     *
-     * Together, these show that the string must match (AB)*
-     * They are the same property about A and B but reversed
-     *
-     * Concretely, "B can only come after an A" is equivalent to
-     * "B and the entry block have no paths to B that don't go
-     * through A".
-     * Similarly, "After each A must be a B" is equivalent to
-     * "A has no paths to A or an exit block that doesn't go through B"
-     */
-private:
-    Function* func;
-    typedef SmallVector<BasicBlock*, 4> BBVector;
+bool BlockMatcher::canReach(const BBVector& from, const BBVector& to, const BBVector& without) {
+    llvm::DenseSet<BasicBlock*> without_set;
+    for (auto BB : without)
+        without_set.insert(BB);
 
-    BBVector exit_blocks;
+    llvm::DenseSet<BasicBlock*> to_set;
+    for (auto BB : to)
+        to_set.insert(BB);
 
-    // Returns whether there is a path from any block in `from` to any
-    // block in `to` without going through `without`.
-    // The path is considered to be coming out of `from` and needs to go in
-    // to `to`.  In particular this means that if there is a shared element
-    // in the two vectors, it doesn't automatically count as a path.
-    bool canReach(const BBVector& from, const BBVector& to, const BBVector& without) {
-        DenseSet<BasicBlock*> without_set;
-        for (auto BB : without)
-            without_set.insert(BB);
+    DenseSet<BasicBlock*> reached;
+    vector<BasicBlock*> queue;
 
-        DenseSet<BasicBlock*> to_set;
-        for (auto BB : to)
-            to_set.insert(BB);
+    for (auto BB : from) {
+        if (without_set.count(BB))
+            continue;
 
-        DenseSet<BasicBlock*> reached;
-        vector<BasicBlock*> queue;
+        queue.push_back(BB);
+    }
 
-        for (auto BB : from) {
+    while (!queue.empty()) {
+        BasicBlock* bb = queue.back();
+        queue.pop_back();
+        for (auto BB : successors(bb)) {
             if (without_set.count(BB))
                 continue;
+            if (reached.count(BB))
+                continue;
+            if (to_set.count(BB))
+                return true;
 
             queue.push_back(BB);
-        }
-
-        while (!queue.empty()) {
-            BasicBlock* bb = queue.back();
-            queue.pop_back();
-            for (auto BB : successors(bb)) {
-                if (without_set.count(BB))
-                    continue;
-                if (reached.count(BB))
-                    continue;
-                if (to_set.count(BB))
-                    return true;
-
-                queue.push_back(BB);
-                reached.insert(BB);
-            }
-        }
-
-        return false;
-    }
-
-public:
-    BlockMatcher(Function* func) : func(func) {
-        for (auto &BB : *func) {
-            if (succ_empty(&BB) && !isa<UnreachableInst>(BB.getTerminator()))
-                exit_blocks.push_back(&BB);
+            reached.insert(BB);
         }
     }
 
-    // `avoid` consists of blocks that are to be ignored from the CFG.
-    // It should only be used in specific circumstances
-    bool blocksAreMatched(BasicBlock* A, BasicBlock* B,
-                          BasicBlock* avoid = nullptr) {
-        BBVector a_v({A});
-        BBVector b_v({B});
-        BBVector b_and_entry({B, &func->getEntryBlock()});
+    return false;
+}
 
-        BBVector a_and_exits(exit_blocks);
-        a_and_exits.push_back(A);
+// `avoid` consists of blocks that are to be ignored from the CFG.
+// It should only be used in specific circumstances
+bool BlockMatcher::blocksAreMatched(BasicBlock* A, BasicBlock* B,
+                                    BasicBlock* avoid) {
+    BBVector a_v({A});
+    BBVector b_v({B});
+    BBVector b_and_entry({B, &func->getEntryBlock()});
 
-        BBVector a_avoid({A});
-        BBVector b_avoid({B});
-        if (avoid) {
-            a_avoid.push_back(avoid);
-            b_avoid.push_back(avoid);
-        }
+    BBVector a_and_exits(exit_blocks);
+    a_and_exits.push_back(A);
 
-        bool x = canReach(b_and_entry, b_v, a_avoid);
-        bool y = canReach(a_v, a_and_exits, b_avoid);
-        return !x && !y;
+    BBVector a_avoid({A});
+    BBVector b_avoid({B});
+    if (avoid) {
+        a_avoid.push_back(avoid);
+        b_avoid.push_back(avoid);
     }
 
-    // Returns the list of instructions that could be executed between an instruction A and instruction B.
-    // Makes the most sense if A->getParent() and B->getParent() are matched blocks.
-    static vector<Instruction*>
-    instructionsBetween(Instruction* A, Instruction* B,
-                        BasicBlock* avoid = nullptr) {
-        vector<Instruction*> r;
+    bool x = canReach(b_and_entry, b_v, a_avoid);
+    bool y = canReach(a_v, a_and_exits, b_avoid);
+    return !x && !y;
+}
 
-        bool seen = false;
-        for (auto &I : *A->getParent()) {
-            if (seen)
-                r.push_back(&I);
-            if (&I == A)
-                seen = true;
+// Returns the list of instructions that could be executed between an instruction A and instruction B.
+// Makes the most sense if A->getParent() and B->getParent() are matched blocks.
+vector<Instruction*>
+BlockMatcher::instructionsBetween(Instruction* A, Instruction* B,
+                                  BasicBlock* avoid) {
+    vector<Instruction*> r;
+
+    bool seen = false;
+    for (auto &I : *A->getParent()) {
+        if (seen)
+            r.push_back(&I);
+        if (&I == A)
+            seen = true;
+    }
+
+    for (auto &I : *B->getParent()) {
+        if (&I == B)
+            break;
+        r.push_back(&I);
+    }
+
+
+    DenseSet<BasicBlock*> visited({ A->getParent(), B->getParent(), avoid });
+    vector<BasicBlock*> queue;
+
+    auto pushSuccessors = [&](BasicBlock* bb) {
+        for (auto *BB : successors(bb)) {
+            if (visited.count(BB))
+                continue;
+            visited.insert(BB);
+            queue.push_back(BB);
         }
+    };
 
-        for (auto &I : *B->getParent()) {
-            if (&I == B)
-                break;
+    pushSuccessors(A->getParent());
+
+    while (!queue.empty()) {
+        auto* bb = queue.back();
+        queue.pop_back();
+        pushSuccessors(bb);
+        for (auto &I : *bb) {
             r.push_back(&I);
         }
-
-
-        DenseSet<BasicBlock*> visited({ A->getParent(), B->getParent(), avoid });
-        vector<BasicBlock*> queue;
-
-        auto pushSuccessors = [&](BasicBlock* bb) {
-            for (auto *BB : successors(bb)) {
-                if (visited.count(BB))
-                    continue;
-                visited.insert(BB);
-                queue.push_back(BB);
-            }
-        };
-
-        pushSuccessors(A->getParent());
-
-        while (!queue.empty()) {
-            auto* bb = queue.back();
-            queue.pop_back();
-            pushSuccessors(bb);
-            for (auto &I : *bb) {
-                r.push_back(&I);
-            }
-        }
-
-        return r;
     }
-};
 
-// A pass to identify and remove unnecessary recursion checks.
-// Recursion checks are a bit tricky to identify, since they consist
-// of ~10 instructions on either side.  Right now we try to match
-// the specific instruction pattern that clang emits.
-// Here's an example of what the recursion check pair looks like:
-/*
-define %struct._object* @cmp_outcomePyCmp_EQFloatFloat2(%struct._object* nocapture readonly %0, %struct._object* nocapture readonly %1, %struct.AOTFunc* nocapture readnone %2) local_unnamed_addr #0 {
-  %4 = load atomic i64, i64* getelementptr inbounds (%struct.pyruntimestate, %struct.pyruntimestate* @_PyRuntime, i64 0, i32 12, i32 1, i32 0) monotonic, align 8
-  %5 = inttoptr i64 %4 to %struct._ts*
-  %6 = getelementptr inbounds %struct._ts, %struct._ts* %5, i64 0, i32 4
-  %7 = load i32, i32* %6, align 8, !tbaa !4
-  %8 = add i32 %7, 1
-  store i32 %8, i32* %6, align 8, !tbaa !4
-  %9 = load i32, i32* @_Py_CheckRecursionLimit, align 4, !tbaa !12
-  %10 = icmp sgt i32 %8, %9
-  br i1 %10, label %11, label %15, !prof !13
-
-11:                                               ; preds = %3
-  %12 = tail call i32 @_Py_CheckRecursiveCall(i8* getelementptr inbounds ([15 x i8], [15 x i8]* @.str.25.4573, i64 0, i64 0)) #3
-  %13 = icmp eq i32 %12, 0
-  br i1 %13, label %14, label %47
-
-14:                                               ; preds = %11
-  %.pre = load i32, i32* @_Py_CheckRecursionLimit, align 4, !tbaa !12
-  br label %15
-
-15:                                               ; preds = %14, %3
-  %16 = phi i32 [ %.pre, %14 ], [ %9, %3 ]
-  %17 = getelementptr inbounds %struct._object, %struct._object* %0, i64 1
-  %18 = bitcast %struct._object* %17 to double*
-  %19 = load double, double* %18, align 8, !tbaa !14
-  %20 = getelementptr inbounds %struct._object, %struct._object* %1, i64 1
-  %21 = bitcast %struct._object* %20 to double*
-  %22 = load double, double* %21, align 8, !tbaa !14
-  %23 = fcmp une double %19, %22
-  %24 = select i1 %23, i64* getelementptr inbounds (%struct._longobject, %struct._longobject* @_Py_FalseStruct, i64 0, i32 0, i32 0, i32 0), i64* getelementptr inbounds (%struct._longobject, %struct._longobject* @_Py_TrueStruct, i64 0, i32 0, i32 0, i32 0)
-  %25 = select i1 %23, %struct._object* getelementptr inbounds (%struct._longobject, %struct._longobject* @_Py_FalseStruct, i64 0, i32 0, i32 0), %struct._object* getelementptr inbounds (%struct._longobject, %struct._longobject* @_Py_TrueStruct, i64 0, i32 0, i32 0)
-  %26 = load i64, i64* getelementptr inbounds (%struct._longobject, %struct._longobject* @_Py_FalseStruct, i64 0, i32 0, i32 0, i32 0), align 8
-  %27 = icmp ne i64 %26, 0
-  tail call void @llvm.assume(i1 %27)
-  %28 = load i64, i64* getelementptr inbounds (%struct._longobject, %struct._longobject* @_Py_TrueStruct, i64 0, i32 0, i32 0, i32 0), align 8
-  %29 = icmp ne i64 %28, 0
-  tail call void @llvm.assume(i1 %29)
-  %30 = select i1 %23, i64 %26, i64 %28
-  %31 = add i64 %30, 1
-  store i64 %31, i64* %24, align 8, !tbaa !18
-  %32 = load atomic i64, i64* getelementptr inbounds (%struct.pyruntimestate, %struct.pyruntimestate* @_PyRuntime, i64 0, i32 12, i32 1, i32 0) monotonic, align 8
-  %33 = inttoptr i64 %32 to %struct._ts*
-  %34 = getelementptr inbounds %struct._ts, %struct._ts* %33, i64 0, i32 4
-  %35 = load i32, i32* %34, align 8, !tbaa !4
-  %36 = add i32 %35, -1
-  store i32 %36, i32* %34, align 8, !tbaa !4
-  %37 = icmp sgt i32 %16, 200
-  %38 = add i32 %16, -50
-  %39 = ashr i32 %16, 2
-  %40 = mul nsw i32 %39, 3
-  %41 = select i1 %37, i32 %38, i32 %40
-  %42 = icmp slt i32 %36, %41
-  br i1 %42, label %43, label %47, !prof !19
-
-43:                                               ; preds = %15
-  %44 = load atomic i64, i64* getelementptr inbounds (%struct.pyruntimestate, %struct.pyruntimestate* @_PyRuntime, i64 0, i32 12, i32 1, i32 0) monotonic, align 8
-  %45 = inttoptr i64 %44 to %struct._ts*
-  %46 = getelementptr inbounds %struct._ts, %struct._ts* %45, i64 0, i32 5
-  store i8 0, i8* %46, align 4, !tbaa !20
-  br label %47
-
-47:                                               ; preds = %43, %15, %11
-  %48 = phi %struct._object* [ null, %11 ], [ %25, %43 ], [ %25, %15 ]
-  ret %struct._object* %48
+    return r;
 }
-*/
-class RemoveRecursionChecksPass : public FunctionPass {
-private:
-    int num_removed = 0;
 
-    struct RecursionEnterCheck {
-        StoreInst* incdepth;
-        BasicBlock* exc_block;
-        BranchInst* overflow_br;
-    };
-
-    struct RecursionLeaveCheck {
-        StoreInst* decdepth;
-        BasicBlock* underflow_block;
-        BranchInst* underflow_br;
-    };
-
-    bool isThreadStatePointerLoad(Value* v) {
-        auto load = dyn_cast<LoadInst>(v);
-        if (!load)
-            return false;
-        if (load->getOrdering() != AtomicOrdering::Monotonic)
-            return false;
-
-        auto gep = dyn_cast<GEPOperator>(load->getPointerOperand());
-        if (!gep)
-            return false;
-        if (!gep->hasAllConstantIndices() || gep->getNumIndices() != 4)
-            return false;
-
-        int i = 0;
-        for (auto &idx : iterator_range<User::op_iterator>(gep->idx_begin(), gep->idx_end())) {
-            if (i == 0 && cast<ConstantInt>(idx)->getSExtValue() != 0)
-                return false;
-            if (i == 1 && cast<ConstantInt>(idx)->getSExtValue() != 12)
-                return false;
-            if (i == 2 && cast<ConstantInt>(idx)->getSExtValue() != 1)
-                return false;
-            if (i == 3 && cast<ConstantInt>(idx)->getSExtValue() != 0)
-                return false;
-            if (i >= 4)
-                return false;
-            i++;
-        }
-
-        auto gv = dyn_cast<GlobalVariable>(gep->getPointerOperand());
-        if (!gv)
-            return false;
-
-        if (!isNamedStructPointer(gv->getType(), "struct.pyruntimestate"))
-            return false;
-        if (gv->getName() != "_PyRuntime")
-            return false;
-
-        return true;
-    }
-
-    template <typename T>
-    bool isThreadStatePointer(Value* v, T& output) {
-        auto cast = dyn_cast<IntToPtrInst>(v);
-        if (!cast)
-            return false;
-
-        if (!isNamedStructPointer(cast->getType(), "struct._ts"))
-            return false;
-
-        return isThreadStatePointerLoad(cast->getOperand(0));
-    }
-
-    template <typename T>
-    bool isRecursionDepthPointer(Value* v, T& output) {
-        auto gep = dyn_cast<GetElementPtrInst>(v);
-        if (!gep)
-            return false;
-
-        if (!gep->hasAllConstantIndices() || gep->getNumIndices() != 2)
-            return false;
-
-        int i = 0;
-        for (auto &idx : gep->indices()) {
-            if (i == 0 && cast<ConstantInt>(idx)->getSExtValue() != 0)
-                return false;
-            if (i == 1 && cast<ConstantInt>(idx)->getSExtValue() != 4)
-                return false;
-            i++;
-        }
-        return isThreadStatePointer(gep->getPointerOperand(), output);
-    }
-
-    template <typename T>
-    bool isRecursionDepthLoad(Value* v, T& output) {
-        auto load = dyn_cast<LoadInst>(v);
-        if (!load)
-            return false;
-        return isRecursionDepthPointer(load->getPointerOperand(), output);
-    }
-
-    template <typename T>
-    bool isRecursionDepthIncrement(Value* v, int amount, T& output) {
-        auto add = dyn_cast<BinaryOperator>(v);
-        if (!add)
-            return false;
-        if (add->getOpcode() != Instruction::Add)
-            return false;
-
-        auto op1 = dyn_cast<ConstantInt>(add->getOperand(1));
-        if (!op1)
-            return false;
-        if (op1->getSExtValue() != amount)
-            return false;
-        return isRecursionDepthLoad(add->getOperand(0), output);
-    }
-
-    bool isRecursionEnter(Instruction* inst, RecursionEnterCheck& output) {
-        auto store = dyn_cast<StoreInst>(inst);
-        if (!store)
-            return false;
-
-        if (!isRecursionDepthIncrement(store->getValueOperand(), 1, output))
-            return false;
-
-        if (!isRecursionDepthPointer(store->getPointerOperand(), output))
-            return false;
-
-        auto br = dyn_cast<BranchInst>(inst->getParent()->getTerminator());
-        if (!br->isConditional())
-            return false;
-
-        output.overflow_br = br;
-
-        auto exc_block = br->getSuccessor(0);
-        auto call = dyn_cast<CallInst>(exc_block->getFirstNonPHIOrDbgOrLifetime());
-        if (!call)
-            return false;
-
-        auto called_func = call->getCalledFunction();
-        if (!called_func || called_func->getName() != "_Py_CheckRecursiveCall")
-            return false;
-
-        output.exc_block = exc_block;
-        output.incdepth = store;
-
-        return true;
-    }
-
-
-    bool isRecursionLeave(Instruction* inst, RecursionLeaveCheck& output) {
-        auto store = dyn_cast<StoreInst>(inst);
-        if (!store)
-            return false;
-
-        if (!isRecursionDepthIncrement(store->getValueOperand(), -1, output))
-            return false;
-
-        if (!isRecursionDepthPointer(store->getPointerOperand(), output))
-            return false;
-
-        output.decdepth = store;
-
-        auto leave_value = store->getValueOperand();
-
-        auto br = cast<BranchInst>(store->getParent()->getTerminator());
-        if (!br->isConditional()) {
-            // call.c:function_code_fastcall directly manipulates tstate->recursion_depth
-            // This case isn't removable, but maybe there are other similar ones that are?
-            return false;
-        }
-
-        auto underflow_block = br->getSuccessor(0);
-        auto load = dyn_cast<LoadInst>(underflow_block->getFirstNonPHIOrDbgOrLifetime());
-        if (!load)
-            return false;
-        if (load->getOrdering() != AtomicOrdering::Monotonic)
-            return false;
-        RELEASE_ASSERT(
-            cast<GlobalVariable>(cast<GEPOperator>(load->getPointerOperand())
-                                     ->getPointerOperand())->getName()
-                == "_PyRuntime",
-            "");
-
-        output.underflow_block = underflow_block;
-        output.underflow_br = br;
-
-        return true;
-    }
-
-    static StringSet<> guard_unnecessary_functions;
-    bool needsRecursionGuard(Instruction* inst) {
-        auto call = dyn_cast<CallBase>(inst);
-        if (!call)
-            return false;
-
-        auto func = call->getCalledFunction();
-        if (!func)
-            return true;
-
-        auto name = func->getName();
-
-        if (name.startswith("llvm.lifetime.start"))
-            return false;
-
-        if (guard_unnecessary_functions.count(name))
-            return false;
-
-        /* Things that are trickier:
-         * unicode_new can call unicode_subtype_new which calls tp_alloc
-         * range_new calls PyNumber_Index which calls nb_index
-         * _Py_Dealloc calls tp_dealloc
-         * PyObject_IsTrue calls nb_bool / others
-         * PyObject_Not calls PyObject_IsTrue
-         * object_richcompare calls self->ob_type->tp_richcompare.  I think it's recursive, but I think with a tighter idea of when we can eliminate checks we could probably ignore these calls
-         */
-        if (name != "unicode_new" && name != "range_new"
-            && name != "_Py_Dealloc" && name != "PyObject_IsTrue"
-            && name != "PyObject_Not" && name != "object_richcompare")
-            outs() << "Not sure if this function needs recursion guard: " << name << "\n";
-        return true;
-    }
-
-    Value* getSingleUse(Value* v) {
-        Value* r = nullptr;
-        for (auto &u : v->uses()) {
-            RELEASE_ASSERT(!r, "");
-            r = u.getUser();
-        }
-        return r;
-    }
-
-    // Given an Instruction with zero uses, remove that instruction,
-    // and remove any instructions that now have zero uses without side effects
-    void removeUnusedInsts(Instruction* inst) {
-        RELEASE_ASSERT(getSingleUse(inst) == nullptr,
-                       "Trying to remove a used value!");
-
-        SmallVector<Value*, 4> ops(inst->operands());
-        inst->eraseFromParent();
-
-        for (auto op : ops) {
-            auto op_inst = dyn_cast<Instruction>(op);
-            if (!op_inst)
-                continue;
-            if (!op_inst->use_empty())
-                continue;
-
-            if (isa<ICmpInst>(op_inst) || isa<BinaryOperator>(op_inst)
-                || isa<SelectInst>(op_inst) || isa<GetElementPtrInst>(op_inst)
-                || isa<PHINode>(op_inst) || isa<CastInst>(op_inst)) {
-                removeUnusedInsts(op_inst);
-            } else if (auto load = dyn_cast<LoadInst>(op_inst)) {
-                if (load->getOrdering() == AtomicOrdering::NotAtomic || isThreadStatePointerLoad(load))
-                    removeUnusedInsts(op_inst);
-            } else {
-                outs() << "Not sure if we can remove this unused inst: " << *op_inst << '\n';
-            }
-        }
-    }
-
-    void removeCheck(const RecursionEnterCheck& enter,
-                     const RecursionLeaveCheck& leave) {
-        RELEASE_ASSERT(enter.overflow_br->getSuccessor(0) == enter.exc_block, "");
-        auto new_branch = BranchInst::Create(enter.overflow_br->getSuccessor(1),
-                                             enter.overflow_br->getParent());
-        auto enter_br_cond = enter.overflow_br->getCondition();
-        enter.overflow_br->eraseFromParent();
-
-        auto leave_value = leave.decdepth->getValueOperand();
-
-        enter.incdepth->eraseFromParent();
-        leave.decdepth->eraseFromParent();
-
-        Value* cmp = getSingleUse(leave_value);
-
-        RELEASE_ASSERT(leave.underflow_br->getCondition() == cmp, "");
-        RELEASE_ASSERT(leave.underflow_br->getSuccessor(0) == leave.underflow_block, "");
-        new_branch = BranchInst::Create(leave.underflow_br->getSuccessor(1), leave.underflow_br->getParent());
-        leave.underflow_br->eraseFromParent();
-
-        removeUnusedInsts(cast<Instruction>(enter_br_cond));
-        removeUnusedInsts(cast<Instruction>(cmp));
-    }
-
-    bool maybeRemoveCheck(const RecursionEnterCheck& enter,
-                          const RecursionLeaveCheck& leave) {
-        vector<Instruction*> between(BlockMatcher::instructionsBetween(enter.incdepth, leave.decdepth, enter.exc_block));
-        for (auto inst : between) {
-            if (needsRecursionGuard(inst)) {
-                if (nitrous_verbosity >= NITROUS_VERBOSITY_INTERPRETING) {
-                    outs() << "This instruction needs recursion guarding, not removing:\n";
-                    outs() << *inst << '\n';
-                }
-                return false;
-            }
-        }
-        if (nitrous_verbosity >= NITROUS_VERBOSITY_IR)
-            outs() << "can remove this recursion check!\n";
-
-        removeCheck(enter, leave);
-        return true;
-    }
-
-public:
-    static char ID;
-
-    RemoveRecursionChecksPass() : FunctionPass(ID) {}
-    ~RemoveRecursionChecksPass() {
-        if (nitrous_verbosity >= NITROUS_VERBOSITY_STATS)
-            outs() << "Removed " << num_removed << " unnecessary recursion check pairs\n";
-    }
-
-    bool runOnFunction(Function &F) override {
-        // TODO: maybe this should be a different FunctionPass
-        // Remove unused thread state pointer loads.
-        // Since they're atomic, llvm won't eliminate them even
-        // if they have no uses.  I don't think we need to keep them around
-        // though.
-        for (auto &BB : F) {
-            SmallVector<Instruction*, 4> to_remove;
-            for (auto &I : BB) {
-                if (I.use_empty() && isThreadStatePointerLoad(&I)) {
-                    if (nitrous_verbosity >= NITROUS_VERBOSITY_IR)  {
-                        outs() << "Removing unused ThreadState load\n";
-                        outs() << I << '\n';
-                    }
-                    to_remove.push_back(&I);
-                }
-            }
-            for (auto inst : to_remove)
-                inst->eraseFromParent();
-        }
-
-        // TODO this should be a different function pass
-        for (auto &BB : F) {
-            for (auto &I : BB) {
-                if (auto call = dyn_cast<CallInst>(&I)) {
-                    auto func = call->getCalledFunction();
-                    if (func && func->getName() == "PyErr_NoMemory")
-                        call->replaceAllUsesWith(ConstantInt::getNullValue(call->getType()));
-                }
-            }
-        }
-
-        SmallVector<RecursionEnterCheck, 4> enters;
-        for (auto &BB : F) {
-            for (auto &I : BB) {
-                RecursionEnterCheck check;
-                if (isRecursionEnter(&I, check)) {
-                    if (nitrous_verbosity >= NITROUS_VERBOSITY_INTERPRETING) {
-                        outs() << "Found recursion enter check:\n";
-                        outs() << I << '\n';
-                    }
-                    enters.push_back(check);
-                }
-            }
-        }
-
-        SmallVector<RecursionLeaveCheck, 4> leaves;
-        for (auto &BB : F) {
-            for (auto &I : BB) {
-                RecursionLeaveCheck check;
-                if (isRecursionLeave(&I, check)) {
-                    if (nitrous_verbosity >= NITROUS_VERBOSITY_INTERPRETING) {
-                        outs() << "Found recursion leave check:\n";
-                        outs() << I << '\n';
-                    }
-                    leaves.push_back(check);
-                }
-            }
-        }
-
-        BlockMatcher matcher(&F);
-
-        SmallVector<bool, 4> enter_matched(enters.size(), false);
-        SmallVector<bool, 4> leave_matched(leaves.size(), false);
-
-        for (int i = 0; i < enters.size(); i++) {
-            if (enter_matched[i])
-                continue;
-            auto& enter = enters[i];
-            for (int j = 0; j < leaves.size(); j++) {
-                if (leave_matched[j])
-                    continue;
-                auto& leave = leaves[j];
-
-                // We ignore the enter.exc_block, since going that path can skip the LeaveRecursiveCall call.
-                // The exc_block will take care of reducing the recursion depth
-                if (matcher.blocksAreMatched(enter.incdepth->getParent(), leave.decdepth->getParent(), enter.exc_block)) {
-                    if (nitrous_verbosity >= NITROUS_VERBOSITY_INTERPRETING) {
-                        outs() << "found a matched recursion enter+leave!\n";
-                        outs() << *enter.incdepth << '\n';
-                        outs() << *leave.decdepth << '\n';
-                    }
-
-                    if (maybeRemoveCheck(enter, leave)) {
-                        enter_matched[i] = leave_matched[j] = true;
-                        num_removed++;
-                        break;
-                    }
-                }
-            }
-        }
-
-        return false;
-    }
-};
-char RemoveRecursionChecksPass::ID = 0;
-
-StringSet<> RemoveRecursionChecksPass::guard_unnecessary_functions({
-    "llvm.assume",
-    "llvm.dbg.value",
-    "llvm.dbg.label",
-    "llvm.fabs.f64",
-    "frexp",
-    "modf",
-    "bcmp",
-    "wmemcmp",
-    "memcmp",
-
-    // No recursive behavior:
-    "PyType_IsSubtype",
-    "_PyArg_CheckPositional",
-    "PyArg_UnpackTuple",
-    "long_compare",
-    "long_richcompare",
-    "PyLong_FromDouble",
-    "PyUnicode_RichCompare",
-    "range_richcompare",
-    "PyBool_FromLong",
-    "PyErr_Format", // Little bit less sure about this one
-    "float_richcompare",
-    "_PyUnicode_Ready", // Little bit less sure about this one
-    "unicode_compare",
-    "set_richcompare",
-    "Py_FatalError",
-    "_Py_CheckFunctionResult",
-    "_PyErr_FormatFromCause", // Little bit less sure about this one
-    "PyObject_Malloc",
-    "_PyTraceMalloc_NewReference",
-
-    // Do their own recursion checking:
-    "PyObject_RichCompare",
-    "PyObject_RichCompareBool",
-    "PyObject_Str",
-    "PyObject_Repr",
-    "set_lookkey",
-    "set_issubset",
-    "slice_richcompare",
-    "list_richcompare",
-    "tuplerichcompare",
-    "dict_richcompare",
-});
 
 } // namespace pystol
 using namespace pystol;
@@ -988,6 +421,8 @@ void pystolGlobalPythonSetup() {
 
     registerFactDeriver(make_unique<PystolFactDeriver>());
     registerPassFactory([] { return new RemoveRecursionChecksPass(); });
+    registerPassFactory(createMiscOptsPass);
+    registerPassFactory(createExceptionTrackingPass);
 }
 
 void pystolAddConstObj(PyObject* x) {
