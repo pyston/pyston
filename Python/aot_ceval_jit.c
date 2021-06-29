@@ -1061,7 +1061,9 @@ static void deferred_vs_emit(Jit* Dst) {
 // Look at the top value of the value stack and if its a constant return the constant value,
 // otherwise return NULL
 static PyObject* deferred_vs_peek_const(Jit* Dst) {
-    assert(Dst->deferred_vs_next > 0);
+    if (Dst->deferred_vs_next == 0)
+        return NULL;
+
     DeferredValueStackEntry* entry = &Dst->deferred_vs[Dst->deferred_vs_next - 1];
     if (entry->loc == CONST)
         return PyTuple_GET_ITEM(Dst->co_consts, entry->val);
