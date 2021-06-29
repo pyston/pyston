@@ -49,7 +49,9 @@ class IdentityGuard(AttributeGuard):
     def __init__(self, guard_val):
         super(IdentityGuard, self).__init__("", guard_val)
 
-class KnownType:
+# No guard here: this is how we specify that we already know what
+# the type of an argument is
+class AssumedTypeGuard:
     def __init__(self, type_name):
         self.type_name = type_name
 
@@ -624,7 +626,7 @@ def loadCases():
     cases.append(NormalHandler(FunctionCases("PyObject_GetItem", getitem_signatures)))
 
     getitemlong_signatures = []
-    unguarded_int_class = ObjectClass("", KnownType("PyLong_Type"), [0])
+    unguarded_int_class = ObjectClass("", AssumedTypeGuard("PyLong_Type"), [0])
     unguarded_cint_class = CLongClass([ctypes.c_long(0)])
     for name in "List", "Tuple", "Unicode", "Range":
         getitemlong_signatures += makeSignatures([type_classes[name]], [unguarded_int_class], [unguarded_cint_class])
