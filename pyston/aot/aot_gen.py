@@ -359,6 +359,10 @@ class CallableHandler(Handler):
             print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
             print(f"    return ret;", file=f)
             print("  }", file=f)
+
+            for assumption in signature.getAssumptions(arg_names):
+                print(f"  __builtin_assume({assumption});", file=f)
+
             for line in signature.getSpecialTracingCode(arg_names):
                 print(f"  {line}", file=f)
             print(f"  return {self.case.unspecialized_name}(tstate, stack, oparg);", file=f)
