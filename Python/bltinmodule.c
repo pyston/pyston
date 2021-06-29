@@ -2829,6 +2829,9 @@ static struct PyModuleDef builtinsmodule = {
     NULL
 };
 
+#if PYSTON_SPEEDUPS
+PyObject* builtin_isinstance_obj;
+#endif
 
 PyObject *
 _PyBuiltin_Init(void)
@@ -2901,6 +2904,10 @@ _PyBuiltin_Init(void)
         return NULL;
     }
     Py_DECREF(debug);
+
+#if PYSTON_SPEEDUPS
+    builtin_isinstance_obj = PyDict_GetItemString(dict, "isinstance");
+#endif
 
     return mod;
 #undef ADD_TO_ALL
