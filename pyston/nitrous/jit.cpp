@@ -684,8 +684,8 @@ struct RemoveICmpPtrPass : public FunctionPass {
 };
 char RemoveICmpPtrPass::ID = 0;
 
-vector<function<FunctionPass*()>> pass_factories;
-void registerPassFactory(function<FunctionPass*()> factory) {
+vector<function<FunctionPass*(LLVMEvaluator& eval)>> pass_factories;
+void registerPassFactory(function<FunctionPass*(LLVMEvaluator& eval)> factory) {
     pass_factories.push_back(move(factory));
 }
 
@@ -746,7 +746,7 @@ void LLVMJit::optimizeFunc(LLVMEvaluator& eval) {
         //fpm.add(new RemoveICmpPtrPass(eval));
 
         for (auto& factory : pass_factories) {
-            fpm.add(factory());
+            fpm.add(factory(eval));
             fpm.add(llvm::createInstructionCombiningPass());
         }
 
