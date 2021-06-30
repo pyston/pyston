@@ -181,7 +181,7 @@ public:
 
 void registerFactDeriver(std::unique_ptr<FactDeriver> deriver);
 
-void registerPassFactory(std::function<llvm::FunctionPass*()> factory);
+void registerPassFactory(std::function<llvm::FunctionPass*(LLVMEvaluator& eval)> factory);
 
 }
 

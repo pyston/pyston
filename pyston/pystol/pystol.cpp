@@ -100,8 +100,12 @@ bool isNamedStructPointer(Type* t, const char* name) {
     return st->getName() == name;
 }
 
-static bool isPyObjectPtr(Type* t) {
+bool isPyObjectPtr(Type* t) {
     return isNamedStructPointer(t, "struct._object");
+}
+
+bool isPyTypeObjectPtr(Type* t) {
+    return isNamedStructPointer(t, "struct._typeobject");
 }
 
 static Knowledge* getTypeFact(Value* v, FactSet& facts) {
@@ -420,7 +424,7 @@ void pystolGlobalPythonSetup() {
     addConstTypeAndConstSubclasses(&PyBaseObject_Type);
 
     registerFactDeriver(make_unique<PystolFactDeriver>());
-    registerPassFactory([] { return new RemoveRecursionChecksPass(); });
+    registerPassFactory([](LLVMEvaluator& eval) { return new RemoveRecursionChecksPass(); });
     registerPassFactory(createMiscOptsPass);
     registerPassFactory(createExceptionTrackingPass);
 }

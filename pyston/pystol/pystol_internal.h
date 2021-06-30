@@ -240,7 +240,11 @@ public:
     bool runOnFunction(llvm::Function &F) override;
 };
 
-llvm::FunctionPass* createExceptionTrackingPass();
-llvm::FunctionPass* createMiscOptsPass();
+llvm::FunctionPass* createExceptionTrackingPass(nitrous::LLVMEvaluator& eval);
+llvm::FunctionPass* createMiscOptsPass(nitrous::LLVMEvaluator& eval);
+
+
+bool isPyObjectPtr(llvm::Type* t);
+bool isPyTypeObjectPtr(llvm::Type* t);
 
 } // namespace pystol

@@ -2907,6 +2907,7 @@ _PyBuiltin_Init(void)
 
 #if PYSTON_SPEEDUPS
     builtin_isinstance_obj = PyDict_GetItemString(dict, "isinstance");
+    MAKE_IMMORTAL(builtin_isinstance_obj);
 #endif
 
     return mod;

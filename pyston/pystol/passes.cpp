@@ -24,6 +24,7 @@
 
 using namespace llvm;
 using namespace std;
+using namespace nitrous;
 
 namespace pystol {
 
@@ -31,7 +32,9 @@ class MiscOptsPass : public FunctionPass {
 public:
     static char ID;
 
-    MiscOptsPass() : llvm::FunctionPass(ID) {}
+    LLVMEvaluator& eval;
+
+    MiscOptsPass(LLVMEvaluator& eval) : llvm::FunctionPass(ID), eval(eval) {}
 
     bool runOnFunction(Function &F) override {
         bool changed = false;
@@ -56,13 +59,65 @@ public:
             }
         }
 
+        // remove refcount changes to immortal objects
+        // looking for:
+        //  store i64 %57, i64* getelementptr inbounds (%struct._typeobject, %struct._typeobject* @PyLong_Type, i64 0, i32 0, i32 0, i32 0)
+        for (auto &BB : F) {
+            for (auto it = BB.begin(); it != BB.end();) {
+                auto& DL = F.getParent()->getDataLayout();
+
+                auto store = dyn_cast<StoreInst>(&*it++);
+                if (!store)
+                    continue;
+                // ob_refcnt is 64bit
+                if (!store->getValueOperand()->getType()->isIntegerTy(64))
+                    continue;
+                auto gep = dyn_cast<GEPOperator>(store->getPointerOperand());
+                if (!gep)
+                    continue;
+
+                // is the destination type a PyObject or PyTypeObject?
+                auto ptr = gep->getPointerOperand();
+                if (!isPyObjectPtr(ptr->getType()) && !isPyTypeObjectPtr(ptr->getType()))
+                    continue;
+
+                // check if gep is accessing PyObject->ob_refcnt
+                if (!gep->hasAllConstantIndices())
+                    continue;
+                APInt offset;
+                bool success = gep->accumulateConstantOffset(DL, offset);
+                if (!success || offsetof(PyObject, ob_refcnt) != offset)
+                    continue;
+
+                auto C = dyn_cast<Constant>(ptr);
+                if (!C)
+                    continue;
+                auto obj = (PyObject*)GVTOP(eval.evalConstant(C));
+                if (!obj)
+                    continue;
+                auto&& is_immortal = [](PyObject* obj) {
+                    return obj->ob_refcnt > (1L<<59);
+                };
+                if (!is_immortal(obj))
+                    continue;
+
+                if (nitrous_verbosity >= NITROUS_VERBOSITY_STATS) {
+                    outs() << "removing refcount change to immortal object:\n";
+                    outs() << "\t" << *store << "\n";
+                }
+
+                changed = true;
+                it = store->eraseFromParent();
+            }
+        }
+
         return changed;
     }
 };
 char MiscOptsPass::ID;
 
-FunctionPass* createMiscOptsPass() {
-    return new MiscOptsPass();
+FunctionPass* createMiscOptsPass(LLVMEvaluator& eval) {
+    return new MiscOptsPass(eval);
 }
 
 // Pass which tracks whether an exception could have been thrown and
@@ -158,7 +213,7 @@ public:
 };
 char ExceptionTrackingPass::ID;
 
-FunctionPass* createExceptionTrackingPass() {
+FunctionPass* createExceptionTrackingPass(LLVMEvaluator& eval) {
     return new ExceptionTrackingPass();
 }
 

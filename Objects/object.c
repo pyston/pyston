@@ -1838,12 +1838,22 @@ PyObject _Py_NotImplementedStruct = {
 PyStatus
 _PyTypes_Init(void)
 {
+#if PYSTON_SPEEDUPS
+#define INIT_TYPE(TYPE, NAME) \
+    do { \
+        if (PyType_Ready(TYPE) < 0) { \
+            return _PyStatus_ERR("Can't initialize " NAME " type"); \
+        } \
+        MAKE_IMMORTAL((PyObject*)TYPE); \
+    } while (0)
+#else
 #define INIT_TYPE(TYPE, NAME) \
     do { \
         if (PyType_Ready(TYPE) < 0) { \
             return _PyStatus_ERR("Can't initialize " NAME " type"); \
         } \
     } while (0)
+#endif
 
     INIT_TYPE(&PyBaseObject_Type, "object");
     INIT_TYPE(&PyType_Type, "type");
