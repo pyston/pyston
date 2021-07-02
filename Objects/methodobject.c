@@ -90,6 +90,53 @@ PyCFunction_NewEx(PyMethodDef *ml, PyObject *self, PyObject *module)
     return (PyObject *)op;
 }
 
+#if PYSTON_SPEEDUPS
+// initialize a static PyCFunctionObject
+PyObject *_PyCFunction_NewStatic(PyMethodDef *ml, PyObject *self, PyObject *module, PyCFunctionObject* op)
+{
+    /* Figure out correct vectorcall function to use */
+    vectorcallfunc vectorcall;
+    switch (ml->ml_flags & (METH_VARARGS | METH_FASTCALL | METH_NOARGS | METH_O | METH_KEYWORDS))
+    {
+        case METH_VARARGS:
+        case METH_VARARGS | METH_KEYWORDS:
+            /* For METH_VARARGS functions, it's more efficient to use tp_call
+             * instead of vectorcall. */
+            vectorcall = NULL;
+            break;
+        case METH_FASTCALL:
+            vectorcall = cfunction_vectorcall_FASTCALL;
+            break;
+        case METH_FASTCALL | METH_KEYWORDS:
+            vectorcall = cfunction_vectorcall_FASTCALL_KEYWORDS;
+            break;
+        case METH_NOARGS:
+            vectorcall = cfunction_vectorcall_NOARGS;
+            break;
+        case METH_O:
+            vectorcall = cfunction_vectorcall_O;
+            break;
+        default:
+            PyErr_Format(PyExc_SystemError,
+                         "%s() method: bad call flags", ml->ml_name);
+            return NULL;
+    }
+
+    (void)PyObject_INIT(op, &PyCFunction_Type);
+
+    op->m_weakreflist = NULL;
+    op->m_ml = ml;
+    Py_XINCREF(self);
+    op->m_self = self;
+    Py_XINCREF(module);
+    op->m_module = module;
+    op->vectorcall = vectorcall;
+    //_PyObject_GC_TRACK(op);
+    MAKE_IMMORTAL(op);
+    return (PyObject *)op;
+}
+#endif
+
 PyCFunction
 PyCFunction_GetFunction(PyObject *op)
 {

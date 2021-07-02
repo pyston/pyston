@@ -623,6 +623,10 @@ done:
 /* static */ Py_ssize_t
 set_len(PyObject *so)
 {
+#if PYSTON_SPEEDUPS
+    if (((PySetObject *)so)->used < 0)
+        __builtin_unreachable();
+#endif
     return ((PySetObject *)so)->used;
 }
 

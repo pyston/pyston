@@ -298,6 +298,10 @@ PyByteArray_Concat(PyObject *a, PyObject *b)
 static Py_ssize_t
 bytearray_length(PyByteArrayObject *self)
 {
+#if PYSTON_SPEEDUPS
+    if (Py_SIZE(self) < 0)
+        __builtin_unreachable();
+#endif
     return Py_SIZE(self);
 }
 

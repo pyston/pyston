@@ -562,7 +562,7 @@ def loadCases():
     for name, example in {  # name: (args to isinstance)
                             "Long": (1, int),
                             "List" : ([1], list),
-                            "Tuple": ((1), tuple),
+                            "Tuple": ((1,), tuple),
                             "Bytes": (bytes(), bytes),
                             "Unicode": ("str", str),
                             "Dict": (dict(), dict),
@@ -572,9 +572,15 @@ def loadCases():
         def createIsInstanceSignature(name, arg1, arg2):
             classes = []
             tuple1element = isinstance(arg2, tuple) and len(arg2) == 1
-            classes.append(ObjectClass("isinstanceT1" if tuple1element else "isinstance", IdentityGuard(f"(PyObject*)builtin_isinstance_obj"), [isinstance]))
-            # add two examples for isinstance one where it returns true and one false
-            classes.append(ObjectClass("", Unspecialized, [arg1, foo0]))
+            classes.append(ObjectClass("isinstanceT1" if tuple1element else "isinstance", IdentityGuard(f"(PyObject*)&builtin_isinstance_obj"), [isinstance]))
+            # add examples
+            isinstance_true = [arg1]
+            for example in isinstance_true:
+                assert isinstance(example, arg2) == True
+            isinstance_false = [ExampleClass0(), set()]
+            for example in isinstance_false:
+                assert isinstance(example, arg2) == False
+            classes.append(ObjectClass("", Unspecialized, [isinstance_true] + isinstance_false))
 
             if name and tuple1element: # specialize on isinstance(x, (type,))
                 guard = Tuple1ElementIdentityGuard(f"(PyObject*)&{getCTypeName(name)}")
@@ -583,11 +589,45 @@ def loadCases():
             else: # generic
                 guard = Unspecialized
             classes.append(ObjectClass(name, guard, [arg2]))
-            return IsInstanceSignature(classes)
+            return IsInstanceSignature(classes, always_trace=["builtin_isinstance"])
 
         call_signatures.append(createIsInstanceSignature(name, example[0], example[1]))
         if name: # create isinstance(x, (type,)) version
             call_signatures.append(createIsInstanceSignature(name, example[0], (example[1], )))
+
+
+    def createBuiltinCFunction1ArgSignature(func_name, func, arg1type_name, arg1example):
+            classes = []
+            classes.append(ObjectClass(func_name, IdentityGuard(f"(PyObject*)&builtin_{func_name}_obj"), [func]))
+
+            if arg1type_name: # specialize on arg->ob_type == arg1type_name
+                guard = TypeGuard(f"&{getCTypeName(arg1type_name)}")
+            else: # generic
+                guard = Unspecialized
+            classes.append(ObjectClass(name, guard, [arg1example]))
+            return Signature(classes, always_trace=["builtin_{func_name}"])
+
+    # builtin len()
+    for name, example in {  # name: (args to len)
+                            "List" : [1],
+                            "Tuple": (1,),
+                            "ByteArray": bytearray(1),
+                            "Bytes": bytes(),
+                            "Unicode": "str",
+                            "Dict": dict(),
+                            "Set": set(),
+                            "": [1], # non type specialized len case
+                            }.items():
+        call_signatures.append(createBuiltinCFunction1ArgSignature("len", len, name, example))
+
+    # builtin ord()
+    for name, example in {  # name: (args to ord)
+                            "ByteArray": bytearray(1),
+                            "Bytes": b'c',
+                            "Unicode": "c",
+                            "": "a", # non type specialized ord case
+                            }.items():
+        call_signatures.append(createBuiltinCFunction1ArgSignature("ord", ord, name, example))
 
 
     for name, l in callables.items():
@@ -845,7 +885,7 @@ def print_includes(f):
     print('#define unlikely(x) __builtin_expect(!!(x), 0)', file=f)
     print('', file=f)
 
-    print('extern PyObject* builtin_isinstance_obj;', file=f)
+    print('extern PyCFunctionObject builtin_isinstance_obj, builtin_len_obj, builtin_ord_obj;', file=f)
 
     print('', file=f)
 

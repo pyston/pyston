@@ -2241,6 +2241,10 @@ error:
 /* static */ Py_ssize_t
 dict_length(PyDictObject *mp)
 {
+#if PYSTON_SPEEDUPS
+    if (mp->ma_used < 0)
+        __builtin_unreachable();
+#endif
     return mp->ma_used;
 }
 
