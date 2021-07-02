@@ -35,7 +35,7 @@ namespace nitrous {
 static unique_ptr<SymbolFinder> symbol_finder;
 static unique_ptr<LLVMCompiler> compiler;
 static unique_ptr<JitConsts> jit_consts;
-static unordered_set<string> do_not_trace;
+static unordered_set<string> do_not_trace, always_trace;
 
 string findNameForAddress(void* address) {
     return symbol_finder->lookupAddress(address);
@@ -240,6 +240,9 @@ public:
     bool shouldTraceInto(llvm::StringRef function_name) {
         if (do_not_trace.count(function_name))
             return false;
+
+        if (always_trace.count(function_name))
+            return true;
 
         if (function_name == "PyObject_Malloc")
             return false;
@@ -1117,6 +1120,14 @@ void clearDoNotTrace() {
 
 void addDoNotTrace(const char* function_name) {
     nitrous::do_not_trace.insert(function_name);
+}
+
+void clearAlwaysTrace() {
+    nitrous::always_trace.clear();
+}
+
+void addAlwaysTrace(const char* function_name) {
+    nitrous::always_trace.insert(function_name);
 }
 
 JitTarget* createJitTarget(void* function, int num_args, int num_traces_until_jit) {

@@ -15,6 +15,9 @@ DEF void initializeJIT(int verbosity, int pic);
 DEF void clearDoNotTrace();
 DEF void addDoNotTrace(const char* function_name);
 
+DEF void clearAlwaysTrace();
+DEF void addAlwaysTrace(const char* function_name);
+
 DEF void loadBitcode(const char* llvm_filename);
 
 typedef struct _JitTarget {
