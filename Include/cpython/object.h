@@ -39,6 +39,7 @@ typedef struct _Py_Identifier {
 #define _Py_string_init(value) { .next = NULL, .string = value, .object = NULL }
 #define _Py_string(varname, value)  _Py_Identifier varname = _Py_string_init(value)
 #define _Py_NONSTATIC_IDENTIFIER(varname) _Py_string(PyId_##varname, #varname)
+#define _Py_EXTERN_NONSTATIC_IDENTIFIER(varname) extern _Py_Identifier PyId_##varname
 
 /* buffer interface */
 typedef struct bufferinfo {

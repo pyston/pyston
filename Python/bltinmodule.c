@@ -1787,7 +1787,7 @@ ord as builtin_ord
 Return the Unicode code point for a one-character string.
 [clinic start generated code]*/
 
-static PyObject *
+/*static*/ PyObject *
 builtin_ord(PyObject *module, PyObject *c)
 /*[clinic end generated code: output=4fa5e87a323bae71 input=3064e5d6203ad012]*/
 {
@@ -2525,7 +2525,7 @@ check against. This is equivalent to ``isinstance(x, A) or isinstance(x, B)
 or ...`` etc.
 [clinic start generated code]*/
 
-static PyObject *
+/*static*/ PyObject *
 builtin_isinstance_impl(PyObject *module, PyObject *obj,
                         PyObject *class_or_tuple)
 /*[clinic end generated code: output=6faf01472c13b003 input=ffa743db1daf7549]*/
@@ -2791,16 +2791,22 @@ static PyMethodDef builtin_methods[] = {
     BUILTIN_HEX_METHODDEF
     BUILTIN_ID_METHODDEF
     BUILTIN_INPUT_METHODDEF
+#if !PYSTON_SPEEDUPS
     BUILTIN_ISINSTANCE_METHODDEF
+#endif
     BUILTIN_ISSUBCLASS_METHODDEF
     {"iter",            (PyCFunction)(void(*)(void))builtin_iter,       METH_FASTCALL, iter_doc},
+#if !PYSTON_SPEEDUPS
     BUILTIN_LEN_METHODDEF
+#endif
     BUILTIN_LOCALS_METHODDEF
     {"max",             (PyCFunction)(void(*)(void))builtin_max,        METH_VARARGS | METH_KEYWORDS, max_doc},
     {"min",             (PyCFunction)(void(*)(void))builtin_min,        METH_VARARGS | METH_KEYWORDS, min_doc},
     {"next",            (PyCFunction)(void(*)(void))builtin_next,       METH_FASTCALL, next_doc},
     BUILTIN_OCT_METHODDEF
+#if !PYSTON_SPEEDUPS
     BUILTIN_ORD_METHODDEF
+#endif
     BUILTIN_POW_METHODDEF
     {"print",           (PyCFunction)(void(*)(void))builtin_print,      METH_FASTCALL | METH_KEYWORDS, print_doc},
     BUILTIN_REPR_METHODDEF
@@ -2811,6 +2817,16 @@ static PyMethodDef builtin_methods[] = {
     {"vars",            builtin_vars,       METH_VARARGS, vars_doc},
     {NULL,              NULL},
 };
+
+#if PYSTON_SPEEDUPS
+int _PyModule_AddFunctionStatic(PyObject *m, PyMethodDef *fdef, PyCFunctionObject* op);
+
+PyMethodDef builtin_method_isinstance[] = { BUILTIN_ISINSTANCE_METHODDEF };
+PyMethodDef builtin_method_len[] = { BUILTIN_LEN_METHODDEF };
+PyMethodDef builtin_method_ord[] = { BUILTIN_ORD_METHODDEF };
+
+PyCFunctionObject builtin_isinstance_obj, builtin_len_obj, builtin_ord_obj;
+#endif
 
 PyDoc_STRVAR(builtin_doc,
 "Built-in functions, exceptions, and other objects.\n\
@@ -2828,10 +2844,6 @@ static struct PyModuleDef builtinsmodule = {
     NULL,
     NULL
 };
-
-#if PYSTON_SPEEDUPS
-PyObject* builtin_isinstance_obj;
-#endif
 
 PyObject *
 _PyBuiltin_Init(void)
@@ -2906,8 +2918,9 @@ _PyBuiltin_Init(void)
     Py_DECREF(debug);
 
 #if PYSTON_SPEEDUPS
-    builtin_isinstance_obj = PyDict_GetItemString(dict, "isinstance");
-    MAKE_IMMORTAL(builtin_isinstance_obj);
+    _PyModule_AddFunctionStatic(mod, builtin_method_isinstance, &builtin_isinstance_obj);
+    _PyModule_AddFunctionStatic(mod, builtin_method_len, &builtin_len_obj);
+    _PyModule_AddFunctionStatic(mod, builtin_method_ord, &builtin_ord_obj);
 #endif
 
     return mod;

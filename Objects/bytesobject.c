@@ -1423,6 +1423,10 @@ bytes_str(PyObject *op)
 static Py_ssize_t
 bytes_length(PyBytesObject *a)
 {
+#if PYSTON_SPEEDUPS
+    if (Py_SIZE(a) < 0)
+        __builtin_unreachable();
+#endif
     return Py_SIZE(a);
 }
 

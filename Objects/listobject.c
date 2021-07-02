@@ -444,6 +444,10 @@ error:
 /* static */ Py_ssize_t
 list_length(PyListObject *a)
 {
+#if PYSTON_SPEEDUPS
+    if (Py_SIZE(a) < 0)
+        __builtin_unreachable();
+#endif
     return Py_SIZE(a);
 }
 

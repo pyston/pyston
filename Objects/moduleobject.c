@@ -459,6 +459,30 @@ PyModule_AddFunctions(PyObject *m, PyMethodDef *functions)
     return res;
 }
 
+#if PYSTON_SPEEDUPS
+PyObject *_PyCFunction_NewStatic(PyMethodDef *ml, PyObject *self, PyObject *module, PyCFunctionObject* op);
+// add a function to the module and store it inside the supplied static variable
+int _PyModule_AddFunctionStatic(PyObject *m, PyMethodDef *fdef, PyCFunctionObject* op)
+{
+    PyObject *name = PyModule_GetNameObject(m);
+    if (name == NULL) {
+        return -1;
+    }
+
+    PyObject* func = _PyCFunction_NewStatic(fdef, (PyObject*)m, name, op);
+    if (func == NULL) {
+        return -1;
+    }
+    if (PyObject_SetAttrString(m, fdef->ml_name, func) != 0) {
+        Py_DECREF(func);
+        return -1;
+    }
+    Py_DECREF(func);
+    Py_DECREF(name);
+    return 0;
+}
+#endif
+
 int
 PyModule_SetDocString(PyObject *m, const char *doc)
 {

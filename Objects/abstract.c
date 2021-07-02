@@ -2421,12 +2421,13 @@ check_class(PyObject *cls, const char *error)
     return -1;
 }
 
+_Py_EXTERN_NONSTATIC_IDENTIFIER(__class__); // defined in typeobject.c
 /* static */ int
 recursive_isinstance(PyObject *inst, PyObject *cls)
 {
     PyObject *icls;
     int retval;
-    _Py_IDENTIFIER(__class__);
+    //_Py_IDENTIFIER(__class__);
 
     if (PyType_Check(cls)) {
         retval = PyObject_TypeCheck(inst, (PyTypeObject *)cls);
@@ -2459,10 +2460,11 @@ recursive_isinstance(PyObject *inst, PyObject *cls)
     return retval;
 }
 
+_Py_NONSTATIC_IDENTIFIER(__instancecheck__);
 int
 PyObject_IsInstance(PyObject *inst, PyObject *cls)
 {
-    _Py_IDENTIFIER(__instancecheck__);
+    //_Py_IDENTIFIER(__instancecheck__);
     PyObject *checker;
 
     /* Quick test for an exact match */

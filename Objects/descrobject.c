@@ -157,7 +157,7 @@ member_get(PyMemberDescrObject *descr, PyObject *obj, PyObject *type)
     return PyMember_GetOne((char *)obj, descr->d_member);
 }
 
-static PyObject *
+/*static*/ PyObject *
 getset_get(PyGetSetDescrObject *descr, PyObject *obj, PyObject *type)
 {
     PyObject *res;

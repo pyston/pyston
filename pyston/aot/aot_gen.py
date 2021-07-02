@@ -102,10 +102,11 @@ class CLongClass(object):
         self.examples = examples
 
 class Signature(object):
-    def __init__(self, argument_classes):
+    def __init__(self, argument_classes, always_trace=[]):
         self.argument_classes = argument_classes
         self.nargs = len(argument_classes)
         self.name = "".join([cls.name for cls in argument_classes]) + str(self.nargs)
+        self.always_trace = list(always_trace)
 
     def getGuard(self, argument_names):
         names = list(argument_names)
@@ -168,6 +169,13 @@ class CompoundSignature(object):
         assert len(set(nargs)) == 1
         return nargs[0]
 
+    @property
+    def always_trace(self):
+        res = []
+        for s in self.signatures:
+            res.extend(s.always_trace)
+        return res
+
 # add special cases for 'isinstance'
 # we add a fast PyType_FastSubclass() check which just checks tp_flags internally.
 class IsInstanceSignature(Signature):
@@ -204,14 +212,18 @@ class FunctionCases(object):
         return f'<FunctionCases of {self.unspecialized_name} with {len(self.signatures)} cases>'
 
 class Handler(object):
-    def __init__(self, case, do_not_trace=[]):
+    def __init__(self, case, do_not_trace=[], always_trace=[]):
         self.case = case
         self.do_not_trace = list(do_not_trace)
+        self.always_trace = list(always_trace)
 
-    def setDoNotTrace(self):
+    def setTracingOverwrites(self, signature):
         clearDoNotTrace()
+        clearAlwaysTrace()
         for name in self.do_not_trace:
             addDoNotTrace(name.encode("ascii"))
+        for name in self.always_trace + signature.always_trace:
+            addAlwaysTrace(name.encode("ascii"))
 
 class NormalHandler(Handler):
     """
@@ -219,8 +231,8 @@ class NormalHandler(Handler):
     Such as PyNumber_Add
     """
 
-    def __init__(self, case, do_not_trace=[]):
-        super(NormalHandler, self).__init__(case, do_not_trace)
+    def __init__(self, case, do_not_trace=[], always_trace=[]):
+        super(NormalHandler, self).__init__(case, do_not_trace, always_trace)
         self.need_res_wrap = case.unspecialized_name in funcs_need_res_wrap
         self.nargs = case.nargs
 
@@ -315,8 +327,8 @@ class NormalHandler(Handler):
         print(f"  return {unspec_name}({', '.join(self._args_names())});", file=profile_f)
         print("}", file=profile_f)
 
-    def trace(self, jit_target, args):
-        self.setDoNotTrace()
+    def trace(self, jit_target, args, signature):
+        self.setTracingOverwrites(signature)
         return runJitTarget(jit_target, *args, wrap_result=self.need_res_wrap)
 
 class CallableHandler(Handler):
@@ -412,8 +424,8 @@ class CallableHandler(Handler):
         print("}", file=profile_f)
 
 
-    def trace(self, jit_target, args):
-        self.setDoNotTrace()
+    def trace(self, jit_target, args, signature):
+        self.setTracingOverwrites(signature)
         return call_helper(jit_target, *args)
 
 # These lambdas have to be defined at the global level.
@@ -550,7 +562,7 @@ def loadCases():
     for name, example in {  # name: (args to isinstance)
                             "Long": (1, int),
                             "List" : ([1], list),
-                            "Tuple": ((1), tuple),
+                            "Tuple": ((1,), tuple),
                             "Bytes": (bytes(), bytes),
                             "Unicode": ("str", str),
                             "Dict": (dict(), dict),
@@ -560,9 +572,15 @@ def loadCases():
         def createIsInstanceSignature(name, arg1, arg2):
             classes = []
             tuple1element = isinstance(arg2, tuple) and len(arg2) == 1
-            classes.append(ObjectClass("isinstanceT1" if tuple1element else "isinstance", IdentityGuard(f"(PyObject*)builtin_isinstance_obj"), [isinstance]))
-            # add two examples for isinstance one where it returns true and one false
-            classes.append(ObjectClass("", Unspecialized, [arg1, foo0]))
+            classes.append(ObjectClass("isinstanceT1" if tuple1element else "isinstance", IdentityGuard(f"(PyObject*)&builtin_isinstance_obj"), [isinstance]))
+            # add examples
+            isinstance_true = [arg1]
+            for example in isinstance_true:
+                assert isinstance(example, arg2) == True
+            isinstance_false = [ExampleClass0(), set()]
+            for example in isinstance_false:
+                assert isinstance(example, arg2) == False
+            classes.append(ObjectClass("", Unspecialized, [isinstance_true] + isinstance_false))
 
             if name and tuple1element: # specialize on isinstance(x, (type,))
                 guard = Tuple1ElementIdentityGuard(f"(PyObject*)&{getCTypeName(name)}")
@@ -571,11 +589,45 @@ def loadCases():
             else: # generic
                 guard = Unspecialized
             classes.append(ObjectClass(name, guard, [arg2]))
-            return IsInstanceSignature(classes)
+            return IsInstanceSignature(classes, always_trace=["builtin_isinstance"])
 
         call_signatures.append(createIsInstanceSignature(name, example[0], example[1]))
         if name: # create isinstance(x, (type,)) version
             call_signatures.append(createIsInstanceSignature(name, example[0], (example[1], )))
+
+
+    def createBuiltinCFunction1ArgSignature(func_name, func, arg1type_name, arg1example):
+            classes = []
+            classes.append(ObjectClass(func_name, IdentityGuard(f"(PyObject*)&builtin_{func_name}_obj"), [func]))
+
+            if arg1type_name: # specialize on arg->ob_type == arg1type_name
+                guard = TypeGuard(f"&{getCTypeName(arg1type_name)}")
+            else: # generic
+                guard = Unspecialized
+            classes.append(ObjectClass(name, guard, [arg1example]))
+            return Signature(classes, always_trace=["builtin_{func_name}"])
+
+    # builtin len()
+    for name, example in {  # name: (args to len)
+                            "List" : [1],
+                            "Tuple": (1,),
+                            "ByteArray": bytearray(1),
+                            "Bytes": bytes(),
+                            "Unicode": "str",
+                            "Dict": dict(),
+                            "Set": set(),
+                            "": [1], # non type specialized len case
+                            }.items():
+        call_signatures.append(createBuiltinCFunction1ArgSignature("len", len, name, example))
+
+    # builtin ord()
+    for name, example in {  # name: (args to ord)
+                            "ByteArray": bytearray(1),
+                            "Bytes": b'c',
+                            "Unicode": "c",
+                            "": "a", # non type specialized ord case
+                            }.items():
+        call_signatures.append(createBuiltinCFunction1ArgSignature("ord", ord, name, example))
 
 
     for name, l in callables.items():
@@ -675,6 +727,14 @@ def loadLibs():
     addDoNotTrace = nitrous_so.addDoNotTrace
     addDoNotTrace.argtypes = [ctypes.c_char_p]
 
+    global clearAlwaysTrace
+    clearAlwaysTrace = nitrous_so.clearAlwaysTrace
+    clearAlwaysTrace.argtypes = []
+
+    global addAlwaysTrace
+    addAlwaysTrace = nitrous_so.addAlwaysTrace
+    addAlwaysTrace.argtypes = [ctypes.c_char_p]
+
     global createJitTarget
     createJitTarget = nitrous_so.createJitTarget
     createJitTarget.argtypes = [ctypes.c_void_p, ctypes.c_long, ctypes.c_long]
@@ -752,7 +812,7 @@ def specialize_func(handler, header_f, profile_f, async_tracing, only=None):
             # create new jit target because we want to make sure we did not train on any error
             # TODO: could skip this if no errors happened
             target = handler.createJitTarget(target_addr, len(train_success))
-            async_tracing.append((name, handler, target, copy.deepcopy(train_success)))
+            async_tracing.append((name, signature, handler, target, copy.deepcopy(train_success)))
             traced.append((signature, name))
         else:
             num_skipped += 1
@@ -765,14 +825,14 @@ def specialize_func(handler, header_f, profile_f, async_tracing, only=None):
 
 
 def do_trace(work):
-    (name, handler, target, train_success) = work
+    (name, signature, handler, target, train_success) = work
     if VERBOSITY >= 1:
         print("tracing", name)
 
     for args in copy.deepcopy(train_success):
         if VERBOSITY >= 1:
             print("tracing", name, "with args:", args)
-        handler.trace(target, args)
+        handler.trace(target, args, signature)
 
 def trace_all_funcs(only=None):
     total_num_gen = 0
@@ -825,7 +885,7 @@ def print_includes(f):
     print('#define unlikely(x) __builtin_expect(!!(x), 0)', file=f)
     print('', file=f)
 
-    print('extern PyObject* builtin_isinstance_obj;', file=f)
+    print('extern PyCFunctionObject builtin_isinstance_obj, builtin_len_obj, builtin_ord_obj;', file=f)
 
     print('', file=f)
 

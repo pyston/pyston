@@ -509,6 +509,10 @@ tuplehash(PyTupleObject *v)
 /* static */ Py_ssize_t
 tuplelength(PyTupleObject *a)
 {
+#if PYSTON_SPEEDUPS
+    if (Py_SIZE(a) < 0)
+        __builtin_unreachable();
+#endif
     return Py_SIZE(a);
 }
 

@@ -409,6 +409,8 @@ using namespace pystol;
 
 extern "C" {
 
+PyCFunctionObject builtin_isinstance_obj, builtin_len_obj, builtin_ord_obj;
+
 void pystolGlobalPythonSetup() {
     addMallocLikeFunc("PyObject_Malloc");
     addMallocLikeFunc("PyTuple_New");
@@ -418,6 +420,10 @@ void pystolGlobalPythonSetup() {
     pystolAddConstObj(Py_False);
     pystolAddConstObj(Py_None);
     pystolAddConstObj(Py_NotImplemented);
+
+    pystolAddConstObj((PyObject*)&builtin_isinstance_obj);
+    pystolAddConstObj((PyObject*)&builtin_len_obj);
+    pystolAddConstObj((PyObject*)&builtin_ord_obj);
 
     MARKCONST((char*)_Py_SwappedOp, sizeof(_Py_SwappedOp[0]) * 6);
 
@@ -438,6 +444,10 @@ void pystolAddConstObj(PyObject* x) {
                                            - offset);
     else if (PyFloat_CheckExact(x))
         MARKCONST(((char*)x) + offset, sizeof(PyFloatObject) - offset);
+    else if (PyCFunction_Check(x)) {
+        MARKCONST(((char*)x) + offset, sizeof(PyCFunctionObject) - offset);
+        MARKCONST(((PyCFunctionObject*)x)->m_ml, sizeof(PyMethodDef));
+    }
     else
         MARKCONST(((char*)x) + offset, sizeof(PyObject) - offset);
 }

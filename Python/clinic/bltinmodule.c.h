@@ -894,11 +894,11 @@ PyDoc_STRVAR(builtin_isinstance__doc__,
 #define BUILTIN_ISINSTANCE_METHODDEF    \
     {"isinstance", (PyCFunction)(void(*)(void))builtin_isinstance, METH_FASTCALL, builtin_isinstance__doc__},
 
-static PyObject *
+/*static*/ PyObject *
 builtin_isinstance_impl(PyObject *module, PyObject *obj,
                         PyObject *class_or_tuple);
 
-static PyObject *
+/*static*/ PyObject *
 builtin_isinstance(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
 {
     PyObject *return_value = NULL;
