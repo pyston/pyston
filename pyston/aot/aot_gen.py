@@ -605,7 +605,7 @@ def loadCases():
             else: # generic
                 guard = Unspecialized
             classes.append(ObjectClass(name, guard, [arg1example]))
-            return Signature(classes, always_trace=["builtin_{func_name}"])
+            return Signature(classes, always_trace=[f"builtin_{func_name}"])
 
     # builtin len()
     for name, example in {  # name: (args to len)
