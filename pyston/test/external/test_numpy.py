@@ -28,6 +28,11 @@ if __name__ == "__main__":
         numpy_dir = os.path.join(tempdir, "numpy")
         shutil.copytree(rel("numpy"), numpy_dir)
 
+        # numpy's setup.py calls git commands, so write out the .git
+        # file so that git knows where to look
+        with open(os.path.join(numpy_dir, ".git"), "w") as f:
+            f.write("gitdir: %s" % os.path.abspath(rel("../../../.git/modules/pyston/test/external/numpy")))
+
         subprocess.check_call([os.path.join(env_dir, "bin/pip"), "install", "-r", rel("numpy/test_requirements.txt")])
 
         libdir = "python" + sysconfig.get_config_var("VERSION")
