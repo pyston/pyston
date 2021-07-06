@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 import sys
+import sysconfig
 import tempfile
 
 
@@ -29,8 +30,7 @@ if __name__ == "__main__":
 
         subprocess.check_call([os.path.join(env_dir, "bin/pip"), "install", "-r", rel("numpy/test_requirements.txt")])
 
-        libdir = "pyston" if hasattr(sys, "pyston_version_info") else "python"
-        libdir += "%d.%d" % sys.version_info[:2]
+        libdir = "python" + sysconfig.get_config_var("VERSION")
 
         # Numpy does a number of refcount-checking tests, which break
         # on our immortal objects.  They selectively enable these tests
