@@ -102,11 +102,12 @@ class CLongClass(object):
         self.examples = examples
 
 class Signature(object):
-    def __init__(self, argument_classes, always_trace=[]):
+    def __init__(self, argument_classes, always_trace=[], guard_fail_fn_name=""):
         self.argument_classes = argument_classes
         self.nargs = len(argument_classes)
         self.name = "".join([cls.name for cls in argument_classes]) + str(self.nargs)
         self.always_trace = list(always_trace)
+        self.guard_fail_fn_name = guard_fail_fn_name
 
     def getGuard(self, argument_names):
         names = list(argument_names)
@@ -225,6 +226,9 @@ class Handler(object):
         for name in self.always_trace + signature.always_trace:
             addAlwaysTrace(name.encode("ascii"))
 
+    def getGuardFailFuncName(self, signature):
+        return self.case.unspecialized_name + getattr(signature, "guard_fail_fn_name", "")
+
 class NormalHandler(Handler):
     """
     Handler object for handling "normal" functions that take their arguments normally
@@ -242,11 +246,11 @@ class NormalHandler(Handler):
             arg_names = [f"o{i}" for i in range(signature.nargs)]
             parameters = [f"{cls.c_type_name} {name}" for (name, cls) in zip(arg_names, signature.argument_classes)]
             pass_args = ", ".join(arg_names)
-
+            guard_fail_fn_name = self.getGuardFailFuncName(signature)
             print(f"{self._get_ret_type()} {name}({', '.join(parameters)})", "{", file=f)
             print(f"  if (unlikely(!({signature.getGuard(arg_names)})))", "{", file=f)
-            print(f"    SET_JIT_AOT_FUNC({unspecialized_name});", file=f)
-            print(f"    PyObject* ret = {unspecialized_name}({pass_args});", file=f)
+            print(f"    SET_JIT_AOT_FUNC({guard_fail_fn_name});", file=f)
+            print(f"    PyObject* ret = {guard_fail_fn_name}({pass_args});", file=f)
             # this makes sure the compiler is not merging the two calls into a single one
             print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
             print(f"    return ret;",  file=f)
@@ -343,6 +347,10 @@ class CallableHandler(Handler):
 
     def writePretraceFunctions(self, f):
         for signature, name in self.case.getSignatures():
+            print(
+                f"PyObject* {name}(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);", file=f)
+
+        for signature, name in self.case.getSignatures():
             arg_names = ["f"] + [f"stack[-oparg+{i}]" for i in range(signature.nargs-1)]
             nargs = signature.nargs
             print(
@@ -352,6 +360,8 @@ class CallableHandler(Handler):
                 # CALL_METHOD can call the function with a different number of args
                 # depending if LOAD_METHOD returned true or false which means we need
                 # to add this additional guard.
+                # we don't use getGuardFailFuncName() here because if the number of args is different
+                # it's likely faster to just go to the untraced case.
                 print(f"    SET_JIT_AOT_FUNC({self.case.unspecialized_name});", file=f)
                 print(f"    PyObject* ret = {self.case.unspecialized_name}(tstate, stack, oparg);", file=f)
                 # this makes sure the compiler is not merging the calls into a single one
@@ -363,10 +373,11 @@ class CallableHandler(Handler):
             else:
                 assert 0
             print("  }", file=f)
+            guard_fail_fn_name = self.getGuardFailFuncName(signature)
             print(f"  PyObject* f = stack[-oparg - 1];", file=f)
             print(f"  if (unlikely(!({signature.getGuard(arg_names)})))", "{", file=f)
-            print(f"    SET_JIT_AOT_FUNC({self.case.unspecialized_name});", file=f)
-            print(f"    PyObject* ret = {self.case.unspecialized_name}(tstate, stack, oparg);", file=f)
+            print(f"    SET_JIT_AOT_FUNC({guard_fail_fn_name});", file=f)
+            print(f"    PyObject* ret = {guard_fail_fn_name}(tstate, stack, oparg);", file=f)
             # this makes sure the compiler is not merging the calls into a single one
             print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
             print(f"    return ret;", file=f)
@@ -582,53 +593,63 @@ def loadCases():
                 assert isinstance(example, arg2) == False
             classes.append(ObjectClass("", Unspecialized, [isinstance_true] + isinstance_false))
 
+            guard_fail_fn_name = "isinstance3"
             if name and tuple1element: # specialize on isinstance(x, (type,))
                 guard = Tuple1ElementIdentityGuard(f"(PyObject*)&{getCTypeName(name)}")
             elif name: # specialize on isinstance(x, type)
                 guard = IdentityGuard(f"(PyObject*)&{getCTypeName(name)}")
             else: # generic
                 guard = Unspecialized
+                guard_fail_fn_name = ""
             classes.append(ObjectClass(name, guard, [arg2]))
-            return IsInstanceSignature(classes, always_trace=["builtin_isinstance"])
+            return IsInstanceSignature(classes, always_trace=["builtin_isinstance"], guard_fail_fn_name=guard_fail_fn_name)
 
         call_signatures.append(createIsInstanceSignature(name, example[0], example[1]))
         if name: # create isinstance(x, (type,)) version
             call_signatures.append(createIsInstanceSignature(name, example[0], (example[1], )))
 
 
-    def createBuiltinCFunction1ArgSignature(func_name, func, arg1type_name, arg1example):
-            classes = []
-            classes.append(ObjectClass(func_name, IdentityGuard(f"(PyObject*)&builtin_{func_name}_obj"), [func]))
+    def createBuiltinCFunction1ArgSignature(func_name, func, arg1type_name, arg1examples):
+        classes = []
+        classes.append(ObjectClass(func_name, IdentityGuard(f"(PyObject*)&builtin_{func_name}_obj"), [func]))
 
-            if arg1type_name: # specialize on arg->ob_type == arg1type_name
-                guard = TypeGuard(f"&{getCTypeName(arg1type_name)}")
-            else: # generic
-                guard = Unspecialized
-            classes.append(ObjectClass(name, guard, [arg1example]))
-            return Signature(classes, always_trace=[f"builtin_{func_name}"])
+        if arg1type_name: # specialize on arg->ob_type == arg1type_name
+            guard = TypeGuard(f"&{getCTypeName(arg1type_name)}")
+            guard_fail_fn_name = f"{func_name}2"
+        else: # generic
+            guard = Unspecialized
+            guard_fail_fn_name = ""
+        classes.append(ObjectClass(arg1type_name, guard, arg1examples))
+        return Signature(classes, always_trace=[f"builtin_{func_name}"], guard_fail_fn_name=guard_fail_fn_name)
+
+    def addBuiltinCFunction1ArgSignatures(func_name, func, spec_dict):
+        # Argument type specific versions
+        for name, example in spec_dict.items():
+            call_signatures.append(createBuiltinCFunction1ArgSignature(func_name, func, name, [example]))
+        # Generic non arg type specific version only assuming the function is the same.
+        # Creates a trace supporting all types.
+        # If a type guard inside a type specific version fails we will use this trace.
+        call_signatures.append(createBuiltinCFunction1ArgSignature(func_name, func, "", list(spec_dict.values())))
 
     # builtin len()
-    for name, example in {  # name: (args to len)
-                            "List" : [1],
-                            "Tuple": (1,),
-                            "ByteArray": bytearray(1),
-                            "Bytes": bytes(),
-                            "Unicode": "str",
-                            "Dict": dict(),
-                            "Set": set(),
-                            "": [1], # non type specialized len case
-                            }.items():
-        call_signatures.append(createBuiltinCFunction1ArgSignature("len", len, name, example))
+    len_specs = {
+        "List" : [1],
+        "Tuple": (1,),
+        "ByteArray": bytearray(1),
+        "Bytes": bytes(),
+        "Unicode": "str",
+        "Dict": dict(),
+        "Set": set(),
+    }
+    addBuiltinCFunction1ArgSignatures("len", len, len_specs)
 
     # builtin ord()
-    for name, example in {  # name: (args to ord)
-                            "ByteArray": bytearray(1),
-                            "Bytes": b'c',
-                            "Unicode": "c",
-                            "": "a", # non type specialized ord case
-                            }.items():
-        call_signatures.append(createBuiltinCFunction1ArgSignature("ord", ord, name, example))
-
+    ord_specs = {
+        "ByteArray": bytearray(1),
+        "Bytes": b'c',
+        "Unicode": "c",
+    }
+    addBuiltinCFunction1ArgSignatures("ord", ord, ord_specs)
 
     for name, l in callables.items():
         signatures = {}

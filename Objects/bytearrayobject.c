@@ -295,7 +295,7 @@ PyByteArray_Concat(PyObject *a, PyObject *b)
 
 /* Functions stuffed into the type object */
 
-static Py_ssize_t
+/*static*/ Py_ssize_t
 bytearray_length(PyByteArrayObject *self)
 {
 #if PYSTON_SPEEDUPS
