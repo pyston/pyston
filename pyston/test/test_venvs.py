@@ -24,10 +24,8 @@ def testEnv(dir):
 
     # PYSTON_UNSAFE_ABI used to not work with 'pyston -m venv' since that would
     # install an old version of pip which detected abi tags a different way
-    o = getOutput([pip, "install", "numpy==1.19.4"], env={"PYSTON_UNSAFE_ABI":"1"}).decode("utf8")
-    print(o)
-    assert "cp38-cp38-manylinux" in o, o
-    subprocess.check_call([exe, "-c", "import numpy; print(numpy.__version__)"], env={"PYSTON_UNSAFE_ABI":"1"})
+    subprocess.check_call([pip, "install", "numpy==1.19.4"])
+    subprocess.check_call([exe, "-c", "import numpy; print(numpy.__version__)"])
 
 if __name__ == "__main__":
     exe = sys.executable
