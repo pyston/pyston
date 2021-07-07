@@ -426,7 +426,6 @@ test: pyston/build/system_env/bin/python pyston/build/unopt_env/bin/python
 	# Note: test_numpy is internally parallel so we might have to re-separate it
 	# into a separate step
 	$(MAKE) _runtests test_numpy
-	$(MAKE) test_numpy
 	JIT_MAX_MEM=50000 pyston/build/unopt_env/bin/python pyston/test/jit_limit.py
 	JIT_MAX_MEM=50000 pyston/build/unopt_env/bin/python pyston/test/jit_osr_limit.py
 	pyston/build/unopt_env/bin/python pyston/test/test_venvs.py

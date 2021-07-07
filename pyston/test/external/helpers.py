@@ -168,14 +168,14 @@ def process_log(log):
         # Remove filenames:
         # log = re.sub("/[^ ]*.py:\\d", "", log)
         # log = re.sub("/[^ ]*.py.*line \\d", "", log)
-        if "http://" not in l:
-            l = re.sub(r"""(^|[ \"\'/]|\.+)/[^ :\"\']*($|[ \":\'])""", "<filename>", l)
+        if "http://" not in l and len(l) < 300:
+            l = re.sub(r"""(^|[ \"\'/]|\.+)[\w\d_\-./]*/[\w\d_\-./]*($|[ \":\',])""", "<filename>", l)
 
         # Remove pointer ids:
         l = re.sub('0x([0-9a-f]{8,})', "<pointer>", l)
 
         # Normalize across python minor versions
-        l = re.sub("Python 3.8.\\d", "Python 3.8.x", l)
+        l = re.sub("Python 3.8.\\d+", "Python 3.8.x", l)
 
         # I think this isn't necessary since this isn't part of the passed log,
         # but pip installs packages in a nondeterministic order

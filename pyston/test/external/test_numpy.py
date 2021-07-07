@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 import sys
+import sysconfig
 import tempfile
 
 
@@ -27,19 +28,24 @@ if __name__ == "__main__":
         numpy_dir = os.path.join(tempdir, "numpy")
         shutil.copytree(rel("numpy"), numpy_dir)
 
+        # numpy's setup.py calls git commands, so write out the .git
+        # file so that git knows where to look
+        with open(os.path.join(numpy_dir, ".git"), "w") as f:
+            f.write("gitdir: %s" % os.path.abspath(rel("../../../.git/modules/pyston/test/external/numpy")))
+
         subprocess.check_call([os.path.join(env_dir, "bin/pip"), "install", "-r", rel("numpy/test_requirements.txt")])
 
-        libdir = "pyston" if hasattr(sys, "pyston_version_info") else "python"
-        libdir += "%d.%d" % sys.version_info[:2]
+        libdir = "python" + sysconfig.get_config_var("VERSION")
 
-        # Numpy does a number of refcount-checking tests, which break
-        # on our immortal objects.  They selectively enable these tests
-        # based on the existence of sys.getrefcount, so insert this code
-        # to remove it before running the numpy testsuite:
+        # Numpy now has pyston-detection code in it, which turns off some tests.
+        # One option could be to allow differences in the test counts, but for
+        # now let's try forcing the numpy testsuite to think it's running on Pyston
+        # even for the baseline run.
         with open(os.path.join(env_dir, "lib/%s/site-packages/usercustomize.py" % libdir), 'w') as f:
             f.write("""
 import sys
-del sys.getrefcount
+if not hasattr(sys, "pyston_version_info"):
+    sys.pyston_version_info = ()
 """)
 
         r = subprocess.call([os.path.join(env_dir, "bin/python"), "-u", "runtests.py", "--mode=full"], cwd=numpy_dir)
