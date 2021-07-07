@@ -85,3 +85,7 @@ We use a script which builds automatically packages for all supported distributi
 3. output debian packages are now in `release/<version>/`. 
    Inside this directory are also different "portable dir" releases made from the different distibution deb packages.
    Decide on which portable dir to use - the oldest version will run with most dists but will also bundle the oldes libs.
+
+## Checking for Pyston at runtime
+
+Our current recommended way to see if your Python code is running on Pyston is to do `hasattr(sys, "pyston_version_info")`.
