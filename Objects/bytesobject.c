@@ -1420,7 +1420,7 @@ bytes_str(PyObject *op)
     return bytes_repr(op);
 }
 
-static Py_ssize_t
+/*static*/ Py_ssize_t
 bytes_length(PyBytesObject *a)
 {
 #if PYSTON_SPEEDUPS
