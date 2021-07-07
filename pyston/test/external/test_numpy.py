@@ -37,14 +37,15 @@ if __name__ == "__main__":
 
         libdir = "python" + sysconfig.get_config_var("VERSION")
 
-        # Numpy does a number of refcount-checking tests, which break
-        # on our immortal objects.  They selectively enable these tests
-        # based on the existence of sys.getrefcount, so insert this code
-        # to remove it before running the numpy testsuite:
+        # Numpy now has pyston-detection code in it, which turns off some tests.
+        # One option could be to allow differences in the test counts, but for
+        # now let's try forcing the numpy testsuite to think it's running on Pyston
+        # even for the baseline run.
         with open(os.path.join(env_dir, "lib/%s/site-packages/usercustomize.py" % libdir), 'w') as f:
             f.write("""
 import sys
-del sys.getrefcount
+if not hasattr(sys, "pyston_version_info"):
+    sys.pyston_version_info = ()
 """)
 
         r = subprocess.call([os.path.join(env_dir, "bin/python"), "-u", "runtests.py", "--mode=full"], cwd=numpy_dir)
