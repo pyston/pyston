@@ -38,3 +38,11 @@
                         (PY_MICRO_VERSION <<  8) | \
                         (PY_RELEASE_LEVEL <<  4) | \
                         (PY_RELEASE_SERIAL << 0))
+
+
+#define PYSTON_VERSION_HEX ((PYSTON_MAJOR_VERSION  << 24) | \
+                           (PYSTON_MINOR_VERSION   << 16) | \
+                           (PYSTON_MICRO_VERSION   <<  8) | \
+                           (0                      <<  4) | \
+                           (0                      <<  0))
+
