@@ -145,7 +145,16 @@ _PyObject_ArenaVirtualFree(void *ctx, void *ptr, size_t size)
 {
     VirtualFree(ptr, 0, MEM_RELEASE);
 }
+static void *
+_PyObject_ArenaMmap(void *ctx, size_t size){
+    return _PyObject_ArenaVirtualAlloc(ctx, size);
+}
 
+static void
+_PyObject_ArenaMunmap(void *ctx, void *ptr, size_t size)
+{
+    _PyObject_ArenaVirtualFree(ctx, ptr, size);
+}
 #elif defined(ARENAS_USE_MMAP)
 static void *
 _PyObject_ArenaMmap(void *ctx, size_t size)
