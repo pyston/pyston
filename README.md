@@ -77,6 +77,7 @@ make script_opt
 3. adjust `PYSTON_*_VERSION` inside `Include/patchlevel.h`
 4. adjust `PYSTON_VERSION` inside `configure.ac` and run `autoconf`
 5. update `PYSTON_MINOR` and similar inside Makefile
+6. update the include directory in pyston/pystol/CMakeLists.txt
 
 ## Release packaging
 We use a script which builds automatically packages for all supported distributions via docker (will take several hours):

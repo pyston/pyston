@@ -7,7 +7,7 @@ GDB:=gdb
 PYTHON_MAJOR:=3
 PYTHON_MINOR:=8
 PYSTON_MAJOR:=2
-PYSTON_MINOR:=2
+PYSTON_MINOR:=3
 
 -include Makefile.local
 

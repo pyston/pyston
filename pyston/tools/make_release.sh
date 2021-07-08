@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-VERSION=2.2
+VERSION=2.3
 OUTPUT_DIR=${PWD}/release/${VERSION}
 
 if [ -d $OUTPUT_DIR ]
