@@ -36,7 +36,7 @@ sudo apt-get install ninja-build cmake clang libssl-dev libsqlite3-dev luajit py
 
 Extra dependencies for running the test suite:
 ```
-sudo apt-get install libwebp-dev libjpeg-dev python3-gdbm python3-tk python3-dev tk-dev libgdbm-dev libgdbm-compat-dev liblzma-dev libbz2-dev
+sudo apt-get install libwebp-dev libjpeg-dev python3-gdbm python3-tk python3-dev tk-dev libgdbm-dev libgdbm-compat-dev liblzma-dev libbz2-dev nginx
 ```
 
 Extra dependencies for producing Pyston debian packages and portable directory release:
