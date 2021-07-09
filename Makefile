@@ -413,11 +413,17 @@ $(call make_test_build,expected,pyston/build/system_env/bin/python)
 .PRECIOUS: pyston/test/external/test_%.expected pyston/test/external/test_%.output
 $(call make_test_build,output,pyston/build/unopt_env/bin/python)
 
+.PRECIOUS: pyston/test/external/test_%.optoutput
+$(call make_test_build,optoutput,pyston/build/opt_env/bin/python)
+
 $(call make_test_build,dbgexpected,pyston/build/stockdbg_env/bin/python)
 .PRECIOUS: pyston/test/external/test_%.dbgexpected pyston/test/external/test_%.dbgoutput
 $(call make_test_build,dbgoutput,pyston/build/dbg_env/bin/python)
 
 test_%: pyston/test/external/test_%.expected pyston/test/external/test_%.output
+	pyston/build/system_env/bin/python pyston/test/external/helpers.py compare $< $(patsubst %.expected,%.output,$<)
+
+testopt_%: pyston/test/external/test_%.expected pyston/test/external/test_%.optoutput
 	pyston/build/system_env/bin/python pyston/test/external/helpers.py compare $< $(patsubst %.expected,%.output,$<)
 
 testdbg_%: pyston/test/external/test_%.dbgexpected pyston/test/external/test_%.dbgoutput
@@ -426,6 +432,9 @@ testdbg_%: pyston/test/external/test_%.dbgexpected pyston/test/external/test_%.d
 cpython_testsuite: pyston/build/cpython_unopt_build/pyston
 	OPENSSL_CONF=$(abspath pyston/test/openssl_dev.cnf) $(MAKE) -C pyston/build/cpython_unopt_build test
 
+cpython_testsuite_opt: pyston/build/cpython_opt_build/pyston
+	OPENSSL_CONF=$(abspath pyston/test/openssl_dev.cnf) $(MAKE) -C pyston/build/cpython_opt_build test
+
 cpython_testsuite_dbg: pyston/build/cpython_dbg_build/pyston
 	OPENSSL_CONF=$(abspath pyston/test/openssl_dev.cnf) $(MAKE) -C pyston/build/cpython_dbg_build test
 
@@ -433,6 +442,7 @@ cpython_testsuite_dbg: pyston/build/cpython_dbg_build/pyston
 # with the other tests
 _runtests: pyston/test/caches_unopt pyston/test/deferred_stack_decref_unopt pyston/test/getattr_caches_unopt test_django test_urllib3 test_setuptools test_six test_requests cpython_testsuite
 _runtestsdbg: pyston/test/caches_dbg testdbg_django testdbg_urllib3 testdbg_setuptools testdbg_six testdbg_requests cpython_testsuite_dbg
+_runtestsopt: pyston/test/caches_opt testopt_django testopt_urllib3 testopt_setuptools testopt_six testopt_requests cpython_testsuite_opt
 
 test: pyston/build/system_env/bin/python pyston/build/unopt_env/bin/python
 	rm -f $(wildcard pyston/test/external/*.output)
