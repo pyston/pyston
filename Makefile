@@ -440,9 +440,9 @@ cpython_testsuite_dbg: pyston/build/cpython_dbg_build/pyston
 
 # Note: cpython_testsuite is itself parallel so we might need to run it not in parallel
 # with the other tests
-_runtests: pyston/test/caches_unopt pyston/test/deferred_stack_decref_unopt pyston/test/getattr_caches_unopt test_django test_urllib3 test_setuptools test_six test_requests cpython_testsuite
-_runtestsdbg: pyston/test/caches_dbg testdbg_django testdbg_urllib3 testdbg_setuptools testdbg_six testdbg_requests cpython_testsuite_dbg
-_runtestsopt: pyston/test/caches_opt testopt_django testopt_urllib3 testopt_setuptools testopt_six testopt_requests cpython_testsuite_opt
+_runtests: pyston/test/caches_unopt pyston/test/test_rebuild_packages_unopt pyston/test/deferred_stack_decref_unopt pyston/test/getattr_caches_unopt test_django test_urllib3 test_setuptools test_six test_requests cpython_testsuite
+_runtestsdbg: pyston/test/caches_dbg pyston/test/test_rebuild_packages_dbg testdbg_django testdbg_urllib3 testdbg_setuptools testdbg_six testdbg_requests cpython_testsuite_dbg
+_runtestsopt: pyston/test/caches_opt pyston/test/test_rebuild_packages_opt testopt_django testopt_urllib3 testopt_setuptools testopt_six testopt_requests cpython_testsuite_opt
 
 test: pyston/build/system_env/bin/python pyston/build/unopt_env/bin/python
 	rm -f $(wildcard pyston/test/external/*.output)
