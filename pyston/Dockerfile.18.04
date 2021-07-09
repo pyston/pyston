@@ -20,6 +20,7 @@ RUN apt-get install -y build-essential ninja-build cmake clang libssl-dev libsql
 RUN apt-get install -y debhelper dh-make dh-exec
 RUN apt-get install -y zlib1g-dev virtualenv python3.8
 RUN apt-get install -y git
+RUN apt-get install -y linux-tools-common linux-tools-generic
 
 # we have to set a local else it will use ascii
 RUN apt-get install -y locales
