@@ -17,8 +17,9 @@ for DIST in 16.04 18.04 20.04
 do
     echo "Creating $DIST release"
     docker build -f pyston/Dockerfile.$DIST -t pyston-build:$DIST .
-    docker run -iv${PWD}/release/$VERSION:/host-volume --rm pyston-build:$DIST sh -s <<EOF
+    docker run -iv${PWD}/release/$VERSION:/host-volume --rm --cap-add SYS_ADMIN pyston-build:$DIST sh -s <<EOF
 set -ex
+ln -sf /usr/lib/linux-tools/*/perf /usr/bin/perf
 make package -j`nproc`
 apt-get install -y patchelf
 make pyston/build/release_env/bin/python3
