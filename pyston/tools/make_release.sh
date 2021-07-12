@@ -10,11 +10,25 @@ then
 fi
 mkdir -p $OUTPUT_DIR
 
+PARALLEL=
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -j)
+            PARALLEL=1
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
 # clean repo just to be sure, should also speedup copying the repo while running docker build
 make clean
 
-for DIST in 16.04 18.04 20.04
-do
+function make_release {
+    DIST=$1
+
     echo "Creating $DIST release"
     docker build -f pyston/Dockerfile.$DIST -t pyston-build:$DIST .
     docker run -iv${PWD}/release/$VERSION:/host-volume --rm --cap-add SYS_ADMIN pyston-build:$DIST sh -s <<EOF
@@ -33,6 +47,16 @@ cd /host-volume/pyston_${VERSION}_${DIST}
 tar -czf ../pyston_${VERSION}_${DIST}.tar.gz *
 EOF
     docker image rm pyston-build:$DIST
+}
+
+for DIST in 16.04 18.04 20.04
+do
+    if [ -n "$PARALLEL" ]; then
+        make_release $DIST &
+    else
+        make_release $DIST
+    fi
 done
+wait
 
 echo "FINISHED: wrote release to $OUTPUT_DIR"
