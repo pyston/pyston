@@ -196,7 +196,7 @@ unsafe_$(1):
 
 endef
 
-SO_IFNOT_AMD := $(ifeq $(findstring AMD,$(file < /proc/cpuinfo)),,so)
+SO_IFNOT_AMD := $(if $(findstring AMD,$(shell cat /proc/cpuinfo)),,so)
 
 COMMA:=,
 $(call make_cpython_build,unopt,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=$(abspath pyston/build/cpython_unopt_install/usr) --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc,,)
