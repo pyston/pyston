@@ -19,7 +19,7 @@ do
     docker build -f pyston/Dockerfile.$DIST -t pyston-build:$DIST .
     docker run -iv${PWD}/release/$VERSION:/host-volume --rm pyston-build:$DIST sh -s <<EOF
 set -ex
-make package
+make package -j`nproc`
 apt-get install -y patchelf
 make pyston/build/release_env/bin/python3
 pyston/build/release_env/bin/python3 pyston/tools/make_portable_dir.py pyston_${VERSION}_amd64.deb pyston_${VERSION}_${DIST}
