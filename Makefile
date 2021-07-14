@@ -159,7 +159,7 @@ pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINO
 
 pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0: pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.perf
 	$(BOLT) pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.prebolt -o $$@ -p $$< -update-debug-sections -reorder-blocks=cache+ -reorder-functions=hfsort+ -split-functions=3 -icf=1 -inline-all -split-eh -reorder-functions-use-hot-size -peepholes=all -jump-tables=aggressive -inline-ap -indirect-call-promotion=all -dyno-stats -frame-opt=hot -use-gnu-stack -jump-tables=none
-	ln -sf $(abspath $$@) pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so
+	bash -c "cd pyston/build/cpython_$(1)_install/usr/lib; ln -sf libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so{.1.0,}"
 
 pyston/build/$(1)_env/bin/python: pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0
 
