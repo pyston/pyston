@@ -31,9 +31,6 @@ fi
 mkdir -p $OUTPUT_DIR
 
 
-# clean repo just to be sure, should also speedup copying the repo while running docker build
-make clean
-
 function make_release {
     DIST=$1
 
