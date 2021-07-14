@@ -3,14 +3,8 @@ set -e
 VERSION=2.3
 OUTPUT_DIR=${PWD}/release/${VERSION}
 
-if [ -d $OUTPUT_DIR ]
-then
-    echo "Directory $OUTPUT_DIR already exists";
-    exit 1
-fi
-mkdir -p $OUTPUT_DIR
-
 PARALLEL=
+RELEASES=
 while [[ $# -gt 0 ]]; do
     case $1 in
         -j)
@@ -18,10 +12,24 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         *)
+            RELEASES="$RELEASES $1"
             shift
             ;;
     esac
 done
+
+if [ -z "$RELEASES" ]; then
+    RELEASES="16.04 18.04 20.04"
+
+    if [ -d $OUTPUT_DIR ]
+    then
+        echo "Directory $OUTPUT_DIR already exists";
+        exit 1
+    fi
+fi
+
+mkdir -p $OUTPUT_DIR
+
 
 # clean repo just to be sure, should also speedup copying the repo while running docker build
 make clean
@@ -49,7 +57,7 @@ EOF
     docker image rm pyston-build:$DIST
 }
 
-for DIST in 16.04 18.04 20.04
+for DIST in $RELEASES
 do
     if [ -n "$PARALLEL" ]; then
         make_release $DIST &

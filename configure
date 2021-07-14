@@ -6484,6 +6484,12 @@ if test "$Py_OPT" = 'true' ; then
       ;;
   esac
 
+  # gcc <10.? has a bug where sometimes -fno-semantic-interposition plus -flto
+  # causes a linker error for a .so build
+  # https://bugzilla.redhat.com/show_bug.cgi?id=1795575
+  if test $enable_shared = "yes"; then
+    LDFLAGS_NODIST="$LDFLAGS_NODIST -fsemantic-interposition"
+  fi
 
 else
   DEF_MAKE_ALL_RULE="build_all"
