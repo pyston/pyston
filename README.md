@@ -31,12 +31,12 @@ git submodule update --init pyston/llvm pyston/bolt/bolt pyston/LuaJIT pyston/ma
 Pyston has the following build dependencies:
 
 ```
-sudo apt-get install ninja-build cmake clang libssl-dev libsqlite3-dev luajit python3 zlib1g-dev virtualenv libjpeg-dev linux-tools-common linux-tools-generic linux-tools-`uname -r`
+sudo apt-get install build-essential ninja-build git cmake clang libssl-dev libsqlite3-dev luajit python3.8 zlib1g-dev virtualenv libjpeg-dev linux-tools-common linux-tools-generic linux-tools-`uname -r`
 ```
 
 Extra dependencies for running the test suite:
 ```
-sudo apt-get install libwebp-dev libjpeg-dev python3-gdbm python3-tk python3-dev tk-dev libgdbm-dev libgdbm-compat-dev liblzma-dev libbz2-dev nginx
+sudo apt-get install libwebp-dev libjpeg-dev python3.8-gdbm python3.8-tk python3.8-dev tk-dev libgdbm-dev libgdbm-compat-dev liblzma-dev libbz2-dev nginx
 ```
 
 Extra dependencies for producing Pyston debian packages and portable directory release:
@@ -72,7 +72,7 @@ make script_opt
 ```
 
 ## Changing the version number
-1. adjust `VERSION` in `pyston/tools/make_release.sh`
+1. adjust `VERSION` in `pyston/tools/make_release.sh` and `pyston/tools/bench_release.sh`
 2. add a `pyston/debian/changelog` entry (make sure the date is correct or the build fails in odd ways)
 3. adjust `PYSTON_*_VERSION` inside `Include/patchlevel.h`
 4. adjust `PYSTON_VERSION` inside `configure.ac` and run `autoconf`
@@ -81,11 +81,13 @@ make script_opt
 
 ## Release packaging
 We use a script which builds automatically packages for all supported distributions via docker (will take several hours):
-1. make sure your repos do not contain unwanted changes because they will get used to build the packages 
+NOTE: our release build process requires hardware with LBR (last branch record) support (=non virtualized Intel CPU).
+1. make sure your repos do not contain unwanted changes because they will get used to build the packages
 2. execute `$ pyston/tools/make_release.sh`
-3. output debian packages are now in `release/<version>/`. 
+3. output debian packages are now in `release/<version>/`.
    Inside this directory are also different "portable dir" releases made from the different distibution deb packages.
    Decide on which portable dir to use - the oldest version will run with most dists but will also bundle the oldes libs.
+4. execute `$ make tune; pyston/tools/bench_release.sh` to generate benchmark results.
 
 ## Checking for Pyston at runtime
 
