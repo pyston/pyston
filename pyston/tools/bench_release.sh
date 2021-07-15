@@ -20,7 +20,7 @@ set -ex
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get upgrade -y
-apt-get install -y build-essential git time libffi-dev
+apt-get install -y build-essential git time libffi-dev nginx
 # pillow deps:
 apt-get install -y libtiff5-dev libjpeg8-dev libopenjp2-7-dev zlib1g-dev libfreetype6-dev liblcms2-dev libwebp-dev tcl8.6-dev tk8.6-dev python3-tk libharfbuzz-dev libfribidi-dev libxcb1-dev
 
@@ -30,7 +30,7 @@ sed -i 's/pytorch_alexnet_inference//g' python-macrobenchmarks/run_all.sh
 
 # pyston deb package
 apt-get install -y /host-volume-in/pyston_${VERSION}_${DIST}.deb
-pyston -mpip install pyperformance virtualenv
+pyston -mpip install pyperformance==1.0.1 virtualenv
 pyston -mpyperformance run -f -o /host-volume-out/pyston_${VERSION}_${DIST}.json
 chown -R $(id -u):$(id -g) /host-volume-out/pyston_${VERSION}_${DIST}.json
 
