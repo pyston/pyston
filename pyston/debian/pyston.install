@@ -1,6 +1,6 @@
 #!/usr/bin/dh-exec
-build/cpython_release_install/usr/bin/python3.bolt => usr/bin/pyston3.8
-build/cpython_release_install/usr/bin/pip3.8 => usr/bin/pip-pyston3.8
+build/cpython_release_install/usr/bin/python3.bolt => usr/bin/python3.8-pyston2.3
+build/cpython_release_install/usr/bin/pip3.8 => usr/bin/pip-pyston2.3
 
 build/cpython_release_install/usr/include usr/
 build/cpython_release_install/usr/lib usr

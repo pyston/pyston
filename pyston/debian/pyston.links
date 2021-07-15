@@ -1,4 +1,3 @@
-usr/bin/pyston3.8 usr/bin/pyston
-usr/bin/pyston3.8 usr/bin/pyston3
-usr/bin/pip-pyston3.8 usr/bin/pip-pyston
-usr/bin/pip-pyston3.8 usr/bin/pip-pyston3
+usr/bin/python3.8-pyston2.3 usr/bin/pyston
+usr/bin/python3.8-pyston2.3 usr/bin/pyston3
+usr/bin/pip-pyston2.3 usr/bin/pip-pyston
