@@ -65,5 +65,8 @@ analyze: all_results # pypybench_results
 quick_analyze: results/djangocms-system.json results/djangocms-opt.json results/flaskblogging-system.json results/flaskblogging-opt.json results/kinto_bench-system.json results/kinto_bench-opt.json
 	python3 analyze.py
 
+quick_analyze_systempyston: results/djangocms-system.json results/djangocms-systempyston.json results/flaskblogging-system.json results/flaskblogging-systempyston.json results/kinto_bench-system.json results/kinto_bench-systempyston.json
+	python3 analyze.py
+
 clean:
 	rm -rfv results

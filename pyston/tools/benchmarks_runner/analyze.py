@@ -9,7 +9,7 @@ join = os.path.join
 def rel(path):
     return join(os.path.dirname(__file__), path)
 
-BUILDS = ["system", "opt", "pypy"]
+builds = []
 
 def getQuantiles(times):
     iteration_times = times[1:] - times[:-1]
@@ -61,7 +61,7 @@ def analyze(bench, normalized=False, p99=False):
 
     all_quantiles = {}
 
-    for build in BUILDS:
+    for build in builds:
         print(build, end=' ')
         try:
             timings = loadTimings(bench, build)
@@ -103,12 +103,12 @@ def analyze(bench, normalized=False, p99=False):
 def plot(bench):
     import matplotlib.pyplot as plt
 
-    for build in BUILDS:
+    for build in builds:
         timings = loadTimings(bench, build)
         window = calculateWindow(timings)
         avg = (timings[window:] - timings[:-window]) / window
         plt.plot(timings[window:] - timings[int((window + 1) / 2)], 1.0 / avg)
-    plt.legend(BUILDS)
+    plt.legend(builds)
     plt.show()
 
 def plotLatencyHistogram(bench, build):
@@ -142,11 +142,14 @@ if __name__ == "__main__":
     for fn in os.listdir(os.path.join(os.path.dirname(__file__), "results")):
         if fn.endswith("-system.json"):
             benches.append(fn.rsplit('-', 1)[0])
+        if fn.endswith(".json"):
+            builds.append(fn.split('-')[-1][:-5])
+    builds = list(set(builds))
 
     if 0:
         for bench in ("flaskblogging", "djangocms"):
             plot(bench)
-            for build in BUILDS:
+            for build in builds:
                 plotLatencyHistogram(bench, build)
         sys.exit()
 
@@ -155,7 +158,7 @@ if __name__ == "__main__":
         sys.exit()
 
 
-    for build in BUILDS:
+    for build in builds:
         print(build)
         try:
             subprocess.check_call([os.path.join(os.path.dirname(__file__), "../../build/%s_env/bin/python" % build), "-c", "import sys; print(sys.version)"])
@@ -174,7 +177,7 @@ if __name__ == "__main__":
 
     averaged_benches = ["flaskblogging", "djangocms"]
     print("Geomean of %s:" % ("+".join(averaged_benches)))
-    for build in BUILDS:
+    for build in builds:
         print("%s:" % build, end=" ")
         for type in "mean", "p99", "maxrss":
             t = 1.0
@@ -193,7 +196,7 @@ if __name__ == "__main__":
         print()
 
     print()
-    for build in BUILDS:
+    for build in builds:
         fn = join(RESULTS_DIR, "pypybench-%s.json" % build)
         if not os.path.exists(fn):
             continue
