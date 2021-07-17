@@ -7,7 +7,7 @@ GDB:=gdb
 PYTHON_MAJOR:=3
 PYTHON_MINOR:=8
 PYSTON_MAJOR:=2
-PYSTON_MINOR:=2
+PYSTON_MINOR:=3
 
 -include Makefile.local
 
@@ -72,7 +72,7 @@ $(BOLT): pyston/build/bolt/build.ninja
 CPYTHON_EXTRA_CFLAGS:=-fstack-protector -specs=$(CURDIR)/pyston/tools/no-pie-compile.specs -D_FORTIFY_SOURCE=2
 CPYTHON_EXTRA_LDFLAGS:=-specs=$(CURDIR)/pyston/tools/no-pie-link.specs -Wl,-z,relro
 
-PROFILE_TASK:=../../../Lib/test/regrtest.py -j 1 -unone,decimal -x test_posix test_asyncio test_cmd_line_script test_compiler test_concurrent_futures test_ctypes test_dbm_dumb test_dbm_ndbm test_distutils test_ensurepip test_ftplib test_gdb test_httplib test_imaplib test_ioctl test_linuxaudiodev test_multiprocessing test_nntplib test_ossaudiodev test_poplib test_pydoc test_signal test_socket test_socketserver test_ssl test_subprocess test_sundry test_thread test_threaded_import test_threadedtempfile test_threading test_threading_local test_threadsignals test_venv test_zipimport_support
+PROFILE_TASK:=../../../Lib/test/regrtest.py -j 1 -unone,decimal -x test_posix test_asyncio test_cmd_line_script test_compiler test_concurrent_futures test_ctypes test_dbm_dumb test_dbm_ndbm test_distutils test_ensurepip test_ftplib test_gdb test_httplib test_imaplib test_ioctl test_linuxaudiodev test_multiprocessing test_nntplib test_ossaudiodev test_poplib test_pydoc test_signal test_socket test_socketserver test_ssl test_subprocess test_sundry test_thread test_threaded_import test_threadedtempfile test_threading test_threading_local test_threadsignals test_venv test_zipimport_support || true
 
 MAKEFILE_DEPENDENCIES:=Makefile.pre.in configure
 pyston/build/cpython_bc_build/Makefile: $(CLANG) $(MAKEFILE_DEPENDENCIES)
@@ -101,6 +101,14 @@ pyston/build/systemdbg_env/bin/python: | $(VIRTUALENV)
 	$(VIRTUALENV) -p python$(PYTHON_MAJOR).$(PYTHON_MINOR)-dbg pyston/build/systemdbg_env
 pyston/build/pypy_env/bin/python: | $(VIRTUALENV)
 	$(VIRTUALENV) -p pypy3 pyston/build/pypy_env
+
+RELEASE:=$(shell lsb_release -sr)
+EXTRA_BOLT_OPTS:=
+ifeq ($(RELEASE),16.04)
+else ifeq ($(RELEASE),18.04)
+else
+EXTRA_BOLT_OPTS:=-frame-opt=hot
+endif
 
 # Usage:
 # $(call make_cpython_build,NAME,CONFIGURE_LINE,AOT_DEPENDENCY,DESTDIR,BOLT:[|binary|so])
@@ -132,7 +140,7 @@ pyston/build/cpython_$(1)_install/usr/bin/python3.bolt.fdata: pyston/build/cpyth
 	$(MERGE_FDATA) $$<.*.fdata > $$@
 
 pyston/build/cpython_$(1)_install/usr/bin/python3.bolt: pyston/build/cpython_$(1)_install/usr/bin/python3.bolt.fdata
-	$(BOLT) pyston/build/cpython_$(1)_install/usr/bin/python3 -o $$@ -data=$$< -update-debug-sections -reorder-blocks=cache+ -reorder-functions=hfsort+ -split-functions=3 -icf=1 -inline-all -split-eh -reorder-functions-use-hot-size -peepholes=all -jump-tables=aggressive -inline-ap -indirect-call-promotion=all -dyno-stats -frame-opt=hot -use-gnu-stack
+	$(BOLT) pyston/build/cpython_$(1)_install/usr/bin/python3 -o $$@ -data=$$< -update-debug-sections -reorder-blocks=cache+ -reorder-functions=hfsort+ -split-functions=3 -icf=1 -inline-all -split-eh -reorder-functions-use-hot-size -peepholes=all -jump-tables=aggressive -inline-ap -indirect-call-promotion=all -dyno-stats -use-gnu-stack $(EXTRA_BOLT_OPTS)
 
 pyston/build/$(1)_env/bin/python: pyston/build/cpython_$(1)_install/usr/bin/python3.bolt | $(VIRTUALENV)
 	$(VIRTUALENV) -p $$< pyston/build/$(1)_env
@@ -151,16 +159,15 @@ ifeq ($(5),so)
 # then LD_PRELOAD it into the pyston executable to force it to load,
 # then run our perf task,
 # then output the bolt'd file to the proper place
-pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.fdata: pyston/build/cpython_$(1)_install/usr/bin/python3
+pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.perf: pyston/build/cpython_$(1)_install/usr/bin/python3
 	rm -rf /tmp/tmp_env_$(1)
 	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$$(abspath pyston/build/cpython_$(1)_install/usr/lib) LD_PRELOAD=libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.prebolt $(VIRTUALENV) -p $$< /tmp/tmp_env_$(1)
 	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$$(abspath pyston/build/cpython_$(1)_install/usr/lib) LD_PRELOAD=libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.prebolt /tmp/tmp_env_$(1)/bin/pip install -r pyston/pgo_requirements.txt
-	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$$(abspath pyston/build/cpython_$(1)_install/usr/lib) LD_PRELOAD=libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.prebolt perf record -e cycles:u -j any,u -o $$(patsubst %.fdata,%.perf,$$@) -- /tmp/tmp_env_$(1)/bin/python3 pyston/run_profile_task.py
-	$(PERF2BOLT) -p $$(patsubst %.fdata,%.perf,$$@) -o $$@ pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.prebolt
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$$(abspath pyston/build/cpython_$(1)_install/usr/lib) LD_PRELOAD=libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.prebolt perf record -e cycles:u -j any,u -o $$@ -- /tmp/tmp_env_$(1)/bin/python3 pyston/run_profile_task.py
 
-pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0: pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.fdata
-	$(BOLT) pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.prebolt -o $$@ -data=$$< -update-debug-sections -reorder-blocks=cache+ -reorder-functions=hfsort+ -split-functions=3 -icf=1 -inline-all -split-eh -reorder-functions-use-hot-size -peepholes=all -jump-tables=aggressive -inline-ap -indirect-call-promotion=all -dyno-stats -frame-opt=hot -use-gnu-stack -jump-tables=none
-	ln -sf $(abspath $$@) pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so
+pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0: pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.perf
+	$(BOLT) pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.prebolt -o $$@ -p $$< -update-debug-sections -reorder-blocks=cache+ -reorder-functions=hfsort+ -split-functions=3 -icf=1 -inline-all -split-eh -reorder-functions-use-hot-size -peepholes=all -jump-tables=aggressive -inline-ap -indirect-call-promotion=all -dyno-stats -use-gnu-stack -jump-tables=none $(EXTRA_BOLT_OPTS)
+	bash -c "cd pyston/build/cpython_$(1)_install/usr/lib; ln -sf libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so{.1.0,}"
 
 pyston/build/$(1)_env/bin/python: pyston/build/cpython_$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0
 
@@ -196,7 +203,7 @@ unsafe_$(1):
 
 endef
 
-SO_IFNOT_AMD := $(ifeq $(findstring AMD,$(file < /proc/cpuinfo)),,so)
+SO_IFNOT_AMD := $(if $(findstring AMD,$(shell cat /proc/cpuinfo)),,so)
 
 COMMA:=,
 $(call make_cpython_build,unopt,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../../configure --prefix=$(abspath pyston/build/cpython_unopt_install/usr) --disable-debugging-features --enable-configure,pyston/build/aot/aot_all.bc,,)
@@ -413,11 +420,17 @@ $(call make_test_build,expected,pyston/build/system_env/bin/python)
 .PRECIOUS: pyston/test/external/test_%.expected pyston/test/external/test_%.output
 $(call make_test_build,output,pyston/build/unopt_env/bin/python)
 
+.PRECIOUS: pyston/test/external/test_%.optoutput
+$(call make_test_build,optoutput,pyston/build/opt_env/bin/python)
+
 $(call make_test_build,dbgexpected,pyston/build/stockdbg_env/bin/python)
 .PRECIOUS: pyston/test/external/test_%.dbgexpected pyston/test/external/test_%.dbgoutput
 $(call make_test_build,dbgoutput,pyston/build/dbg_env/bin/python)
 
 test_%: pyston/test/external/test_%.expected pyston/test/external/test_%.output
+	pyston/build/system_env/bin/python pyston/test/external/helpers.py compare $< $(patsubst %.expected,%.output,$<)
+
+testopt_%: pyston/test/external/test_%.expected pyston/test/external/test_%.optoutput
 	pyston/build/system_env/bin/python pyston/test/external/helpers.py compare $< $(patsubst %.expected,%.output,$<)
 
 testdbg_%: pyston/test/external/test_%.dbgexpected pyston/test/external/test_%.dbgoutput
@@ -426,13 +439,17 @@ testdbg_%: pyston/test/external/test_%.dbgexpected pyston/test/external/test_%.d
 cpython_testsuite: pyston/build/cpython_unopt_build/pyston
 	OPENSSL_CONF=$(abspath pyston/test/openssl_dev.cnf) $(MAKE) -C pyston/build/cpython_unopt_build test
 
+cpython_testsuite_opt: pyston/build/cpython_opt_build/pyston
+	OPENSSL_CONF=$(abspath pyston/test/openssl_dev.cnf) $(MAKE) -C pyston/build/cpython_opt_build test
+
 cpython_testsuite_dbg: pyston/build/cpython_dbg_build/pyston
 	OPENSSL_CONF=$(abspath pyston/test/openssl_dev.cnf) $(MAKE) -C pyston/build/cpython_dbg_build test
 
 # Note: cpython_testsuite is itself parallel so we might need to run it not in parallel
 # with the other tests
-_runtests: pyston/test/caches_unopt pyston/test/deferred_stack_decref_unopt pyston/test/getattr_caches_unopt test_django test_urllib3 test_setuptools test_six test_requests cpython_testsuite
-_runtestsdbg: pyston/test/caches_dbg testdbg_django testdbg_urllib3 testdbg_setuptools testdbg_six testdbg_requests cpython_testsuite_dbg
+_runtests: pyston/test/caches_unopt pyston/test/test_rebuild_packages_unopt pyston/test/deferred_stack_decref_unopt pyston/test/getattr_caches_unopt test_django test_urllib3 test_setuptools test_six test_requests cpython_testsuite
+_runtestsdbg: pyston/test/caches_dbg pyston/test/test_rebuild_packages_dbg testdbg_django testdbg_urllib3 testdbg_setuptools testdbg_six testdbg_requests cpython_testsuite_dbg
+_runtestsopt: pyston/test/caches_opt pyston/test/test_rebuild_packages_opt testopt_django testopt_urllib3 testopt_setuptools testopt_six testopt_requests cpython_testsuite_opt
 
 test: pyston/build/system_env/bin/python pyston/build/unopt_env/bin/python
 	rm -f $(wildcard pyston/test/external/*.output)

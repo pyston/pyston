@@ -5,7 +5,7 @@ dnl ***********************************************
 # Set VERSION so we only need to edit in one place (i.e., here)
 # If you change these, update patchlevel.h as well
 m4_define(PYTHON_VERSION, 3.8)
-m4_define(PYSTON_VERSION, 2.2)
+m4_define(PYSTON_VERSION, 2.3)
 
 AC_PREREQ([2.69])
 
@@ -1322,6 +1322,12 @@ if test "$Py_OPT" = 'true' ; then
       ;;
   esac
 
+  # gcc <10.? has a bug where sometimes -fno-semantic-interposition plus -flto
+  # causes a linker error for a .so build
+  # https://bugzilla.redhat.com/show_bug.cgi?id=1795575
+  if test $enable_shared = "yes"; then
+    LDFLAGS_NODIST="$LDFLAGS_NODIST -fsemantic-interposition"
+  fi
 
 else
   DEF_MAKE_ALL_RULE="build_all"

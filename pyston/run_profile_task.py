@@ -4,8 +4,12 @@ import sys
 
 exe = os.path.abspath(sys.executable)
 
-def run(bench, *args):
-    subprocess.check_call([exe, bench] + list(args))
+def run(bench, *args, retries=3):
+    for i in range(retries):
+        code = subprocess.call([exe, bench] + list(args))
+        if code == 0:
+            return
+    raise Exception((bench, args, code))
 
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
