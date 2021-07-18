@@ -21,6 +21,10 @@ extern "C" {
 #define JIT_HELPER_WITH_NAME_OPCACHE_AOT1(name_, py1) PyObject* JIT_HELPER_##name_(PyObject* name, PyObject* py1, _PyOpcache *co_opcache)
 #define JIT_HELPER_WITH_NAME_OPCACHE_AOT2(name_, py1, py2) PyObject* JIT_HELPER_##name_(PyObject* name, PyObject* py1, PyObject* py2, _PyOpcache *co_opcache)
 
+long JIT_HELPER_EXCEPTION_UNWIND();
+PyObject* JIT_HELPER_DEOPT(int jit_first_trace_for_line);
+void JIT_HELPER_TRACEFUNC();
+PyObject* JIT_HELPER_USE_TRACING(PyObject* retval);
 
 JIT_HELPER1(UNARY_NOT, value);
 JIT_HELPER1(PRINT_EXPR, value);

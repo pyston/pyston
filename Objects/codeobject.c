@@ -102,6 +102,11 @@ intern_string_constants(PyObject *tuple)
     return modified;
 }
 
+#if PYSTON_SPEEDUPS && ENABLE_AOT
+PyObject* _Py_HOT_FUNCTION
+_PyEval_EvalFrame_AOT_EntryInterpreter(struct PyFrameObject *f, int throwflag, PyThreadState * const tstate, PyObject** stack_pointer);
+#endif
+
 PyCodeObject *
 PyCode_NewWithPosOnlyArgs(int argcount, int posonlyargcount, int kwonlyargcount,
                           int nlocals, int stacksize, int flags,
@@ -241,7 +246,11 @@ PyCode_NewWithPosOnlyArgs(int argcount, int posonlyargcount, int kwonlyargcount,
     co->co_opcache_size = 0;
 #if PYSTON_SPEEDUPS
     co->co_builtins_cache_ver = 0;
+#if ENABLE_AOT
+    co->co_jit_code = _PyEval_EvalFrame_AOT_EntryInterpreter;
+#else
     co->co_jit_code = 0;
+#endif
 #endif
     return co;
 }
