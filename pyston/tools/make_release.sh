@@ -63,4 +63,6 @@ do
 done
 wait
 
+ln -sf $OUTPUT_DIR/pyston_${VERSION}_16.04.tar.gz $OUTPUT_DIR/pyston_${VERSION}_portable.tar.gz
+
 echo "FINISHED: wrote release to $OUTPUT_DIR"
