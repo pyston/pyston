@@ -24,7 +24,7 @@
 #define PY_RELEASE_SERIAL       0
 
 #define PYSTON_MAJOR_VERSION        2
-#define PYSTON_MINOR_VERSION        2
+#define PYSTON_MINOR_VERSION        3
 #define PYSTON_MICRO_VERSION        0
 
 /* Version as a string */

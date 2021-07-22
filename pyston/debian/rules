@@ -27,6 +27,6 @@ override_dh_auto_configure:
 
 
 override_dh_auto_build:
-	make -C .. pyston/build/release_env/bin/python
+	make -j`nproc` -C .. pyston/build/release_env/bin/python
 	# Don't package pkgconfig:
 	rm -rf build/cpython_release_install/usr/lib/pkgconfig

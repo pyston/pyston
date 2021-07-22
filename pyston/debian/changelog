@@ -1,3 +1,9 @@
+pyston (2.3) unstable; urgency=medium
+
+  * embedding support and compatibility improvements
+
+ -- Kevin Modzelewski <kevmod@gmail.com>  Thu, 08 Jul 2021 17:46:12 +0200
+
 pyston (2.2) unstable; urgency=medium
 
   * more infos can be found in our blog post
