@@ -1,13 +1,13 @@
 set -eu
+set -x
 
 cd /tmp
 git clone https://github.com/pyston/pyston
 cd pyston
 
-git submodule update --init pyston/llvm pyston/bolt/bolt pyston/bolt/llvm pyston/LuaJIT pyston/macrobenchmarks
+git submodule update --init pyston/llvm pyston/bolt/bolt pyston/LuaJIT pyston/macrobenchmarks
 rm -rf .git
-rm -rf pyston/bolt/llvm/test
-find pyston/llvm -name test | xargs rm -rf
+find pyston/llvm pyston/bolt -name test | grep -v bolt/test | xargs rm -rf
 
 cd /tmp
 tar cfz pyston_src.tar.gz pyston
