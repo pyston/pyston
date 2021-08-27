@@ -49,7 +49,7 @@ sudo apt-get install dh-make dh-exec debhelper patchelf
 For a build with all optimizations enabled (LTO+PGO) run:
 
 ```
-make -j
+make -j`nproc`
 ```
 
 An initial build will take quite a long time due to having to build LLVM twice, and subsequent builds are faster but still slow due to extra profiling steps.
@@ -58,7 +58,7 @@ A symlink to the final binary will be created with the name `pyston3`
 
 For a quicker build during development run:
 ```
-make unopt -j
+make unopt -j`nproc`
 ```
 the generated executable can be found inside `pyston/build/cpython_unopt_install/`
 
