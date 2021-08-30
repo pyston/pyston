@@ -1,33 +1,43 @@
 [submodule "pyston/bolt/bolt"]
 	path = pyston/bolt/bolt
 	url = https://github.com/facebookincubator/BOLT
+	shallow = true
 [submodule "pyston/LuaJIT"]
 	path = pyston/LuaJIT
 	url = https://github.com/LuaJIT/LuaJIT.git
+	shallow = true
 [submodule "pyston/llvm"]
 	path = pyston/llvm
 	url = https://github.com/llvm/llvm-project.git
+	shallow = true
 [submodule "pyston/tools/FlameGraph"]
 	path = pyston/tools/FlameGraph
 	url = https://github.com/brendangregg/FlameGraph
+	shallow = true
 [submodule "pyston/macrobenchmarks"]
 	path = pyston/macrobenchmarks
 	url = https://github.com/pyston/python-macrobenchmarks
 [submodule "pyston/test/external/django"]
 	path = pyston/test/external/django
 	url = https://github.com/django/django
+	shallow = true
 [submodule "pyston/test/external/urllib3"]
 	path = pyston/test/external/urllib3
 	url = https://github.com/urllib3/urllib3
+	shallow = true
 [submodule "pyston/test/external/setuptools"]
 	path = pyston/test/external/setuptools
 	url = https://github.com/pypa/setuptools
+	shallow = true
 [submodule "pyston/test/external/six"]
 	path = pyston/test/external/six
 	url = https://github.com/benjaminp/six
+	shallow = true
 [submodule "pyston/test/external/requests"]
 	path = pyston/test/external/requests
 	url = https://github.com/psf/requests
+	shallow = true
 [submodule "pyston/test/external/numpy"]
 	path = pyston/test/external/numpy
 	url = https://github.com/numpy/numpy
+	shallow = true
