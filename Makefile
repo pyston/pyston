@@ -26,28 +26,28 @@ tune: pyston/build/system_env/bin/python
 tune_reset: pyston/build/system_env/bin/python
 	PYTHONPATH=pyston/tools pyston/build/system_env/bin/python -c "import tune; tune.untune()"
 
-pyston/build/Release/build.ninja:
+pyston/build/Release/Makefile:
 	mkdir -p pyston/build/Release
 	@# Use gold linker since ld 2.32 (Ubuntu 19.04) is unable to link compiler-rt:
-	cd pyston/build/Release; CC=clang CXX=clang++ cmake ../.. -G Ninja -DCMAKE_BUILD_TYPE=Release -DLLVM_USE_LINKER=gold -DLLVM_ENABLE_PROJECTS="clang;compiler-rt" -DLLVM_USE_PERF=ON -DCLANG_INCLUDE_TESTS=0 -DCOMPILER_RT_INCLUDE_TESTS=0 -DLLVM_INCLUDE_TESTS=0
+	cd pyston/build/Release; CC=clang CXX=clang++ cmake ../.. -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DLLVM_USE_LINKER=gold -DLLVM_ENABLE_PROJECTS="clang;compiler-rt" -DLLVM_USE_PERF=ON -DCLANG_INCLUDE_TESTS=0 -DCOMPILER_RT_INCLUDE_TESTS=0 -DLLVM_INCLUDE_TESTS=0
 
-pyston/build/PartialDebug/build.ninja:
+pyston/build/PartialDebug/Makefile:
 	mkdir -p pyston/build/PartialDebug
-	cd pyston/build/PartialDebug; CC=clang CXX=clang++ cmake ../.. -G Ninja -DCMAKE_BUILD_TYPE=PartialDebug -DLLVM_ENABLE_PROJECTS=clang -DLLVM_USE_PERF=ON -DCLANG_INCLUDE_TESTS=0 -DCOMPILER_RT_INCLUDE_TESTS=0 -DLLVM_INCLUDE_TESTS=0
+	cd pyston/build/PartialDebug; CC=clang CXX=clang++ cmake ../.. -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=PartialDebug -DLLVM_ENABLE_PROJECTS=clang -DLLVM_USE_PERF=ON -DCLANG_INCLUDE_TESTS=0 -DCOMPILER_RT_INCLUDE_TESTS=0 -DLLVM_INCLUDE_TESTS=0
 
-pyston/build/Debug/build.ninja:
+pyston/build/Debug/Makefile:
 	mkdir -p pyston/build/Debug
-	cd pyston/build/Debug; CC=clang CXX=clang++ cmake ../.. -G Ninja -DCMAKE_BUILD_TYPE=Debug -DLLVM_ENABLE_PROJECTS=clang -DLLVM_USE_PERF=ON -DCLANG_INCLUDE_TESTS=0 -DCOMPILER_RT_INCLUDE_TESTS=0 -DLLVM_INCLUDE_TESTS=0
+	cd pyston/build/Debug; CC=clang CXX=clang++ cmake ../.. -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DLLVM_ENABLE_PROJECTS=clang -DLLVM_USE_PERF=ON -DCLANG_INCLUDE_TESTS=0 -DCOMPILER_RT_INCLUDE_TESTS=0 -DLLVM_INCLUDE_TESTS=0
 
 .PHONY: build_release build_dbg build_debug
-build_dbg: pyston/build/PartialDebug/build.ninja pyston/build/bc_env/bin/python
-	cd pyston/build/PartialDebug; ninja libinterp.so libpystol.so
-build_debug: pyston/build/Debug/build.ninja pyston/build/bc_env/bin/python
-	cd pyston/build/Debug; ninja libinterp.so libpystol.so
+build_dbg: pyston/build/PartialDebug/Makefile pyston/build/bc_env/bin/python
+	cd pyston/build/PartialDebug; $(MAKE) interp pystol
+build_debug: pyston/build/Debug/Makefile pyston/build/bc_env/bin/python
+	cd pyston/build/Debug; $(MAKE) interp pystol
 
 # The "%"s here are to force make to consider these as group targets and not run this target multiple times
-pyston/build/Release/nitrous/libinterp%so pyston/build/Release/pystol/libpystol%so: pyston/build/Release/build.ninja pyston/build/bc_env/bin/python $(wildcard pyston/nitrous/*.cpp) $(wildcard pyston/nitrous/*.h) $(wildcard pyston/pystol/*.cpp) $(wildcard pyston/pystol/*.h)
-	cd pyston/build/Release; ninja libinterp.so libpystol.so
+pyston/build/Release/nitrous/libinterp%so pyston/build/Release/pystol/libpystol%so: pyston/build/Release/Makefile pyston/build/bc_env/bin/python $(wildcard pyston/nitrous/*.cpp) $(wildcard pyston/nitrous/*.h) $(wildcard pyston/pystol/*.cpp) $(wildcard pyston/pystol/*.h)
+	cd pyston/build/Release; $(MAKE) interp pystol
 	@# touch them since our dependencies in this makefile are not 100% correct, and they might not have gotten rebuilt:
 	touch pyston/build/Release/nitrous/libinterp.so pyston/build/Release/pystol/libpystol.so
 build_release:
@@ -55,18 +55,18 @@ build_release:
 
 LLVM_TOOLS:=$(CLANG)
 .PHONY: clang
-clang $(CLANG): | pyston/build/Release/build.ninja
-	cd pyston/build/Release; ninja clang llvm-dis llvm-as llvm-link opt compiler-rt llvm-profdata
+clang $(CLANG): | pyston/build/Release/Makefile
+	cd pyston/build/Release; $(MAKE) clang llvm-dis llvm-as llvm-link opt compiler-rt llvm-profdata
 
 BOLT:=pyston/build/bolt/bin/llvm-bolt
 PERF2BOLT:=pyston/build/bolt/bin/perf2bolt
 MERGE_FDATA:=pyston/build/bolt/bin/merge-fdata
-pyston/build/bolt/build.ninja:
+pyston/build/bolt/Makefile:
 	mkdir -p pyston/build/bolt
-	cd pyston/build/bolt; cmake -G Ninja ../../bolt/bolt/llvm -DLLVM_TARGETS_TO_BUILD="X86" -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_INCLUDE_TESTS=0 -DLLVM_ENABLE_PROJECTS=bolt
+	cd pyston/build/bolt; cmake -G "Unix Makefiles" ../../bolt/bolt/llvm -DLLVM_TARGETS_TO_BUILD="X86" -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_INCLUDE_TESTS=0 -DLLVM_ENABLE_PROJECTS=bolt
 bolt: $(BOLT)
-$(BOLT): pyston/build/bolt/build.ninja
-	cd pyston/build/bolt; ninja llvm-bolt merge-fdata perf2bolt
+$(BOLT): pyston/build/bolt/Makefile
+	cd pyston/build/bolt; $(MAKE) llvm-bolt merge-fdata perf2bolt
 
 # this flags are what the default debian/ubuntu cpython uses
 CPYTHON_EXTRA_CFLAGS:=-fstack-protector -specs=$(CURDIR)/pyston/tools/no-pie-compile.specs -D_FORTIFY_SOURCE=2
