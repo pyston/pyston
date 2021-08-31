@@ -1048,6 +1048,10 @@ t_bootstrap(void *boot_raw)
     _PyThreadState_Init(&_PyRuntime, tstate);
     PyEval_AcquireThread(tstate);
     tstate->interp->num_threads++;
+
+    tstate->stack_limit = (void*)((char*)__builtin_frame_address(0) - (1024 * 1024));
+    //printf("Started thread, rsp is %p limit is %p\n", __builtin_frame_address(0), tstate->stack_limit);
+
     res = PyObject_Call(boot->func, boot->args, boot->keyw);
     if (res == NULL) {
         if (PyErr_ExceptionMatches(PyExc_SystemExit))

@@ -645,18 +645,13 @@ Py_MakePendingCalls(void)
 #define Py_DEFAULT_RECURSION_LIMIT 1000
 #endif
 
-int _Py_CheckRecursionLimit = Py_DEFAULT_RECURSION_LIMIT;
-int _Py_RecursionLimitLowerWaterMark_Precomputed = _Py_RecursionLimitLowerWaterMark(Py_DEFAULT_RECURSION_LIMIT);
-
 void
 _PyEval_Initialize(struct _ceval_runtime_state *state)
 {
-    state->recursion_limit = Py_DEFAULT_RECURSION_LIMIT;
-    _Py_CheckRecursionLimit = Py_DEFAULT_RECURSION_LIMIT;
-    _Py_RecursionLimitLowerWaterMark_Precomputed = _Py_RecursionLimitLowerWaterMark(Py_DEFAULT_RECURSION_LIMIT);
     _gil_initialize(&state->gil);
 }
 
+#if !PYSTON_SPEEDUPS
 int
 Py_GetRecursionLimit(void)
 {
@@ -666,11 +661,8 @@ Py_GetRecursionLimit(void)
 void
 Py_SetRecursionLimit(int new_limit)
 {
-    struct _ceval_runtime_state *ceval = &_PyRuntime.ceval;
-    ceval->recursion_limit = new_limit;
-    _Py_CheckRecursionLimit = ceval->recursion_limit;
-    _Py_RecursionLimitLowerWaterMark_Precomputed = _Py_RecursionLimitLowerWaterMark(ceval->recursion_limit);
 }
+#endif
 
 /* the macro Py_EnterRecursiveCall() only calls _Py_CheckRecursiveCall()
    if the recursion_depth reaches _Py_CheckRecursionLimit.
@@ -682,9 +674,9 @@ _Py_CheckRecursiveCall(const char *where)
 {
     _PyRuntimeState *runtime = &_PyRuntime;
     PyThreadState *tstate = _PyRuntimeState_GetThreadState(runtime);
-    int recursion_limit = runtime->ceval.recursion_limit;
 
 #ifdef USE_STACKCHECK
+#error
     tstate->stackcheck_counter = 0;
     if (PyOS_CheckStack()) {
         --tstate->recursion_depth;
@@ -699,14 +691,14 @@ _Py_CheckRecursiveCall(const char *where)
         /* Somebody asked that we don't check for recursion. */
         return 0;
     if (tstate->overflowed) {
-        if (tstate->recursion_depth > recursion_limit + 50) {
+        if (__builtin_frame_address(0) < (void*)((char*)tstate->stack_limit - (1<<16))) {
+            //printf("uh oh, rsp is %p limit is %p\n", __builtin_frame_address(0), tstate->stack_limit);
             /* Overflowing while handling an overflow. Give up. */
             Py_FatalError("Cannot recover from stack overflow.");
         }
         return 0;
     }
-    if (tstate->recursion_depth > recursion_limit) {
-        --tstate->recursion_depth;
+    if (__builtin_frame_address(0) < tstate->stack_limit) {
         tstate->overflowed = 1;
         _PyErr_Format(tstate, PyExc_RecursionError,
                       "maximum recursion depth exceeded%s",
@@ -4352,15 +4344,15 @@ fail: /* Jump here from prelude on failure */
         _PyObject_GC_TRACK(f);
     }
     else {
-        ++tstate->recursion_depth;
 #if PYSTON_SPEEDUPS
         Py_REFCNT(f) = 0;
         assert(Py_TYPE(f) == &PyFrame_Type);
         frame_dealloc_notrashcan(f);
 #else
+        ++tstate->recursion_depth;
         Py_DECREF(f);
-#endif
         --tstate->recursion_depth;
+#endif
     }
     return retval;
 }

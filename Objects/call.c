@@ -294,15 +294,15 @@ function_code_fastcall(PyCodeObject *co, PyObject *const *args, Py_ssize_t nargs
         _PyObject_GC_TRACK(f);
     }
     else {
-        ++tstate->recursion_depth;
 #if PYSTON_SPEEDUPS
         Py_REFCNT(f) = 0;
         assert(Py_TYPE(f) == &PyFrame_Type);
         frame_dealloc_notrashcan(f);
 #else
+        ++tstate->recursion_depth;
         Py_DECREF(f);
-#endif
         --tstate->recursion_depth;
+#endif
     }
     return result;
 }

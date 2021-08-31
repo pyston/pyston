@@ -1076,6 +1076,7 @@ sys_getswitchinterval_impl(PyObject *module)
     return 1e-6 * _PyEval_GetSwitchInterval();
 }
 
+#if !PYSTON_SPEEDUPS
 /*[clinic input]
 sys.setrecursionlimit
 
@@ -1124,6 +1125,7 @@ sys_setrecursionlimit_impl(PyObject *module, int new_limit)
     Py_SetRecursionLimit(new_limit);
     Py_RETURN_NONE;
 }
+#endif
 
 /*[clinic input]
 sys.set_coroutine_origin_tracking_depth
@@ -1384,6 +1386,7 @@ get_hash_info(void)
     }
     return hash_info;
 }
+
 /*[clinic input]
 sys.getrecursionlimit
 
@@ -1398,7 +1401,7 @@ static PyObject *
 sys_getrecursionlimit_impl(PyObject *module)
 /*[clinic end generated code: output=d571fb6b4549ef2e input=1c6129fd2efaeea8]*/
 {
-    return PyLong_FromLong(Py_GetRecursionLimit());
+    return PyLong_FromLong(1024);
 }
 
 #ifdef MS_WINDOWS
@@ -1997,7 +2000,9 @@ static PyMethodDef sys_methods[] = {
     SYS_SETDLOPENFLAGS_METHODDEF
     {"setprofile",      sys_setprofile, METH_O, setprofile_doc},
     SYS_GETPROFILE_METHODDEF
+#if !PYSTON_SPEEDUPS
     SYS_SETRECURSIONLIMIT_METHODDEF
+#endif
     {"settrace",        sys_settrace, METH_O, settrace_doc},
     SYS_GETTRACE_METHODDEF
     SYS_CALL_TRACING_METHODDEF

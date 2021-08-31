@@ -583,7 +583,6 @@ new_threadstate(PyInterpreterState *interp, int init)
     tstate->interp = interp;
 
     tstate->frame = NULL;
-    tstate->recursion_depth = 0;
     tstate->overflowed = 0;
     tstate->recursion_critical = 0;
     tstate->stackcheck_counter = 0;
@@ -625,6 +624,15 @@ new_threadstate(PyInterpreterState *interp, int init)
 
     if (init) {
         _PyThreadState_Init(runtime, tstate);
+    }
+
+    // Ideally we would always set the stack limit here, but since
+    // we don't know what the stack starting point is until we start the thread,
+    // we can only do it for the main thread, and the other threads get initialized in
+    // t_bootstrap()
+    if (init) {
+        tstate->stack_limit = (void*)((char*)__builtin_frame_address(0) - (1024 * 1024));
+        //printf("Started main thread, rsp is %p limit is %p\n", __builtin_frame_address(0), tstate->stack_limit);
     }
 
     HEAD_LOCK(runtime);

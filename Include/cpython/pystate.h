@@ -57,8 +57,8 @@ struct _ts {
 
     /* Borrowed reference to the current frame (it can be NULL) */
     struct _frame *frame;
-    int recursion_depth;
-    char overflowed; /* The stack has overflowed. Allow 50 more calls
+    void *stack_limit, *stack_limit_reset;
+    char overflowed; /* The stack has overflowed. Allow some more calls
                         to handle the runtime error. */
     char recursion_critical; /* The current calls must not cause
                                 a stack overflow. */

@@ -1175,6 +1175,16 @@ void Interpreter::visitCallSite(CallSite CS) {
     case Intrinsic::dbg_value:
       return;
 
+    case Intrinsic::frameaddress: {
+      // We use __builtin_frame_address to see if the C stack has overflowed.
+      // So to avoid those exceptions, just return the max value here, since
+      // that's the smallest possible stack
+      GenericValue val;
+      val.PointerVal = PointerTy(0xffffffffffffffffL);
+      SetValue(CS.getInstruction(), val, SF);
+      return;
+    }
+
     default:
       // If it is an unknown intrinsic function, use the intrinsic lowering
       // class to transform it into hopefully tasty LLVM code.
