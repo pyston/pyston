@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+PYSTONLIBPATH=/usr/lib/python3.8-pyston2.3
+
+if [ "$1" = remove ]; then
+    # remove .pyc files else we get this warnings:
+    # dpkg: warning: while removing pyston, directory '<dir>/__pycache__' not empty so not removed
+    find $PYSTONLIBPATH -name "*.pyc" -delete
+fi
+

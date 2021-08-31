@@ -78,7 +78,7 @@ make script_opt
 4. adjust `PYSTON_VERSION` inside `configure.ac` and run `autoconf`
 5. update `PYSTON_MINOR` and similar inside Makefile
 6. update the include directory in pyston/pystol/CMakeLists.txt
-7. update pyston/debian/pyston.{install,links}
+7. update pyston/debian/pyston.{install,links,postinst,prerm}
 
 ## Release packaging
 We use a script which builds automatically packages for all supported distributions via docker (will take several hours):
