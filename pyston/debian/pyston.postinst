@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+PYSTONLIBPATH=/usr/lib/python3.8-pyston2.3
+
+if [ "$1" = configure ]; then
+    # regenerate the .pyc files because they include incorrect timestamps and filepaths
+    # in addition pregenerate them also for the different optimization levels.
+    for OPT in "" "-O" "-OO"
+    do
+        /usr/bin/pyston -E -S $OPT $PYSTONLIBPATH/compileall.py \
+                        $PYSTONLIBPATH/ \
+                        -j0 -f -q \
+                        -x 'bad_coding|badsyntax|site-packages|lib2to3/tests/data'
+        /usr/bin/pyston -E -S $OPT $PYSTONLIBPATH/compileall.py \
+                        $PYSTONLIBPATH/site-packages \
+                        -j0 -f -q \
+                        -x badsyntax
+    done
+fi
