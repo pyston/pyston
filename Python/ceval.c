@@ -690,7 +690,7 @@ _Py_CheckRecursiveCall(const char *where)
     if (tstate->recursion_critical)
         /* Somebody asked that we don't check for recursion. */
         return 0;
-    if (tstate->overflowed) {
+    if (tstate->recursion_headroom) {
         if (__builtin_frame_address(0) < (void*)((char*)tstate->stack_limit - (1<<16))) {
             //printf("uh oh, rsp is %p limit is %p\n", __builtin_frame_address(0), tstate->stack_limit);
             /* Overflowing while handling an overflow. Give up. */
@@ -699,10 +699,11 @@ _Py_CheckRecursiveCall(const char *where)
         return 0;
     }
     if (__builtin_frame_address(0) < tstate->stack_limit) {
-        tstate->overflowed = 1;
+        tstate->recursion_headroom++;
         _PyErr_Format(tstate, PyExc_RecursionError,
                       "maximum recursion depth exceeded%s",
                       where);
+        tstate->recursion_headroom--;
         return -1;
     }
     return 0;

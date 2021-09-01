@@ -91,10 +91,7 @@ PyAPI_FUNC(int) Py_GetRecursionLimit(void);
 #define Py_EnterRecursiveCall(where)  \
             (_Py_MakeRecCheck(PyThreadState_GET()->stack_limit) &&  \
              _Py_CheckRecursiveCall(where))
-#define Py_LeaveRecursiveCall()                         \
-    do{ if(_Py_MakeEndRecCheck((void*)(((char*)PyThreadState_GET()->stack_limit) + (1<<16))))  \
-      PyThreadState_GET()->overflowed = 0;  \
-    } while(0)
+#define Py_LeaveRecursiveCall() ((void)0)
 PyAPI_FUNC(int) _Py_CheckRecursiveCall(const char *where);
 
 #if !PYSTON_SPEEDUPS
@@ -115,9 +112,6 @@ PyAPI_DATA(int) _Py_RecursionLimitLowerWaterMark_Precomputed;
 #else
 #  define _Py_MakeRecCheck(x)  (__builtin_frame_address(0) < (x))
 #endif
-
-#define _Py_MakeEndRecCheck(x) \
-    (__builtin_frame_address(0) > (x))
 
 #define Py_ALLOW_RECURSION \
   do { unsigned char _old = PyThreadState_GET()->recursion_critical;\
