@@ -114,7 +114,11 @@ def make_portable_dir(outdir):
 
     for f in filter(is_so, os.listdir(path)):
         dependencies |= recursive_get_dependencies(Dependency(f, path + f))
-        set_rpath(path + f, "$ORIGIN/../../../lib")
+        # we like to use our supplied .so's only as fallback if the dist ones are not available
+        # because ours are likely older which causes problems.
+        # best way to do it seems to put the most common dist lib paths in front of
+        # the path to our own libs.
+        set_rpath(path + f, "/lib64:/usr/lib/x86_64-linux-gnu:$ORIGIN/../../../lib")
 
     for x in dependencies:
         print(f"copy {x} into lib/")
