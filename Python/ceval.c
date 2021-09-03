@@ -28,6 +28,18 @@
 
 #include <ctype.h>
 
+
+#ifdef _MSC_VER
+
+#define     CEVAL_HIDDEN   
+#define     CEVAL_NOINLINE __declspec(noinline)
+
+#else
+#define     CEVAL_HIDDEN        __attribute__((visibility("hidden")))
+#define     CEVAL_NOINLINE      __attribute__((noinline))
+
+#endif
+
 #ifdef Py_DEBUG
 /* For debugging the interpreter: */
 #define LLTRACE  1      /* Low-level trace feature */
@@ -44,7 +56,7 @@ extern int _PyObject_GetMethod(PyObject *, PyObject *, PyObject **);
 typedef PyObject *(*callproc)(PyObject *, PyObject *, PyObject *);
 
 /* Forward declarations */
-__attribute__((visibility("hidden"))) inline PyObject * call_function_ceval(
+CEVAL_HIDDEN inline PyObject * call_function_ceval(
     PyThreadState *tstate, PyObject ***pp_stack,
     Py_ssize_t oparg, PyObject *kwnames);
 // This line makes sure that this function gets written out even if it
@@ -4959,7 +4971,7 @@ if (tstate->use_tracing && tstate->c_profilefunc) { \
     }
 
 // don't inline this function it should be cold and will increase our traces a lot
-/*static*/ PyObject * __attribute__((noinline))
+/*static*/ CEVAL_NOINLINE PyObject * 
 trace_call_function(PyThreadState *tstate,
                     PyObject *func,
                     PyObject **args, Py_ssize_t nargs,
@@ -4994,7 +5006,7 @@ trace_call_function(PyThreadState *tstate,
 
 /* Issue #29227: Inline call_function() into _PyEval_EvalFrameDefault()
    to reduce the stack consumption. */
-__attribute__((visibility("hidden"))) inline PyObject * _Py_HOT_FUNCTION
+CEVAL_HIDDEN inline PyObject * _Py_HOT_FUNCTION
 call_function_ceval(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg, PyObject *kwnames)
 {
 #if PYSTON_SPEEDUPS
@@ -5012,8 +5024,12 @@ call_function_ceval(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t opar
 #else
     PyObject **stack = (*pp_stack) - nargs - nkwargs;
 #endif
-
+#ifndef _MSC_VER
     if (__builtin_expect(tstate->use_tracing, 0)) {
+#else
+    if (tstate->use_tracing) {
+
+#endif
         x = trace_call_function(tstate, func, stack, nargs, kwnames);
     }
     else {
