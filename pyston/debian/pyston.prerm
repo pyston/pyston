@@ -4,8 +4,12 @@ set -eu
 PYSTONLIBPATH=/usr/lib/python3.8-pyston2.3
 
 if [ "$1" = remove ]; then
-    # remove .pyc files else we get this warnings:
+    # remove .py[co] files else we get this warnings:
     # dpkg: warning: while removing pyston, directory '<dir>/__pycache__' not empty so not removed
-    find $PYSTONLIBPATH -name "*.pyc" -delete
+    max=$(LANG=C LC_ALL=C xargs --show-limits < /dev/null 2>&1 | awk '/Maximum length/ {print int($NF / 4)}')
+    dpkg -L pyston \
+        | awk -F/ 'BEGIN {OFS="/"} /\.py$/ {$NF=sprintf("__pycache__/%s.*.py[co]", substr($NF,1,length($NF)-3)); print}' \
+        | xargs --max-chars="$max" echo \
+        | while read files; do rm -f $files; done
 fi
 
