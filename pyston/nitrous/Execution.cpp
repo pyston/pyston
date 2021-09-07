@@ -17,6 +17,7 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/GetElementPtrTypeIterator.h"
+#include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -1207,6 +1208,22 @@ void Interpreter::visitCallSite(CallSite CS) {
       return;
     }
 
+  if (CS.isInlineAsm()) {
+      InlineAsm *asm_op = cast<InlineAsm>(CS.getCalledValue());
+      if (asm_op->getAsmString() != "mov %rsp, $0") {
+          fprintf(stderr, "Only handle specific inline asm right now\n");
+          abort();
+      }
+
+      GenericValue val;
+      val.PointerVal = PointerTy(0xffffffffffffffffL);
+
+      GenericValue ptr = getOperandValue(CS.getArgument(0), SF);
+
+      StoreValueToMemory(val, (GenericValue *)GVTOP(ptr),
+                         CS.getArgument(0)->getType());
+      return;
+  }
 
   SF.Caller = CS;
   std::vector<GenericValue> ArgVals;
@@ -1224,6 +1241,7 @@ void Interpreter::visitCallSite(CallSite CS) {
       // and treat it as a function pointer.
       GenericValue SRC = getOperandValue(SF.Caller.getCalledValue(), SF);
       func_addr = (uint64_t)GVTOP(SRC);
+      assert(func_addr);
   }
 
   callFunction(func_addr, ArgVals);

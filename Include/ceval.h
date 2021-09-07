@@ -102,15 +102,23 @@ PyAPI_DATA(int) _Py_CheckRecursionLimit;
 PyAPI_DATA(int) _Py_RecursionLimitLowerWaterMark_Precomputed;
 #endif
 
+static inline void* _getSp() {
+    void* sp;
+    __asm( "mov %%rsp, %0" : "=rm" ( sp ));
+    return sp;
+}
+//#define frame_address() __builtin_frame_address(0)
+#define frame_address() _getSp(0)
+
 #ifdef USE_STACKCHECK
 /* With USE_STACKCHECK, trigger stack checks in _Py_CheckRecursiveCall()
    on every 64th call to Py_EnterRecursiveCall.
 */
 #  define _Py_MakeRecCheck()  \
-    (__builtin_frame_address(0) < (x) || \
+    (frame_address() < (x) || \
      ++(PyThreadState_GET()->stackcheck_counter) > 64)
 #else
-#  define _Py_MakeRecCheck(x)  (__builtin_frame_address(0) < (x))
+#  define _Py_MakeRecCheck(x)  (frame_address() < (x))
 #endif
 
 #define Py_ALLOW_RECURSION \
