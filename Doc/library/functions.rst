@@ -1627,7 +1627,7 @@ are always available.  They are listed here in alphabetical order.
    not found in statically compiled languages or languages that only support
    single inheritance.  This makes it possible to implement "diamond diagrams"
    where multiple base classes implement the same method.  Good design dictates
-   that this method have the same calling signature in every case (because the
+   that such implementations have the same calling signature in every case (because the
    order of calls is determined at runtime, because that order adapts
    to changes in the class hierarchy, and because that order can include
    sibling classes that are unknown prior to runtime).
@@ -1671,7 +1671,7 @@ are always available.  They are listed here in alphabetical order.
 
 
 .. class:: type(object)
-           type(name, bases, dict)
+           type(name, bases, dict, **kwds)
 
    .. index:: object: type
 
@@ -1699,6 +1699,13 @@ are always available.  They are listed here in alphabetical order.
       >>> X = type('X', (), dict(a=1))
 
    See also :ref:`bltin-type-objects`.
+
+   Keyword arguments provided to the three argument form are passed to the
+   appropriate metaclass machinery (usually :meth:`~object.__init_subclass__`)
+   in the same way that keywords in a class
+   definition (besides *metaclass*) would.
+
+   See also :ref:`class-customization`.
 
    .. versionchanged:: 3.6
       Subclasses of :class:`type` which don't override ``type.__new__`` may no

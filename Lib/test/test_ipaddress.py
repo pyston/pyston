@@ -97,10 +97,23 @@ class CommonTestMixin:
 class CommonTestMixin_v4(CommonTestMixin):
 
     def test_leading_zeros(self):
-        self.assertInstancesEqual("000.000.000.000", "0.0.0.0")
-        self.assertInstancesEqual("192.168.000.001", "192.168.0.1")
-        self.assertInstancesEqual("016.016.016.016", "16.16.16.16")
-        self.assertInstancesEqual("001.000.008.016", "1.0.8.16")
+        # bpo-36384: no leading zeros to avoid ambiguity with octal notation
+        msg = "Leading zeros are not permitted in '\d+'"
+        addresses = [
+            "000.000.000.000",
+            "192.168.000.001",
+            "016.016.016.016",
+            "192.168.000.001",
+            "001.000.008.016",
+            "01.2.3.40",
+            "1.02.3.40",
+            "1.2.03.40",
+            "1.2.3.040",
+        ]
+        for address in addresses:
+            with self.subTest(address=address):
+                with self.assertAddressError(msg):
+                    self.factory(address)
 
     def test_int(self):
         self.assertInstancesEqual(0, "0.0.0.0")
@@ -1124,10 +1137,27 @@ class IpaddrUnitTest(unittest.TestCase):
         self.assertEqual(list(ipaddress.ip_network(str_args).hosts()),
                          list(ipaddress.ip_network(tpl_args).hosts()))
 
+        # special case where the network is a /32
+        addrs = [ipaddress.IPv4Address('1.2.3.4')]
+        str_args = '1.2.3.4/32'
+        tpl_args = ('1.2.3.4', 32)
+        self.assertEqual(addrs, list(ipaddress.ip_network(str_args).hosts()))
+        self.assertEqual(addrs, list(ipaddress.ip_network(tpl_args).hosts()))
+        self.assertEqual(list(ipaddress.ip_network(str_args).hosts()),
+                         list(ipaddress.ip_network(tpl_args).hosts()))
+
         addrs = [ipaddress.IPv6Address('2001:658:22a:cafe::'),
                  ipaddress.IPv6Address('2001:658:22a:cafe::1')]
         str_args = '2001:658:22a:cafe::/127'
         tpl_args = ('2001:658:22a:cafe::', 127)
+        self.assertEqual(addrs, list(ipaddress.ip_network(str_args).hosts()))
+        self.assertEqual(addrs, list(ipaddress.ip_network(tpl_args).hosts()))
+        self.assertEqual(list(ipaddress.ip_network(str_args).hosts()),
+                         list(ipaddress.ip_network(tpl_args).hosts()))
+
+        addrs = [ipaddress.IPv6Address('2001:658:22a:cafe::1'), ]
+        str_args = '2001:658:22a:cafe::1/128'
+        tpl_args = ('2001:658:22a:cafe::1', 128)
         self.assertEqual(addrs, list(ipaddress.ip_network(str_args).hosts()))
         self.assertEqual(addrs, list(ipaddress.ip_network(tpl_args).hosts()))
         self.assertEqual(list(ipaddress.ip_network(str_args).hosts()),

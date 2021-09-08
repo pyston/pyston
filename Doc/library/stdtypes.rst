@@ -1092,7 +1092,7 @@ accepts integers that meet the value restriction ``0 <= x <= 255``).
 |                              | index given by *i*             |                     |
 |                              | (same as ``s[i:i] = [x]``)     |                     |
 +------------------------------+--------------------------------+---------------------+
-| ``s.pop([i])``               | retrieves the item at *i* and  | \(2)                |
+| ``s.pop()`` or ``s.pop(i)``  | retrieves the item at *i* and  | \(2)                |
 |                              | also removes it from *s*       |                     |
 +------------------------------+--------------------------------+---------------------+
 | ``s.remove(x)``              | remove the first item from *s* | \(3)                |
@@ -4707,6 +4707,9 @@ objects because they don't contain a reference to their global execution
 environment.  Code objects are returned by the built-in :func:`compile` function
 and can be extracted from function objects through their :attr:`__code__`
 attribute. See also the :mod:`code` module.
+
+Accessing ``__code__`` raises an :ref:`auditing event <auditing>`
+``object.__getattr__`` with arguments ``obj`` and ``"__code__"``.
 
 .. index::
    builtin: exec

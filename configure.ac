@@ -1,6 +1,9 @@
-dnl ***********************************************
-dnl * Please run autoreconf to test your changes! *
-dnl ***********************************************
+dnl ***************************************************
+dnl * Please run autoreconf -if to test your changes! *
+dnl ***************************************************
+dnl
+dnl Python's configure script requires autoconf 2.69 and autoconf-archive.
+dnl
 
 # Set VERSION so we only need to edit in one place (i.e., here)
 # If you change these, update patchlevel.h as well
@@ -11,7 +14,11 @@ AC_PREREQ([2.69])
 
 AC_INIT([pyston],[PYSTON_VERSION],[https://github.com/pyston/pyston])
 
-AC_CONFIG_MACRO_DIR(m4)
+m4_ifdef(
+    [AX_C_FLOAT_WORDS_BIGENDIAN],
+    [],
+    [AC_MSG_ERROR([Please install autoconf-archive package and re-run autoreconf])]
+)
 
 AC_SUBST(BASECPPFLAGS)
 if test "$srcdir" != . -a "$srcdir" != "$(pwd)"; then
@@ -226,9 +233,15 @@ then
 fi
 
 AC_SUBST(LIPO_32BIT_FLAGS)
+AC_SUBST(LIPO_INTEL64_FLAGS)
 AC_MSG_CHECKING(for --with-universal-archs)
 AC_ARG_WITH(universal-archs,
-    AS_HELP_STRING([--with-universal-archs=ARCH], [select architectures for universal build ("32-bit", "64-bit", "3-way", "intel", "intel-32", "intel-64", or "all")]),
+    AS_HELP_STRING([--with-universal-archs=ARCH],
+                   [specify the kind of macOS universal binary that should be created.
+                    This option is only valid when --enable-universalsdk is set; options are:
+                    ("universal2", "intel-64", "intel-32", "intel", "32-bit",
+                    "64-bit", "3-way", or "all")
+                    see Mac/README.rst]),
 [
 	UNIVERSAL_ARCHS="$withval"
 ],
@@ -1663,7 +1676,7 @@ AC_SUBST(BASECFLAGS)
 AC_SUBST(CFLAGS_NODIST)
 AC_SUBST(LDFLAGS_NODIST)
 
-# The -arch flags for universal builds on OSX
+# The -arch flags for universal builds on macOS
 UNIVERSAL_ARCH_FLAGS=
 AC_SUBST(UNIVERSAL_ARCH_FLAGS)
 
@@ -1926,6 +1939,7 @@ yes)
             AC_MSG_RESULT($CC)
         fi
 
+        LIPO_INTEL64_FLAGS=""
         if test "${enable_universalsdk}"
         then
             case "$UNIVERSAL_ARCHS" in
@@ -1943,6 +1957,12 @@ yes)
                UNIVERSAL_ARCH_FLAGS="-arch i386 -arch ppc -arch ppc64 -arch x86_64"
                LIPO_32BIT_FLAGS="-extract ppc7400 -extract i386"
                ARCH_RUN_32BIT="/usr/bin/arch -i386 -ppc"
+               ;;
+            universal2)
+               UNIVERSAL_ARCH_FLAGS="-arch arm64 -arch x86_64"
+               LIPO_32BIT_FLAGS=""
+               LIPO_INTEL64_FLAGS="-extract x86_64"
+               ARCH_RUN_32BIT="true"
                ;;
             intel)
                UNIVERSAL_ARCH_FLAGS="-arch i386 -arch x86_64"
@@ -1965,7 +1985,7 @@ yes)
                ARCH_RUN_32BIT="/usr/bin/arch -i386 -ppc"
                ;;
             *)
-               AC_MSG_ERROR([proper usage is --with-universal-arch=32-bit|64-bit|all|intel|3-way])
+               AC_MSG_ERROR([proper usage is --with-universal-arch=universal2|32-bit|64-bit|all|intel|3-way])
                ;;
             esac
 
@@ -2539,7 +2559,7 @@ case $ac_sys_system/$ac_sys_release in
     		MACOSX_DEFAULT_ARCH="ppc"
     		;;
     	*)
-    		AC_MSG_ERROR([Unexpected output of 'arch' on OSX])
+    		AC_MSG_ERROR([Unexpected output of 'arch' on macOS])
     		;;
     	esac
     else
@@ -2549,9 +2569,12 @@ case $ac_sys_system/$ac_sys_release in
     		;;
     	ppc)
     		MACOSX_DEFAULT_ARCH="ppc64"
+		;;
+    	arm64)
+    		MACOSX_DEFAULT_ARCH="arm64"
     		;;
     	*)
-    		AC_MSG_ERROR([Unexpected output of 'arch' on OSX])
+    		AC_MSG_ERROR([Unexpected output of 'arch' on macOS])
     		;;
     	esac
 
@@ -3771,6 +3794,12 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 #include <sys/resource.h>
     ]], [[void *x=prlimit]])],
   [AC_DEFINE(HAVE_PRLIMIT, 1, Define if you have the 'prlimit' functions.)
+   AC_MSG_RESULT(yes)],
+  [AC_MSG_RESULT(no)
+])
+AC_MSG_CHECKING(for _dyld_shared_cache_contains_path)
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <mach-o/dyld.h>]], [[void *x=_dyld_shared_cache_contains_path]])],
+  [AC_DEFINE(HAVE_DYLD_SHARED_CACHE_CONTAINS_PATH, 1, Define if you have the '_dyld_shared_cache_contains_path' function.)
    AC_MSG_RESULT(yes)],
   [AC_MSG_RESULT(no)
 ])
