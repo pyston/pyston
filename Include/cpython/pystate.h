@@ -57,6 +57,7 @@ struct _ts {
 
     /* Borrowed reference to the current frame (it can be NULL) */
     struct _frame *frame;
+    int recursion_depth; // In Pyston this is no longer used, but is still available for API compatibility (ex uwsgi)
     void *stack_limit;
     char recursion_headroom; /* Allow 50 more calls to handle any errors. */
     char recursion_critical; /* The current calls must not cause
