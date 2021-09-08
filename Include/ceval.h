@@ -83,10 +83,8 @@ PyAPI_FUNC(int) Py_MakePendingCalls(void);
    http://mail.python.org/pipermail/python-dev/2008-August/082106.html
    for some observations.
 */
-#if !PYSTON_SPEEDUPS
 PyAPI_FUNC(void) Py_SetRecursionLimit(int);
 PyAPI_FUNC(int) Py_GetRecursionLimit(void);
-#endif
 
 #define Py_EnterRecursiveCall(where)  \
             (_Py_MakeRecCheck(PyThreadState_GET()->stack_limit) &&  \
@@ -94,21 +92,21 @@ PyAPI_FUNC(int) Py_GetRecursionLimit(void);
 #define Py_LeaveRecursiveCall() ((void)0)
 PyAPI_FUNC(int) _Py_CheckRecursiveCall(const char *where);
 
-#if !PYSTON_SPEEDUPS
 /* Due to the macros in which it's used, _Py_CheckRecursionLimit is in
    the stable ABI.  It should be removed therefrom when possible.
 */
 PyAPI_DATA(int) _Py_CheckRecursionLimit;
-PyAPI_DATA(int) _Py_RecursionLimitLowerWaterMark_Precomputed;
-#endif
 
-static inline void* _getSp() {
+static inline void* _stack_pointer() {
     void* sp;
     __asm( "mov %%rsp, %0" : "=rm" ( sp ));
     return sp;
 }
-//#define frame_address() __builtin_frame_address(0)
-#define frame_address() _getSp(0)
+// This could also be defined as __builtin_frame_address(0) for a
+// bit better portability. But that uses rbp, which means that
+// any code calling EnterRecursiveCall will end up saving rbp,
+// and so using rsp frees up the rbp register
+#define frame_address() _stack_pointer()
 
 #ifdef USE_STACKCHECK
 /* With USE_STACKCHECK, trigger stack checks in _Py_CheckRecursiveCall()
@@ -131,6 +129,9 @@ static inline void* _getSp() {
 
 PyAPI_FUNC(const char *) PyEval_GetFuncName(PyObject *);
 PyAPI_FUNC(const char *) PyEval_GetFuncDesc(PyObject *);
+
+PyAPI_FUNC(void*) _Py_GetStackLimit(int levels);
+PyAPI_FUNC(void) _Py_AdjustThreadStackLimits(int additional_levels);
 
 PyAPI_FUNC(PyObject *) PyEval_EvalFrame(struct _frame *);
 PyAPI_FUNC(PyObject *) PyEval_EvalFrameEx(struct _frame *f, int exc);

@@ -265,9 +265,7 @@ PySymtable_BuildObject(mod_ty mod, PyObject *filename, PyFutureFeatures *future)
     asdl_seq *seq;
     int i;
     PyThreadState *tstate;
-#if !PYSTON_SPEEDUPS
     int recursion_limit = Py_GetRecursionLimit();
-#endif
     int starting_recursion_depth;
 
     if (st == NULL)
@@ -288,16 +286,15 @@ PySymtable_BuildObject(mod_ty mod, PyObject *filename, PyFutureFeatures *future)
     }
 
     /* Be careful here to prevent overflow. */
-#if PYSTON_SPEEDUPS
-    st->recursion_depth = 0;
-    st->recursion_limit = 1024;
-#else
+#if !PYSTON_SPEEDUPS
     starting_recursion_depth = (tstate->recursion_depth < INT_MAX / COMPILER_STACK_FRAME_SCALE) ?
         tstate->recursion_depth * COMPILER_STACK_FRAME_SCALE : tstate->recursion_depth;
+#else
+    starting_recursion_depth = 0;
+#endif
     st->recursion_depth = starting_recursion_depth;
     st->recursion_limit = (recursion_limit < INT_MAX / COMPILER_STACK_FRAME_SCALE) ?
         recursion_limit * COMPILER_STACK_FRAME_SCALE : recursion_limit;
-#endif
 
     /* Make the initial symbol information gathering pass */
     if (!GET_IDENTIFIER(top) ||
@@ -339,7 +336,6 @@ PySymtable_BuildObject(mod_ty mod, PyObject *filename, PyFutureFeatures *future)
         PySymtable_Free(st);
         return NULL;
     }
-#if !PYSTON_SPEEDUPS
     /* Check that the recursion depth counting balanced correctly */
     if (st->recursion_depth != starting_recursion_depth) {
         PyErr_Format(PyExc_SystemError,
@@ -348,7 +344,6 @@ PySymtable_BuildObject(mod_ty mod, PyObject *filename, PyFutureFeatures *future)
         PySymtable_Free(st);
         return NULL;
     }
-#endif
     /* Make the second symbol analysis pass */
     if (symtable_analyze(st))
         return st;

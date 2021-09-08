@@ -645,13 +645,16 @@ Py_MakePendingCalls(void)
 #define Py_DEFAULT_RECURSION_LIMIT 1000
 #endif
 
+int _Py_CheckRecursionLimit = Py_DEFAULT_RECURSION_LIMIT;
+
 void
 _PyEval_Initialize(struct _ceval_runtime_state *state)
 {
+    state->recursion_limit = Py_DEFAULT_RECURSION_LIMIT;
+    _Py_CheckRecursionLimit = Py_DEFAULT_RECURSION_LIMIT;
     _gil_initialize(&state->gil);
 }
 
-#if !PYSTON_SPEEDUPS
 int
 Py_GetRecursionLimit(void)
 {
@@ -661,8 +664,29 @@ Py_GetRecursionLimit(void)
 void
 Py_SetRecursionLimit(int new_limit)
 {
+    struct _ceval_runtime_state *ceval = &_PyRuntime.ceval;
+    int old_limit = ceval->recursion_limit;
+    ceval->recursion_limit = new_limit;
+    _Py_CheckRecursionLimit = ceval->recursion_limit;
+
+    _Py_AdjustThreadStackLimits(new_limit - old_limit);
 }
-#endif
+
+// The actual value for a Python frame calling another Python frame seems to be about 500 bytes,
+// but set the value to something higher to guarantee that you get at least as many frames as
+// you request.
+#define BYTES_PER_RECURSION_LEVEL 800
+void* _Py_GetStackLimit(int levels) {
+    return (char*)__builtin_frame_address(0) - BYTES_PER_RECURSION_LEVEL * levels;
+}
+
+void _Py_AdjustThreadStackLimits(int additional_levels) {
+    PyInterpreterState *interp = _PyInterpreterState_GET_UNSAFE();
+
+    for (PyThreadState *p = interp->tstate_head; p != NULL; p = p->next) {
+        p->stack_limit = (char*)p->stack_limit - BYTES_PER_RECURSION_LEVEL * additional_levels;
+    }
+}
 
 /* the macro Py_EnterRecursiveCall() only calls _Py_CheckRecursiveCall()
    if the recursion_depth reaches _Py_CheckRecursionLimit.
@@ -674,9 +698,9 @@ _Py_CheckRecursiveCall(const char *where)
 {
     _PyRuntimeState *runtime = &_PyRuntime;
     PyThreadState *tstate = _PyRuntimeState_GetThreadState(runtime);
+    int recursion_limit = runtime->ceval.recursion_limit;
 
 #ifdef USE_STACKCHECK
-#error
     tstate->stackcheck_counter = 0;
     if (PyOS_CheckStack()) {
         --tstate->recursion_depth;
@@ -692,7 +716,6 @@ _Py_CheckRecursiveCall(const char *where)
         return 0;
     if (tstate->recursion_headroom) {
         if (__builtin_frame_address(0) < (void*)((char*)tstate->stack_limit - (1<<16))) {
-            //printf("uh oh, rsp is %p limit is %p\n", __builtin_frame_address(0), tstate->stack_limit);
             /* Overflowing while handling an overflow. Give up. */
             Py_FatalError("Cannot recover from stack overflow.");
         }

@@ -44,11 +44,7 @@ struct _ceval_runtime_state {
     /* WARNING: the JIT assumes:
        - that tracing_possible and eval_breaker lay directly next to each other in memory
        - are together of size long */
-#if !PYSTON_SPEEDUPS
     int recursion_limit;
-#else
-    int _padding;
-#endif
     /* Records whether tracing is on for any thread.  Counts the number
        of threads for which tstate->c_tracefunc is non-NULL, so if the
        value is 0, we know we don't have to check this thread's
