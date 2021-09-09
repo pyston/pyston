@@ -715,13 +715,13 @@ _Py_CheckRecursiveCall(const char *where)
         /* Somebody asked that we don't check for recursion. */
         return 0;
     if (tstate->recursion_headroom) {
-        if (__builtin_frame_address(0) < (void*)((char*)tstate->stack_limit - (1<<16))) {
+        if (frame_address() < (void*)((char*)tstate->stack_limit - BYTES_PER_RECURSION_LEVEL * 50)) {
             /* Overflowing while handling an overflow. Give up. */
             Py_FatalError("Cannot recover from stack overflow.");
         }
         return 0;
     }
-    if (__builtin_frame_address(0) < tstate->stack_limit) {
+    if (frame_address() < tstate->stack_limit) {
         tstate->recursion_headroom++;
         _PyErr_Format(tstate, PyExc_RecursionError,
                       "maximum recursion depth exceeded%s",
