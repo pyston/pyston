@@ -713,7 +713,7 @@ static void emit_dec_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
     // This causes issues because x86_64 rip memory access only use 32bit offsets.
     // To solve this issue we have to load the pointer into a register.
     if (IS_32BIT_VAL(ptr)) {
-        | dec qword [&ptr]
+        | dec qword [ptr]
     } else {
         // unfortunately we can't modify any register here :/
         // which means we will have to safe an restore via the stack
@@ -729,7 +729,7 @@ static void emit_dec_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
 }
 static void emit_inc_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
     if (IS_32BIT_VAL(ptr)) {
-        | inc qword [&ptr]
+        | inc qword [ptr]
     } else {
         if (!can_use_tmp_reg) {
             | push tmp
