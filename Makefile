@@ -431,15 +431,25 @@ testopt_%: pyston/test/external/test_%.expected pyston/test/external/test_%.opto
 testdbg_%: pyston/test/external/test_%.dbgexpected pyston/test/external/test_%.dbgoutput
 	pyston/build/system_env/bin/python pyston/test/external/helpers.py compare $< $(patsubst %.dbgexpected,%.dbgoutput,$<)
 
+TESTFILES:=$(wildcard pyston/test/*.py)
+tests: $(patsubst %.py,%_unopt,$(TESTFILES))
+tests_dbg: $(patsubst %.py,%_dbg,$(TESTFILES))
+tests_opt: $(patsubst %.py,%_opt,$(TESTFILES))
+
+EXTERNAL_TESTSUITES:=django urllib3 setuptools six requests
+testsuites: $(patsubst %,test_%,$(EXTERNAL_TESTSUITES))
+testsuites_dbg: $(patsubst %,testdbg_%,$(EXTERNAL_TESTSUITES))
+testsuites_opt: $(patsubst %,testopt_%,$(EXTERNAL_TESTSUITES))
+
 cpython_testsuite: cpython_testsuite_unopt
 cpython_testsuite_bc: pyston/build/cpython_bc_build/pyston
 	OPENSSL_CONF=$(abspath pyston/test/openssl_dev.cnf) $(MAKE) -C pyston/build/cpython_bc_build test
 
 # Note: cpython_testsuite is itself parallel so we might need to run it not in parallel
 # with the other tests
-_runtests: pyston/test/caches_unopt pyston/test/test_rebuild_packages_unopt pyston/test/deferred_stack_decref_unopt pyston/test/getattr_caches_unopt pyston/test/test_recursion_limit_unopt test_django test_urllib3 test_setuptools test_six test_requests cpython_testsuite
-_runtestsdbg: pyston/test/caches_dbg pyston/test/test_rebuild_packages_dbg testdbg_django testdbg_urllib3 testdbg_setuptools testdbg_six testdbg_requests cpython_testsuite_dbg
-_runtestsopt: pyston/test/caches_opt pyston/test/test_rebuild_packages_opt testopt_django testopt_urllib3 testopt_setuptools testopt_six testopt_requests cpython_testsuite_opt
+_runtests: tests testsuites cpython_testsuite
+_runtestsdbg: tests_dbg testsuites_dbg cpython_testsuite_dbg
+_runtestsopt: tests_opt testsuites_opt cpython_testsuite_opt
 
 test: pyston/build/system_env/bin/python pyston/build/unopt_env/bin/python
 	rm -f $(wildcard pyston/test/external/*.output)
