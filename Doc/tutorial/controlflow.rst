@@ -294,7 +294,8 @@ referenced.
 The actual parameters (arguments) to a function call are introduced in the local
 symbol table of the called function when it is called; thus, arguments are
 passed using *call by value* (where the *value* is always an object *reference*,
-not the value of the object). [#]_ When a function calls another function, a new
+not the value of the object). [#]_ When a function calls another function,
+or calls itself recursively, a new
 local symbol table is created for that call.
 
 A function definition associates the function name with the function object in
@@ -865,7 +866,7 @@ function.  Parameter annotations are defined by a colon after the parameter name
 by an expression evaluating to the value of the annotation.  Return annotations are
 defined by a literal ``->``, followed by an expression, between the parameter
 list and the colon denoting the end of the :keyword:`def` statement.  The
-following example has a positional argument, a keyword argument, and the return
+following example has a required argument, an optional argument, and the return
 value annotated::
 
    >>> def f(ham: str, eggs: str = 'eggs') -> str:
