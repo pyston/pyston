@@ -85,16 +85,45 @@ def recursive_get_dependencies(entry):
     # remove entry and libs which should be skipped
     return visited - SkipLibs - {entry}
 
+def get_pkg_name_of_file(filepath):
+    """returns the debian package name which contains the specified file"""
+    # use original name:
+    # e.g. /lib/x86_64-linux-gnu/libcrypto.so.1.1
+    filepaths_to_try = [filepath]
+    if filepath.startswith("/lib"):
+        # fallback: add /usr because /lib symlinks to /usr/lib:
+        # e.g. /usr/lib/x86_64-linux-gnu/libcrypto.so.1.1
+        filepaths_to_try.append("/usr" + filepath)
 
-def copy_files(dependencies, outdir):
+    for f in filepaths_to_try:
+        try:
+            o = subprocess.check_output(["dpkg", "-S", f], stderr=subprocess.STDOUT).decode('utf-8')
+            return o.split(":")[0]
+        except:
+            pass
+
+def copy_copyright_file(filepath, dest_lib):
+    package_name = get_pkg_name_of_file(filepath)
+    assert package_name, f"did not find package name for {filepath}"
+
+    copyright_file = os.path.join("/usr/share/doc/", package_name, "copyright")
+    shutil.copy2(copyright_file, dest_lib + ".copyright")
+
+def copy_libs(dependencies, outdir):
     try:
         os.makedirs(outdir)
     except OSError:
         pass
 
     for dependency in dependencies:
-        shutil.copy2(dependency.path, outdir)
+        print(f"copy {dependency} into lib/")
+        dest_lib = shutil.copy2(dependency.path, outdir)
 
+        copy_copyright_file(dependency.path, dest_lib)
+
+        # we have to modify the rpath of the copied lib to also search in the current directory
+        # this is necessary because e.g. libreadline has a dependency on libtinfo
+        set_rpath(dest_lib, "/lib64:/usr/lib/x86_64-linux-gnu:$ORIGIN/")
 
 def set_rpath(f, rpath):
     subprocess.check_call(["patchelf", "--set-rpath", rpath, f])
@@ -120,9 +149,7 @@ def make_portable_dir(outdir):
         # the path to our own libs.
         set_rpath(path + f, "/lib64:/usr/lib/x86_64-linux-gnu:$ORIGIN/../../../lib")
 
-    for x in dependencies:
-        print(f"copy {x} into lib/")
-        copy_files(dependencies, outdir + "/usr/lib")
+    copy_libs(dependencies, outdir + "/usr/lib")
 
     # remove pip wrappers which will not work because of hardcoded #!path
     for f in glob.glob(outdir + "/usr/bin/pip*"):
@@ -144,7 +171,7 @@ if __name__ == "__main__":
         print(f"\t{sys.argv[0]} <input_install_dir_name> <output_dir_name>")
     else:
         outdir = sys.argv[2]
-        
+
         if sys.argv[1].endswith(".deb"):
             os.mkdir(outdir) # create output dir, will raise exception if it already exists
             subprocess.check_call(["dpkg", "-x", sys.argv[1], sys.argv[2]])
