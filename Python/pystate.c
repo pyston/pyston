@@ -964,6 +964,9 @@ _PyThreadState_Swap(struct _gilstate_runtime_state *gilstate, PyThreadState *new
 {
     PyThreadState *oldts = _PyRuntimeGILState_GetThreadState(gilstate);
 
+    if (newts)
+        newts->stack_limit = _Py_GetStackLimit(_Py_CheckRecursionLimit);
+
     _PyRuntimeGILState_SetThreadState(gilstate, newts);
     /* It should not be possible for more than one thread state
        to be used for a thread.  Check this the best we can in debug
