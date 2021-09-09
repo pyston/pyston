@@ -121,6 +121,10 @@ def copy_libs(dependencies, outdir):
 
         copy_copyright_file(dependency.path, dest_lib)
 
+        # we have to modify the rpath of the copied lib to also search in the current directory
+        # this is necessary because e.g. libreadline has a dependency on libtinfo
+        set_rpath(dest_lib, "/lib64:/usr/lib/x86_64-linux-gnu:$ORIGIN/")
+
 def set_rpath(f, rpath):
     subprocess.check_call(["patchelf", "--set-rpath", rpath, f])
 
