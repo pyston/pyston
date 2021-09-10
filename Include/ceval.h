@@ -112,7 +112,7 @@ static inline void* _stack_pointer() {
 /* With USE_STACKCHECK, trigger stack checks in _Py_CheckRecursiveCall()
    on every 64th call to Py_EnterRecursiveCall.
 */
-#  define _Py_MakeRecCheck()  \
+#  define _Py_MakeRecCheck(x)  \
     (frame_address() < (x) || \
      ++(PyThreadState_GET()->stackcheck_counter) > 64)
 #else

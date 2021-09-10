@@ -1177,13 +1177,13 @@ void Interpreter::visitCallSite(CallSite CS) {
       return;
 
     case Intrinsic::frameaddress: {
-      // We use __builtin_frame_address to see if the C stack has overflowed.
-      // So to avoid those exceptions, just return the max value here, since
-      // that's the smallest possible stack
-      GenericValue val;
-      val.PointerVal = PointerTy(0xffffffffffffffffL);
-      SetValue(CS.getInstruction(), val, SF);
-      return;
+      fprintf(stderr, "We don't support frameaddress() currently\n");
+      abort();
+      // To return a very high value for this intrinsic you could do:
+      //GenericValue val;
+      //val.PointerVal = PointerTy(0xffffffffffffffffL);
+      //SetValue(CS.getInstruction(), val, SF);
+      //return;
     }
 
     default:
@@ -1210,19 +1210,22 @@ void Interpreter::visitCallSite(CallSite CS) {
 
   if (CS.isInlineAsm()) {
       InlineAsm *asm_op = cast<InlineAsm>(CS.getCalledValue());
-      if (asm_op->getAsmString() != "mov %rsp, $0") {
-          fprintf(stderr, "Only handle specific inline asm right now\n");
-          abort();
+      if (asm_op->getAsmString() == "mov %rsp, $0") {
+          // We use rsp to see if the C stack has overflowed.
+          // So to avoid those exceptions, just return the max value here, since
+          // that's the smallest possible stack
+          GenericValue val;
+          val.PointerVal = PointerTy(0xffffffffffffffffL);
+
+          GenericValue ptr = getOperandValue(CS.getArgument(0), SF);
+
+          StoreValueToMemory(val, (GenericValue *)GVTOP(ptr),
+                             CS.getArgument(0)->getType());
+          return;
       }
 
-      GenericValue val;
-      val.PointerVal = PointerTy(0xffffffffffffffffL);
-
-      GenericValue ptr = getOperandValue(CS.getArgument(0), SF);
-
-      StoreValueToMemory(val, (GenericValue *)GVTOP(ptr),
-                         CS.getArgument(0)->getType());
-      return;
+      fprintf(stderr, "Only handle specific inline asm right now\n");
+      abort();
   }
 
   SF.Caller = CS;

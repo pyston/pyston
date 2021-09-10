@@ -28,7 +28,7 @@ if __name__ == "__main__":
     # Test that doubling the limit roughly doubles the number of frames
     sys.setrecursionlimit(set_limit * 2)
     actual_limit2 = measure()
-    assert 2 * actual_limit - 1 <= actual_limit2 <= 2.1 * actual_limit + 2, (actual_limit, actual_limit2)
+    assert 1.9 * actual_limit - 1 <= actual_limit2 <= 2.1 * actual_limit + 2, (actual_limit, actual_limit2)
 
     # Threading test:
     # Check that 1) recursion limits are inherited by new threads, and 2) changing the

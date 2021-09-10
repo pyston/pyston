@@ -677,7 +677,7 @@ Py_SetRecursionLimit(int new_limit)
 // you request.
 #define BYTES_PER_RECURSION_LEVEL 800
 void* _Py_GetStackLimit(int levels) {
-    return (char*)__builtin_frame_address(0) - BYTES_PER_RECURSION_LEVEL * levels;
+    return (char*)frame_address() - BYTES_PER_RECURSION_LEVEL * levels;
 }
 
 void _Py_AdjustThreadStackLimits(int additional_levels) {
