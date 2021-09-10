@@ -41,11 +41,9 @@ struct _pending_calls {
 };
 
 struct _ceval_runtime_state {
-#ifndef PYSTON_CLEANUP
     /* WARNING: the JIT assumes:
        - that tracing_possible and eval_breaker lay directly next to each other in memory
        - are together of size long */
-#endif
     int recursion_limit;
     /* Records whether tracing is on for any thread.  Counts the number
        of threads for which tstate->c_tracefunc is non-NULL, so if the

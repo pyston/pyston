@@ -84,7 +84,7 @@ public:
                 // check if gep is accessing PyObject->ob_refcnt
                 if (!gep->hasAllConstantIndices())
                     continue;
-                APInt offset;
+                APInt offset(8 * sizeof(void*), 0);
                 bool success = gep->accumulateConstantOffset(DL, offset);
                 if (!success || offsetof(PyObject, ob_refcnt) != offset)
                     continue;

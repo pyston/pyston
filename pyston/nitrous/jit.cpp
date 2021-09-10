@@ -192,6 +192,7 @@ private:
 LLVMCompiler::LLVMCompiler(SymbolFinder* finder) {
     InitializeNativeTarget();
     InitializeNativeTargetAsmPrinter();
+    InitializeNativeTargetAsmParser();
     jit = std::make_unique<LLVMJitCompiler>(finder);
 }
 

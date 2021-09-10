@@ -190,7 +190,6 @@ perf_%_$(1): %.py pyston/build/$(1)_env/update.stamp
 
 pyperf_%_$(1): %.py ./pyston/build/$(1)_env/bin/update.stamp pyston/build/system_env/bin/python
 	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath pyston/build/cpython_$(1)_install/usr/lib) $$(PYPERF) pyston/build/$(1)_env/bin/python3 $$< $$(ARGS)
-)
 
 # UNSAFE build target
 # If you're making changes to cpython but don't want to rebuild the traces or anything beyond the python binary,
@@ -201,6 +200,10 @@ unsafe_$(1):
 	$(MAKE) -C pyston/build/cpython_$(1)_build
 	/bin/cp pyston/build/cpython_$(1)_build/pyston pyston/build/cpython_$(1)_install/usr/bin/python$(PYTHON_MAJOR).$(PYTHON_MINOR)
 
+cpython_testsuite_$(1): pyston/build/cpython_$(1)_build/pyston
+	OPENSSL_CONF=$(abspath pyston/test/openssl_dev.cnf) $(MAKE) -C pyston/build/cpython_$(1)_build test
+
+)
 endef
 
 SO_IFNOT_AMD := $(if $(findstring AMD,$(shell cat /proc/cpuinfo)),,so)
@@ -377,14 +380,6 @@ pyperf_%_pypy: %.py $(PYPY_BENCH_ENV) pyston/build/system_env/bin/python
 dbg_%: dbg_%_dbg
 
 
-# UNSAFE build target
-# If you're making changes to cpython but don't want to rebuild the traces or anything beyond the python binary,
-# you can call this target for a much faster build.
-# Skips cpython_bc_build, aot_gen, and cpython_unopt_install
-# If you want to run the skipped steps, you will have to touch a file before doing a (safe) rebuild
-unsafe_dbg:
-	$(MAKE) -C pyston/build/cpython_dbg_build
-	/bin/cp pyston/build/cpython_dbg_build/pyston pyston/build/cpython_dbg_install/usr/bin/python$(PYTHON_MAJOR).$(PYTHON_MINOR)
 unsafe_% unsafe_%_unopt: %.py unsafe_unopt
 	time pyston/build/unopt_env/bin/python3 $< $(ARGS)
 unsafe_dbg_%: %.py unsafe_unopt
@@ -436,18 +431,13 @@ testopt_%: pyston/test/external/test_%.expected pyston/test/external/test_%.opto
 testdbg_%: pyston/test/external/test_%.dbgexpected pyston/test/external/test_%.dbgoutput
 	pyston/build/system_env/bin/python pyston/test/external/helpers.py compare $< $(patsubst %.dbgexpected,%.dbgoutput,$<)
 
-cpython_testsuite: pyston/build/cpython_unopt_build/pyston
-	OPENSSL_CONF=$(abspath pyston/test/openssl_dev.cnf) $(MAKE) -C pyston/build/cpython_unopt_build test
-
-cpython_testsuite_opt: pyston/build/cpython_opt_build/pyston
-	OPENSSL_CONF=$(abspath pyston/test/openssl_dev.cnf) $(MAKE) -C pyston/build/cpython_opt_build test
-
-cpython_testsuite_dbg: pyston/build/cpython_dbg_build/pyston
-	OPENSSL_CONF=$(abspath pyston/test/openssl_dev.cnf) $(MAKE) -C pyston/build/cpython_dbg_build test
+cpython_testsuite: cpython_testsuite_unopt
+cpython_testsuite_bc: pyston/build/cpython_bc_build/pyston
+	OPENSSL_CONF=$(abspath pyston/test/openssl_dev.cnf) $(MAKE) -C pyston/build/cpython_bc_build test
 
 # Note: cpython_testsuite is itself parallel so we might need to run it not in parallel
 # with the other tests
-_runtests: pyston/test/caches_unopt pyston/test/test_rebuild_packages_unopt pyston/test/deferred_stack_decref_unopt pyston/test/getattr_caches_unopt test_django test_urllib3 test_setuptools test_six test_requests cpython_testsuite
+_runtests: pyston/test/caches_unopt pyston/test/test_rebuild_packages_unopt pyston/test/deferred_stack_decref_unopt pyston/test/getattr_caches_unopt pyston/test/test_recursion_limit_unopt test_django test_urllib3 test_setuptools test_six test_requests cpython_testsuite
 _runtestsdbg: pyston/test/caches_dbg pyston/test/test_rebuild_packages_dbg testdbg_django testdbg_urllib3 testdbg_setuptools testdbg_six testdbg_requests cpython_testsuite_dbg
 _runtestsopt: pyston/test/caches_opt pyston/test/test_rebuild_packages_opt testopt_django testopt_urllib3 testopt_setuptools testopt_six testopt_requests cpython_testsuite_opt
 

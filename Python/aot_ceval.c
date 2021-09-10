@@ -5171,9 +5171,13 @@ fail: /* Jump here from prelude on failure */
         _PyObject_GC_TRACK(f);
     }
     else {
+#if !PYSTON_SPEEDUPS
         ++tstate->recursion_depth;
+#endif
         Py_DECREF(f);
+#if !PYSTON_SPEEDUPS
         --tstate->recursion_depth;
+#endif
     }
     return retval;
 }

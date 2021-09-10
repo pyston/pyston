@@ -646,14 +646,12 @@ Py_MakePendingCalls(void)
 #endif
 
 int _Py_CheckRecursionLimit = Py_DEFAULT_RECURSION_LIMIT;
-int _Py_RecursionLimitLowerWaterMark_Precomputed = _Py_RecursionLimitLowerWaterMark(Py_DEFAULT_RECURSION_LIMIT);
 
 void
 _PyEval_Initialize(struct _ceval_runtime_state *state)
 {
     state->recursion_limit = Py_DEFAULT_RECURSION_LIMIT;
     _Py_CheckRecursionLimit = Py_DEFAULT_RECURSION_LIMIT;
-    _Py_RecursionLimitLowerWaterMark_Precomputed = _Py_RecursionLimitLowerWaterMark(Py_DEFAULT_RECURSION_LIMIT);
     _gil_initialize(&state->gil);
 }
 
@@ -667,9 +665,27 @@ void
 Py_SetRecursionLimit(int new_limit)
 {
     struct _ceval_runtime_state *ceval = &_PyRuntime.ceval;
+    int old_limit = ceval->recursion_limit;
     ceval->recursion_limit = new_limit;
     _Py_CheckRecursionLimit = ceval->recursion_limit;
-    _Py_RecursionLimitLowerWaterMark_Precomputed = _Py_RecursionLimitLowerWaterMark(ceval->recursion_limit);
+
+    _Py_AdjustThreadStackLimits(new_limit - old_limit);
+}
+
+// The actual value for a Python frame calling another Python frame seems to be about 500 bytes,
+// but set the value to something higher to guarantee that you get at least as many frames as
+// you request.
+#define BYTES_PER_RECURSION_LEVEL 800
+void* _Py_GetStackLimit(int levels) {
+    return (char*)frame_address() - BYTES_PER_RECURSION_LEVEL * levels;
+}
+
+void _Py_AdjustThreadStackLimits(int additional_levels) {
+    PyInterpreterState *interp = _PyInterpreterState_GET_UNSAFE();
+
+    for (PyThreadState *p = interp->tstate_head; p != NULL; p = p->next) {
+        p->stack_limit = (char*)p->stack_limit - BYTES_PER_RECURSION_LEVEL * additional_levels;
+    }
 }
 
 /* the macro Py_EnterRecursiveCall() only calls _Py_CheckRecursiveCall()
@@ -698,19 +714,19 @@ _Py_CheckRecursiveCall(const char *where)
     if (tstate->recursion_critical)
         /* Somebody asked that we don't check for recursion. */
         return 0;
-    if (tstate->overflowed) {
-        if (tstate->recursion_depth > recursion_limit + 50) {
+    if (tstate->recursion_headroom) {
+        if (frame_address() < (void*)((char*)tstate->stack_limit - BYTES_PER_RECURSION_LEVEL * 50)) {
             /* Overflowing while handling an overflow. Give up. */
             Py_FatalError("Cannot recover from stack overflow.");
         }
         return 0;
     }
-    if (tstate->recursion_depth > recursion_limit) {
-        --tstate->recursion_depth;
-        tstate->overflowed = 1;
+    if (frame_address() < tstate->stack_limit) {
+        tstate->recursion_headroom++;
         _PyErr_Format(tstate, PyExc_RecursionError,
                       "maximum recursion depth exceeded%s",
                       where);
+        tstate->recursion_headroom--;
         return -1;
     }
     return 0;
@@ -4352,15 +4368,15 @@ fail: /* Jump here from prelude on failure */
         _PyObject_GC_TRACK(f);
     }
     else {
-        ++tstate->recursion_depth;
 #if PYSTON_SPEEDUPS
         Py_REFCNT(f) = 0;
         assert(Py_TYPE(f) == &PyFrame_Type);
         frame_dealloc_notrashcan(f);
 #else
+        ++tstate->recursion_depth;
         Py_DECREF(f);
-#endif
         --tstate->recursion_depth;
+#endif
     }
     return retval;
 }

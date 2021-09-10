@@ -284,9 +284,14 @@ PySymtable_BuildObject(mod_ty mod, PyObject *filename, PyFutureFeatures *future)
         PySymtable_Free(st);
         return NULL;
     }
+
     /* Be careful here to prevent overflow. */
+#if !PYSTON_SPEEDUPS
     starting_recursion_depth = (tstate->recursion_depth < INT_MAX / COMPILER_STACK_FRAME_SCALE) ?
         tstate->recursion_depth * COMPILER_STACK_FRAME_SCALE : tstate->recursion_depth;
+#else
+    starting_recursion_depth = 0;
+#endif
     st->recursion_depth = starting_recursion_depth;
     st->recursion_limit = (recursion_limit < INT_MAX / COMPILER_STACK_FRAME_SCALE) ?
         recursion_limit * COMPILER_STACK_FRAME_SCALE : recursion_limit;

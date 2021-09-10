@@ -1048,6 +1048,9 @@ t_bootstrap(void *boot_raw)
     _PyThreadState_Init(&_PyRuntime, tstate);
     PyEval_AcquireThread(tstate);
     tstate->interp->num_threads++;
+
+    tstate->stack_limit = _Py_GetStackLimit(_Py_CheckRecursionLimit);
+
     res = PyObject_Call(boot->func, boot->args, boot->keyw);
     if (res == NULL) {
         if (PyErr_ExceptionMatches(PyExc_SystemExit))

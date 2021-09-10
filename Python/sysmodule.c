@@ -1102,6 +1102,7 @@ sys_setrecursionlimit_impl(PyObject *module, int new_limit)
         return NULL;
     }
 
+#if !PYSTON_SPEEDUPS
     /* Issue #25274: When the recursion depth hits the recursion limit in
        _Py_CheckRecursiveCall(), the overflowed flag of the thread state is
        set to 1 and a RecursionError is raised. The overflowed flag is reset
@@ -1120,6 +1121,7 @@ sys_setrecursionlimit_impl(PyObject *module, int new_limit)
                      new_limit, tstate->recursion_depth);
         return NULL;
     }
+#endif
 
     Py_SetRecursionLimit(new_limit);
     Py_RETURN_NONE;
