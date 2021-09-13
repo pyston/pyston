@@ -1589,8 +1589,8 @@ inclinstall:
 		$(INSTALL_DATA) $$i $(DESTDIR)$(INCLUDEPY)/internal; \
 	done
 	$(INSTALL_DATA) pyconfig.h $(DESTDIR)$(CONFINCLUDEPY)/pyconfig.h
-	python3 ../../tools/header_cleanup.py --dir $(DESTDIR)$(INCLUDEPY)
-	python3 ../../tools/header_cleanup.py --dir $(DESTDIR)$(CONFINCLUDEPY)
+	python3 ../../pyston/tools/header_cleanup.py --dir $(DESTDIR)$(INCLUDEPY)
+	python3 ../../pyston/tools/header_cleanup.py --dir $(DESTDIR)$(CONFINCLUDEPY)
 
 # Install the library and miscellaneous stuff needed for extending/embedding
 # This goes into $(exec_prefix)
@@ -1757,8 +1757,8 @@ Python/aot_ceval.o: Python/aot_ceval.c $(AOT_DIR)/aot.h
 	$(CC) -c $(PY_CORE_CFLAGS) -Wno-unused-label -o $@ $<
 
 Python/aot_ceval_jit.o: Python/aot_ceval_jit.c
-	luajit ../../LuaJIT/dynasm/dynasm.lua  -o Python/aot_ceval_jit.gen.c $<
-	$(CC) -c $(PY_CORE_CFLAGS) -I../../LuaJIT/ -Wno-address -Wno-pointer-to-int-cast -o $@ Python/aot_ceval_jit.gen.c
+	luajit ../../pyston/LuaJIT/dynasm/dynasm.lua  -o Python/aot_ceval_jit.gen.c $<
+	$(CC) -c $(PY_CORE_CFLAGS) -I../../pyston/LuaJIT/ -Wno-address -Wno-pointer-to-int-cast -o $@ Python/aot_ceval_jit.gen.c
 
 ifneq (,$(findstring Ubuntu 7.,$(shell $(CC) --version)))
 FCF_FLAG:=
