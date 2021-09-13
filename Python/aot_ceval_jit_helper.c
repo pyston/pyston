@@ -106,6 +106,12 @@ int unpack_iterable(PyThreadState *, PyObject *, int, int, PyObject **);
 #define STACK_SHRINK(n)        BASIC_STACKADJ(-n)
 #define EXT_POP(STACK_POINTER) (*--(STACK_POINTER))
 
+#define UNWIND_BLOCK(b) \
+    while (STACK_LEVEL() > (b)->b_level) { \
+        PyObject *v = POP(); \
+        Py_XDECREF(v); \
+    }
+
 #define UNWIND_EXCEPT_HANDLER(b) \
     do { \
         PyObject *type, *value, *traceback; \
@@ -164,6 +170,98 @@ int setupStoreAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache)
 int loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject** res, int *meth_found);
 int setupLoadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject* res, int is_load_method);
 
+long JIT_HELPER_EXCEPTION_UNWIND() {
+    /* Unwind stacks if an exception occurred */
+    while (f->f_iblock > 0) {
+        /* Pop the current block. */
+        PyTryBlock *b = &f->f_blockstack[--f->f_iblock];
+
+        if (b->b_type == EXCEPT_HANDLER) {
+            UNWIND_EXCEPT_HANDLER(b);
+            continue;
+        }
+        UNWIND_BLOCK(b);
+        if (b->b_type == SETUP_FINALLY) {
+            PyObject *exc, *val, *tb;
+            int handler = b->b_handler;
+            _PyErr_StackItem *exc_info = tstate->exc_info;
+            /* Beware, this invalidates all b->b_* fields */
+            PyFrame_BlockSetup(f, EXCEPT_HANDLER, -1, STACK_LEVEL());
+            PUSH(exc_info->exc_traceback);
+            PUSH(exc_info->exc_value);
+            if (exc_info->exc_type != NULL) {
+                PUSH(exc_info->exc_type);
+            }
+            else {
+                Py_INCREF_IMMORTAL(Py_None);
+                PUSH(Py_None);
+            }
+            _PyErr_Fetch(tstate, &exc, &val, &tb);
+            /* Make the raw exception data
+                available to the handler,
+                so a program can emulate the
+                Python main loop. */
+            _PyErr_NormalizeException(tstate, &exc, &val, &tb);
+            if (tb != NULL)
+                PyException_SetTraceback(val, tb);
+            else
+                PyException_SetTraceback(val, Py_None);
+            Py_INCREF(exc);
+            exc_info->exc_type = exc;
+            Py_INCREF(val);
+            exc_info->exc_value = val;
+            exc_info->exc_traceback = tb;
+            if (tb == NULL) {
+                tb = Py_None;
+                Py_INCREF_IMMORTAL(tb);
+            } else {
+                Py_INCREF(tb);
+            }
+            PUSH(tb);
+            PUSH(val);
+            PUSH(exc);
+
+            f->f_lasti = handler;
+            /* Resume normal execution */
+            return 1;
+        }
+    } /* unwind stack */
+    return 0;
+}
+
+PyObject* _Py_HOT_FUNCTION
+_PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState * const tstate, PyObject** stack_pointer, int can_use_jit, int jit_first_trace_for_line);
+
+PyObject* JIT_HELPER_DEOPT(int jit_first_trace_for_line) {
+    // we have to adjust back the last bytecode because the interpreter
+    // will start at the next bytecode after f_lasti (so would skip one)
+    if (f->f_lasti == 0)
+        f->f_lasti = -1; // special case: we deopted on the first opcode, set it to -1 which is the func entry
+    else
+        f->f_lasti -= 2; // normal case: decrement one opcode
+    return _PyEval_EvalFrame_AOT_Interpreter(f, 0 /* throwflag */, tstate, stack_pointer, 0 /*= can't use jit */, jit_first_trace_for_line);
+}
+
+void JIT_HELPER_TRACEFUNC() {
+    call_exc_trace(tstate->c_tracefunc, tstate->c_traceobj, tstate, f);
+}
+
+
+PyObject* JIT_HELPER_USE_TRACING(PyObject* retval) {
+    if (tstate->c_tracefunc) {
+        if (call_trace_protected(tstate->c_tracefunc, tstate->c_traceobj,
+                                    tstate, f, PyTrace_RETURN, retval)) {
+            Py_CLEAR(retval);
+        }
+    }
+    if (tstate->c_profilefunc) {
+        if (call_trace_protected(tstate->c_profilefunc, tstate->c_profileobj,
+                                    tstate, f, PyTrace_RETURN, retval)) {
+            Py_CLEAR(retval);
+        }
+    }
+    return retval;
+}
 
 JIT_HELPER1(UNARY_NOT, value) {
     //PyObject *value = POP();
