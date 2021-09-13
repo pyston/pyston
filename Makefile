@@ -144,11 +144,13 @@ pyston/build/cpython_$(1)_install/usr/bin/python3.bolt: pyston/build/cpython_$(1
 
 pyston/build/$(1)_env/bin/python: pyston/build/cpython_$(1)_install/usr/bin/python3.bolt | $(VIRTUALENV)
 	$(VIRTUALENV) -p $$< pyston/build/$(1)_env
+	touch $$@
 
 else
 
 pyston/build/$(1)_env/bin/python: pyston/build/cpython_$(1)_install/usr/bin/python3 | $(VIRTUALENV)
 	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$$(abspath pyston/build/cpython_$(1)_install/usr/lib) $(VIRTUALENV) -p $$< pyston/build/$(1)_env
+	touch $$@
 
 endif
 
