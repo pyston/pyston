@@ -63,7 +63,7 @@ PERF2BOLT:=build/bolt/bin/perf2bolt
 MERGE_FDATA:=build/bolt/bin/merge-fdata
 build/bolt/Makefile:
 	mkdir -p build/bolt
-	cd build/bolt; cmake -G "Unix Makefiles" ../../pyston/bolt/bolt/llvm -DLLVM_TARGETS_TO_BUILD="X86" -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_INCLUDE_TESTS=0 -DLLVM_ENABLE_PROJECTS=bolt
+	cd build/bolt; cmake -G "Unix Makefiles" ../../pyston/bolt/llvm -DLLVM_TARGETS_TO_BUILD="X86" -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_INCLUDE_TESTS=0 -DLLVM_ENABLE_PROJECTS=bolt
 bolt: $(BOLT)
 $(BOLT): build/bolt/Makefile
 	cd build/bolt; $(MAKE) llvm-bolt merge-fdata perf2bolt

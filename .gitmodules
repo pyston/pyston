@@ -1,5 +1,5 @@
 [submodule "pyston/bolt/bolt"]
-	path = pyston/bolt/bolt
+	path = pyston/bolt
 	url = https://github.com/facebookincubator/BOLT
 [submodule "pyston/LuaJIT"]
 	path = pyston/LuaJIT
