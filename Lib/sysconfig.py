@@ -565,6 +565,14 @@ def get_config_vars(*args):
             _init_non_posix(_CONFIG_VARS)
         if os.name == 'posix':
             _init_posix(_CONFIG_VARS)
+
+        # Pyston change: rewrite LIBDIR to allow for embedding from
+        # our portable (relocatable) release
+        real_location = os.path.dirname(_PROJECT_BASE)
+        configured_prefix = _CONFIG_VARS["prefix"]
+        if _CONFIG_VARS["LIBDIR"].startswith(configured_prefix):
+            _CONFIG_VARS["LIBDIR"] = _CONFIG_VARS["LIBDIR"].replace(configured_prefix, real_location, 1)
+
         # For backward compatibility, see issue19555
         SO = _CONFIG_VARS.get('EXT_SUFFIX')
         if SO is not None:
