@@ -259,7 +259,7 @@ PyTuple_Pack(Py_ssize_t n, ...)
 
 #if PYSTON_SPEEDUPS
 PyObject *
-PyTuple_Pack1(PyObject *el0) {
+_PyTuple_Pack1(PyObject *el0) {
     PyObject* result = PyTuple_New_Nonzeroed(1);
     if (result == NULL)
         return NULL;
@@ -272,7 +272,7 @@ PyTuple_Pack1(PyObject *el0) {
 }
 
 PyObject *
-PyTuple_Pack2(PyObject *el0, PyObject *el1) {
+_PyTuple_Pack2(PyObject *el0, PyObject *el1) {
     PyObject* result = PyTuple_New_Nonzeroed(2);
     if (result == NULL)
         return NULL;
@@ -287,7 +287,7 @@ PyTuple_Pack2(PyObject *el0, PyObject *el1) {
 }
 
 PyObject *
-PyTuple_Pack3(PyObject *el0, PyObject *el1, PyObject *el2) {
+_PyTuple_Pack3(PyObject *el0, PyObject *el1, PyObject *el2) {
     PyObject* result = PyTuple_New_Nonzeroed(3);
     if (result == NULL)
         return NULL;
@@ -339,7 +339,6 @@ done:
 /* static */ void
 tupledealloc_borrowed(PyTupleObject *op)
 {
-    Py_ssize_t i;
     Py_ssize_t len =  Py_SIZE(op);
     // Don't have to untrack, these are already untracked
     if (len > 0) {
@@ -566,7 +565,7 @@ _PyTuple_FromArray_Borrowed(PyObject *const *src, Py_ssize_t n)
 
     // Don't untrack the empty tuple
     if (n == 0)
-        return tuple;
+        return (PyObject*)tuple;
 
     _PyObject_GC_UNTRACK(tuple);
     memcpy(tuple->ob_item, src, n * sizeof(PyObject*));

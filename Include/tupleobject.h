@@ -42,9 +42,14 @@ PyAPI_FUNC(PyObject *) PyTuple_GetSlice(PyObject *, Py_ssize_t, Py_ssize_t);
 PyAPI_FUNC(PyObject *) PyTuple_Pack(Py_ssize_t, ...);
 #ifndef PYSTON_CLEANUP
 #if PYSTON_SPEEDUPS
-PyAPI_FUNC(PyObject *) PyTuple_Pack1(PyObject *);
-PyAPI_FUNC(PyObject *) PyTuple_Pack2(PyObject *, PyObject *);
-PyAPI_FUNC(PyObject *) PyTuple_Pack3(PyObject *, PyObject *, PyObject *);
+// Because PyTuple_Pack does no C-type-checking of its arguments,
+// wrap the new Pack functions in macros that do auto-casting:
+#define PyTuple_Pack1(o1) _PyTuple_Pack1((PyObject*)(o1))
+#define PyTuple_Pack2(o1, o2) _PyTuple_Pack2((PyObject*)(o1), (PyObject*)(o2))
+#define PyTuple_Pack3(o1, o2, o3) _PyTuple_Pack3((PyObject*)(o1), (PyObject*)(o2), (PyObject*)(o3))
+PyAPI_FUNC(PyObject *) _PyTuple_Pack1(PyObject *);
+PyAPI_FUNC(PyObject *) _PyTuple_Pack2(PyObject *, PyObject *);
+PyAPI_FUNC(PyObject *) _PyTuple_Pack3(PyObject *, PyObject *, PyObject *);
 #else
 #define PyTuple_Pack1(el0) PyTuple_Pack(1, (el0))
 #define PyTuple_Pack2(el0, el1) PyTuple_Pack(2, (el0), (el1))
