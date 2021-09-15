@@ -59,7 +59,7 @@ class AssumedTypeGuard:
         return None
 
     def getAssumptions(self, variable_name):
-        return Unspecialized.getAssumptions(variable_name) + [f'{variable_name} != NULL', f'{variable_name}->ob_type == &{self.type_name}']
+        return Unspecialized.getAssumptions(variable_name) + [f'{variable_name} != NULL', f'Py_TYPE({variable_name}) == &{self.type_name}']
 
 class Tuple1ElementIdentityGuard(IdentityGuard):
     """
