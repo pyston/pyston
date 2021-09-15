@@ -1,9 +1,9 @@
 #!/usr/bin/dh-exec
-build/cpython_release_install/usr/bin/python3.bolt => usr/bin/python3.8-pyston2.3
-build/cpython_release_install/usr/bin/pip3.8 => usr/bin/pip-pyston2.3
+build/release_install/usr/bin/python3.bolt => usr/bin/python3.8-pyston2.3
+build/release_install/usr/bin/pip3.8 => usr/bin/pip-pyston2.3
 
-build/cpython_release_install/usr/include usr/
-build/cpython_release_install/usr/lib usr
+build/release_install/usr/include usr/
+build/release_install/usr/lib usr
 
 # don't install man pages they would overwrite the normal cpython one
-#build/cpython_opt_install/usr/share usr/
+#build/opt_install/usr/share usr/

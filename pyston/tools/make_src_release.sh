@@ -5,7 +5,7 @@ cd /tmp
 git clone https://github.com/pyston/pyston
 cd pyston
 
-git submodule update --init pyston/llvm pyston/bolt/bolt pyston/LuaJIT pyston/macrobenchmarks
+git submodule update --init pyston/llvm pyston/bolt pyston/LuaJIT pyston/macrobenchmarks
 rm -rf .git
 find pyston/llvm pyston/bolt -name test | grep -v bolt/test | xargs rm -rf
 
