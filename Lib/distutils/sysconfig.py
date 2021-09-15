@@ -23,18 +23,35 @@ EXEC_PREFIX = os.path.normpath(sys.exec_prefix)
 BASE_PREFIX = os.path.normpath(sys.base_prefix)
 BASE_EXEC_PREFIX = os.path.normpath(sys.base_exec_prefix)
 
+"""
+Pyston change:
+Modern sysconfig.py (Lib/sysconfig.py, as opposed to distutils/sysconfig.py)
+calls realpath() on sys.executable.
+We leave project_base the same as not having realpath() called on it, but
+introduce _real_project_base which has the same semantics as _PROJECT_BASE
+in new sysconfig
+"""
+def _safe_realpath(path):
+    try:
+        return os.path.realpath(path)
+    except OSError:
+        return path
+
 # Path to the base directory of the project. On Windows the binary may
 # live in project/PCbuild/win32 or project/PCbuild/amd64.
 # set for cross builds
 if "_PYTHON_PROJECT_BASE" in os.environ:
     project_base = os.path.abspath(os.environ["_PYTHON_PROJECT_BASE"])
+    _real_project_base = _safe_realpath(os.environ["_PYTHON_PROJECT_BASE"])
 else:
     if sys.executable:
         project_base = os.path.dirname(os.path.abspath(sys.executable))
+        _real_project_base = os.path.dirname(_safe_realpath(sys.executable))
     else:
         # sys.executable can be empty if argv[0] has been changed and Python is
         # unable to retrieve the real program name
         project_base = os.getcwd()
+        _real_project_base = _safe_realpath(project_base)
 
 
 # python_build: (Boolean) if true, we're either building Python or
@@ -481,6 +498,13 @@ def get_config_vars(*args):
             func()
         else:
             _config_vars = {}
+
+        # Pyston change: rewrite LIBDIR to allow for embedding from
+        # our portable (relocatable) release
+        real_location = os.path.dirname(_real_project_base)
+        configured_prefix = _config_vars["prefix"]
+        if _config_vars["LIBDIR"].startswith(configured_prefix):
+            _config_vars["LIBDIR"] = _config_vars["LIBDIR"].replace(configured_prefix, real_location, 1)
 
         # Normalized versions of prefix and exec_prefix are handy to have;
         # in fact, these are the standard versions used most places in the

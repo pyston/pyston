@@ -59,7 +59,7 @@ class AssumedTypeGuard:
         return None
 
     def getAssumptions(self, variable_name):
-        return Unspecialized.getAssumptions(variable_name) + [f'{variable_name} != NULL', f'{variable_name}->ob_type == &{self.type_name}']
+        return Unspecialized.getAssumptions(variable_name) + [f'{variable_name} != NULL', f'Py_TYPE({variable_name}) == &{self.type_name}']
 
 class Tuple1ElementIdentityGuard(IdentityGuard):
     """
@@ -298,8 +298,8 @@ class NormalHandler(Handler):
         return [name for (_, name) in self._args()]
 
     def _args(self):
-        oargs = [('PyObject *', o) for o in self._o_args_names()]
-        return oargs
+        types = [ac.c_type_name for ac in self.case.signatures[-1].argument_classes]
+        return list(zip(types, self._o_args_names()))
 
     def _get_func_sig(self, name):
         param = ", ".join([f"{type} {o}" for (type, o) in self._args()])
@@ -712,6 +712,7 @@ def loadCases():
 
     getitemlong_signatures = []
     unguarded_int_class = ObjectClass("", AssumedTypeGuard("PyLong_Type"), [0])
+    unguarded_int_class.c_type_name = "PyLongObject*"
     unguarded_cint_class = CLongClass([ctypes.c_long(0)])
     for name in "List", "Tuple", "Unicode", "Range":
         getitemlong_signatures += makeSignatures([type_classes[name]], [unguarded_int_class], [unguarded_cint_class])
