@@ -713,7 +713,7 @@ static void emit_dec_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
     // This causes issues because x86_64 rip memory access only use 32bit offsets.
     // To solve this issue we have to load the pointer into a register.
     if (IS_32BIT_VAL(ptr)) {
-        | dec qword [&ptr]
+        | dec qword [ptr]
     } else {
         // unfortunately we can't modify any register here :/
         // which means we will have to safe an restore via the stack
@@ -729,7 +729,7 @@ static void emit_dec_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
 }
 static void emit_inc_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
     if (IS_32BIT_VAL(ptr)) {
-        | inc qword [&ptr]
+        | inc qword [ptr]
     } else {
         if (!can_use_tmp_reg) {
             | push tmp
@@ -1816,6 +1816,8 @@ __attribute__((optimize("-O0"))) // enable to make "source tools/dis_jit_gdb.py"
 void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     if (mem_bytes_used_max <= mem_bytes_used) // stop emitting code we used up all memory
         return NULL;
+
+    int success = 0;
 
     // setup jit context, will get accessed from all dynasm functions via the name 'Dst'
     Jit jit;
@@ -2985,8 +2987,14 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     if (size > mem_chunk_bytes_remaining) {
         mem_chunk_bytes_remaining = size > (1<<18) ? size : (1<<18);
 
-        // allocate memory which address fits inside a 32bit pointer (makes sure we can use 32bit rip relative adressing)
-        mem_chunk = mmap(0, mem_chunk_bytes_remaining, PROT_READ | PROT_WRITE, MAP_32BIT | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        // allocate memory which address fits inside a 32bit pointer (makes sure we can use 32bit rip relative addressing)
+        void* new_chunk = mem_chunk = mmap(0, mem_chunk_bytes_remaining, PROT_READ | PROT_WRITE, MAP_32BIT | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (mem_chunk == MAP_FAILED) {
+            mem_chunk_bytes_remaining = 0;
+            goto cleanup;
+        }
+        mem_chunk = new_chunk;
+
         // we self modify (=AOTFuncs) so make it writable to
         mprotect(mem_chunk, mem_chunk_bytes_remaining, PROT_READ | PROT_EXEC | PROT_WRITE);
 
@@ -3049,15 +3057,17 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         }
     }
 
+    ++jit_num_funcs;
+    success = 1;
+
+cleanup:
     dasm_free(Dst);
     free(Dst->is_jmp_target);
     Dst->is_jmp_target = NULL;
     free(Dst->known_defined);
     Dst->known_defined = NULL;
 
-    ++jit_num_funcs;
-
-    return labels[lbl_entry];
+    return success ? labels[lbl_entry] : NULL;
 }
 
 void show_jit_stats() {
