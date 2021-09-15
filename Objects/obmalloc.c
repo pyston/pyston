@@ -24,12 +24,12 @@ static void* _PyMem_DebugMalloc(void *ctx, size_t size);
 static void* _PyMem_DebugCalloc(void *ctx, size_t nelem, size_t elsize);
 static void* _PyMem_DebugRealloc(void *ctx, void *ptr, size_t size);
 static void _PyMem_DebugFree(void *ctx, void *p);
-#endif
 
 static void _PyObject_DebugDumpAddress(const void *p);
 static void _PyMem_DebugCheckAddress(char api_id, const void *p);
 
 static void _PyMem_SetupDebugHooksDomain(PyMemAllocatorDomain domain);
+#endif
 
 #if defined(__has_feature)  /* Clang */
 #  if __has_feature(address_sanitizer) /* is ASAN enabled? */
@@ -2103,6 +2103,7 @@ bumpserialno(void)
 #  define PYMEM_DEBUG_EXTRA_BYTES 3 * SST
 #endif
 
+#if PY_DEBUGGING_FEATURES
 /* Read sizeof(size_t) bytes at p as a big-endian size_t. */
 static size_t
 read_size_t(const void *p)
@@ -2131,7 +2132,6 @@ write_size_t(void *p, size_t n)
     }
 }
 
-#if PY_DEBUGGING_FEATURES
 /* Let S = sizeof(size_t).  The debug malloc asks for 4 * S extra bytes and
    fills them with useful stuff, here calling the underlying malloc's result p:
 
@@ -2236,7 +2236,7 @@ _PyMem_DebugRawCalloc(void *ctx, size_t nelem, size_t elsize)
     return _PyMem_DebugRawAlloc(1, ctx, nbytes);
 }
 
-
+#if PY_DEBUGGING_FEATURES
 /* The debug free first checks the 2*SST bytes on each end for sanity (in
    particular, that the FORBIDDENBYTEs with the api ID are still intact).
    Then fills the original bytes with PYMEM_DEADBYTE.
@@ -2260,6 +2260,7 @@ _PyMem_DebugRawFree(void *ctx, void *p)
     memset(q, PYMEM_DEADBYTE, nbytes);
     api->alloc.free(api->alloc.ctx, q);
 }
+#endif
 
 
 static void *

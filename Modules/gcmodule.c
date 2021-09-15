@@ -400,15 +400,15 @@ int list_traverse(PyListObject *o, visitproc visit, void *arg);
 __attribute__((always_inline)) __attribute__((flatten))
 static void inlined_tp_traverse(PyObject* op, visitproc proc, void* c) {
     if (Py_TYPE(op) == &PyTuple_Type) {
-        tupletraverse(op, proc, c);
+        tupletraverse((PyTupleObject*)op, proc, c);
     } else if (Py_TYPE(op) == &PyFunction_Type) {
-        func_traverse(op, proc, c);
+        func_traverse((PyFunctionObject*)op, proc, c);
     } else if (Py_TYPE(op) == &PyCell_Type) {
-        cell_traverse(op, proc, c);
+        cell_traverse((PyCellObject*)op, proc, c);
     } else if (Py_TYPE(op) == &PyDict_Type) {
         dict_traverse(op, proc, c);
     } else if (Py_TYPE(op) == &PyList_Type) {
-        list_traverse(op, proc, c);
+        list_traverse((PyListObject*)op, proc, c);
     } else {
         Py_TYPE(op)->tp_traverse(op, proc, c);
     }
@@ -423,7 +423,9 @@ static void inlined_tp_traverse(PyObject* op, visitproc proc, void* c) {
 static void
 subtract_refs(PyGC_Head *containers)
 {
+#if !PYSTON_SPEEDUPS
     traverseproc traverse;
+#endif
     PyGC_Head *gc = GC_NEXT(containers);
     for (; gc != containers; gc = GC_NEXT(gc)) {
         PyObject *op = FROM_GC(gc);
@@ -531,7 +533,9 @@ move_unreachable(PyGC_Head *young, PyGC_Head *unreachable)
              * the next object to visit.
              */
             PyObject *op = FROM_GC(gc);
+#if !PYSTON_SPEEDUPS
             traverseproc traverse = Py_TYPE(op)->tp_traverse;
+#endif
             _PyObject_ASSERT_WITH_MSG(op, gc_get_refs(gc) > 0,
                                       "refcount is too small");
             // NOTE: visit_reachable may change gc->_gc_next when

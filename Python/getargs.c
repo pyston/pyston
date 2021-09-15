@@ -2780,7 +2780,7 @@ PyArg_UnpackTuple(PyObject *args, const char *name, Py_ssize_t min, Py_ssize_t m
 
 #if PYSTON_SPEEDUPS
 int
-PyArg_UnpackTuple1(PyObject *args, const char *name, Py_ssize_t min, Py_ssize_t max, PyObject **arg0)
+_PyArg_UnpackTuple1(PyObject *args, const char *name, Py_ssize_t min, Py_ssize_t max, PyObject **arg0)
 {
     PyObject **stack;
     Py_ssize_t nargs;
@@ -2809,7 +2809,7 @@ PyArg_UnpackTuple1(PyObject *args, const char *name, Py_ssize_t min, Py_ssize_t 
 }
 
 int
-PyArg_UnpackTuple2(PyObject *args, const char *name, Py_ssize_t min, Py_ssize_t max, PyObject **arg0, PyObject **arg1)
+_PyArg_UnpackTuple2(PyObject *args, const char *name, Py_ssize_t min, Py_ssize_t max, PyObject **arg0, PyObject **arg1)
 {
     PyObject **stack;
     Py_ssize_t nargs;
@@ -2841,7 +2841,7 @@ PyArg_UnpackTuple2(PyObject *args, const char *name, Py_ssize_t min, Py_ssize_t 
 }
 
 int
-PyArg_UnpackTuple3(PyObject *args, const char *name, Py_ssize_t min, Py_ssize_t max, PyObject **arg0, PyObject **arg1, PyObject **arg2)
+_PyArg_UnpackTuple3(PyObject *args, const char *name, Py_ssize_t min, Py_ssize_t max, PyObject **arg0, PyObject **arg1, PyObject **arg2)
 {
     PyObject **stack;
     Py_ssize_t nargs;
