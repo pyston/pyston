@@ -197,11 +197,15 @@ class IsInstanceSignature(Signature):
 class FunctionCases(object):
     def __init__(self, c_func_name, signatures):
         self.unspecialized_name = c_func_name
+        if c_func_name.endswith("_ceval_no_kw"):
+            self.specialized_base = c_func_name[:-len("_ceval_no_kw")]
+        else:
+            self.specialized_base = c_func_name
         self.signatures = signatures
 
     def getSignatures(self):
         for s in self.signatures:
-            yield s, f'{self.unspecialized_name}{s.name}'
+            yield s, f'{self.specialized_base}{s.name}'
 
     @property
     def nargs(self):
@@ -227,7 +231,11 @@ class Handler(object):
             addAlwaysTrace(name.encode("ascii"))
 
     def getGuardFailFuncName(self, signature):
-        return self.case.unspecialized_name + getattr(signature, "guard_fail_fn_name", "")
+        suffix = getattr(signature, "guard_fail_fn_name", "")
+        if suffix:
+            return self.case.specialized_base + suffix
+        else:
+            return self.case.unspecialized_name
 
 class NormalHandler(Handler):
     """
@@ -308,7 +316,7 @@ class NormalHandler(Handler):
             print(f"{self._get_func_sig(name)};", file=header_f)
 
         unspec_name = self.case.unspecialized_name
-        profile_name = unspec_name + 'Profile'
+        profile_name = self.case.specialized_base + 'Profile'
         profile_func_sig = self._get_func_sig(profile_name)
         print(f"{profile_func_sig};", file=header_f)
         print(f"{profile_func_sig}", "{", file=profile_f)
@@ -356,7 +364,7 @@ class CallableHandler(Handler):
             print(
                 f"PyObject* {name}(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg)", "{", file=f)
             print(f"  if (unlikely(oparg != {nargs-1}))", "{" , file=f)
-            if name.startswith("call_method_"):
+            if name.startswith("call_method"):
                 # CALL_METHOD can call the function with a different number of args
                 # depending if LOAD_METHOD returned true or false which means we need
                 # to add this additional guard.
@@ -367,11 +375,11 @@ class CallableHandler(Handler):
                 # this makes sure the compiler is not merging the calls into a single one
                 print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
                 print(f"    return ret;", file=f)
-            elif name.startswith("call_function_"):
+            elif name.startswith("call_function"):
                 # CALL_FUNCTION always passes the same number of arguments
                 print(f"    __builtin_unreachable();", file=f)
             else:
-                assert 0
+                assert 0, name
             print("  }", file=f)
             guard_fail_fn_name = self.getGuardFailFuncName(signature)
             print(f"  PyObject* f = stack[-oparg - 1];", file=f)
@@ -405,7 +413,7 @@ class CallableHandler(Handler):
 
     def write_profile_func(self, traced, header_f, profile_f):
         func = self.case.unspecialized_name
-        profile_func = self.case.unspecialized_name + 'Profile'
+        profile_func = self.case.specialized_base + 'Profile'
         print(f"PyObject* {func}(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);", file=header_f)
 
         for signature, name in self.case.getSignatures():

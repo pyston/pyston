@@ -950,7 +950,7 @@ private:
         ErrorOr< unique_ptr< MemoryBuffer > > buf(nullptr);
         string real_filename(filename);
         if (filename.startswith("../../..")) {
-            real_filename = ("pyston/build/Release/" + filename).str();
+            real_filename = ("build/Release/" + filename).str();
         }
         if (real_filename[0] != '/')
             real_filename = path_prefix + real_filename;

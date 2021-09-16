@@ -25,7 +25,7 @@ We plan on explaining our techniques in more detail in future blog posts, but th
 First do
 
 ```
-git submodule update --init pyston/llvm pyston/bolt/bolt pyston/LuaJIT pyston/macrobenchmarks
+git submodule update --init pyston/llvm pyston/bolt pyston/LuaJIT pyston/macrobenchmarks
 ```
 
 Pyston has the following build dependencies:
@@ -60,7 +60,7 @@ For a quicker build during development run:
 ```
 make unopt -j`nproc`
 ```
-the generated executable can be found inside `pyston/build/cpython_unopt_install/`
+the generated executable can be found inside `build/unopt_install/`
 
 Running a python file called script.py with pyston can be easily done via:
 ```
