@@ -147,11 +147,6 @@ bool PystolFactDeriver::deriveFacts(Value* v, FactSet& facts, LLVMEvaluator& eva
                 PyTypeObject* type = (PyTypeObject*)GVTOP(eval.evalConstant(gv));
                 if (type == &PyFunction_Type) {
                     // functions have fixed "vectorcall" members
-                    // In C, the code to access it is
-                    //   ptr = (vectorcallfunc*)(((char *)callable) + offset);
-                    // After we const-load offset, llvm translates this to
-                    //   *(vectorcallfunc*)&((PyObject*)callable)[7]
-                    // So we have to put the fact at gep 7
                     Knowledge& k = facts[LOCFOR(PyFunctionObject, vectorcall)];
                     if (!k.known_value || k.known_at) {
                         // Hack, we just need a pointer type
