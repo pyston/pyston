@@ -949,7 +949,7 @@ private:
     string getSource(StringRef filename, int line) {
         ErrorOr< unique_ptr< MemoryBuffer > > buf(nullptr);
         string real_filename(filename);
-        if (filename.startswith("../../..")) {
+        if (filename.startswith("../..")) {
             real_filename = ("build/Release/" + filename).str();
         }
         if (real_filename[0] != '/')
@@ -988,8 +988,8 @@ private:
 public:
     DebugInfoPrinter() {
         // Try to find the path to the nitrous directory
-        if (sys::fs::exists("../../nitrous") && sys::fs::exists("../../pystol"))
-            path_prefix = "../../../";
+        if (sys::fs::exists("../../pyston/nitrous") && sys::fs::exists("../../pyston/pystol"))
+            path_prefix = "../../";
     }
 
     void printInliningInfo(DILocation* loc) {
