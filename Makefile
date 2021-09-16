@@ -158,17 +158,20 @@ ifeq ($(5),so)
 
 # Bolt-on-.so strategy:
 # We install the .so as libpython.so.prebolt,
+# Instrument it to .bolt_inst
 # then LD_PRELOAD it into the pyston executable to force it to load,
 # then run our perf task,
 # then output the bolt'd file to the proper place
-build/$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.perf: build/$(1)_install/usr/bin/python3
+build/$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.fdata: build/$(1)_install/usr/bin/python3
 	rm -rf /tmp/tmp_env_$(1)
-	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$$(abspath build/$(1)_install/usr/lib) LD_PRELOAD=libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.prebolt $(VIRTUALENV) -p $$< /tmp/tmp_env_$(1)
-	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$$(abspath build/$(1)_install/usr/lib) LD_PRELOAD=libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.prebolt /tmp/tmp_env_$(1)/bin/pip install -r pyston/pgo_requirements.txt
-	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$$(abspath build/$(1)_install/usr/lib) LD_PRELOAD=libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.prebolt perf record -e cycles:u -j any,u -o $$@ -- /tmp/tmp_env_$(1)/bin/python3 pyston/run_profile_task.py
+	$(BOLT) $$(abspath build/$(1)_install/usr/lib)/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.prebolt -instrument -instrumentation-file-append-pid -instrumentation-file=$$(abspath build/$(1)_install/usr/lib)/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0 -o $$(abspath build/$(1)_install/usr/lib)/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.bolt_inst
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$$(abspath build/$(1)_install/usr/lib) LD_PRELOAD=libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.bolt_inst $(VIRTUALENV) -p $$< /tmp/tmp_env_$(1)
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$$(abspath build/$(1)_install/usr/lib) LD_PRELOAD=libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.bolt_inst /tmp/tmp_env_$(1)/bin/pip install -r pyston/pgo_requirements.txt
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$$(abspath build/$(1)_install/usr/lib) LD_PRELOAD=libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.bolt_inst /tmp/tmp_env_$(1)/bin/python3 pyston/run_profile_task.py
+	$(MERGE_FDATA) $$(abspath build/$(1)_install/usr/lib)/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.*.fdata > $$@
 
-build/$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0: build/$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.perf
-	$(BOLT) build/$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.prebolt -o $$@ -p $$< -update-debug-sections -reorder-blocks=cache+ -reorder-functions=hfsort+ -split-functions=3 -icf=1 -inline-all -split-eh -reorder-functions-use-hot-size -peepholes=all -jump-tables=aggressive -inline-ap -indirect-call-promotion=all -dyno-stats -use-gnu-stack -jump-tables=none $(EXTRA_BOLT_OPTS)
+build/$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0: build/$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.fdata
+	$(BOLT) build/$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.prebolt -o $$@ -data=$$< -update-debug-sections -reorder-blocks=cache+ -reorder-functions=hfsort+ -split-functions=3 -icf=1 -inline-all -split-eh -reorder-functions-use-hot-size -peepholes=all -jump-tables=aggressive -inline-ap -indirect-call-promotion=all -dyno-stats -use-gnu-stack -jump-tables=none $(EXTRA_BOLT_OPTS)
 	bash -c "cd build/$(1)_install/usr/lib; ln -sf libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so{.1.0,}"
 
 build/$(1)_env/bin/python: build/$(1)_install/usr/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0
@@ -208,13 +211,11 @@ cpython_testsuite_$(1): build/$(1)_build/pyston
 )
 endef
 
-SO_IFNOT_AMD := $(if $(findstring AMD,$(shell cat /proc/cpuinfo)),,so)
-
 COMMA:=,
 $(call make_cpython_build,unopt,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../configure --prefix=$(abspath build/unopt_install/usr) --disable-debugging-features --enable-configure,build/aot/aot_all.bc,,)
 $(call make_cpython_build,unoptshared,CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../configure --prefix=$(abspath build/unoptshared_install/usr) --disable-debugging-features --enable-configure --enable-shared,build/aot_pic/aot_all.bc,,)
 $(call make_cpython_build,opt,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../configure --prefix=$(abspath build/opt_install/usr) --enable-optimizations --with-lto --disable-debugging-features --enable-configure,build/aot/aot_all.bc,,binary)
-$(call make_cpython_build,optshared,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../configure --prefix=$(abspath build/optshared_install/usr) --enable-optimizations --with-lto --disable-debugging-features --enable-shared --enable-configure,build/aot_pic/aot_all.bc,,$(SO_IFNOT_AMD))
+$(call make_cpython_build,optshared,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../configure --prefix=$(abspath build/optshared_install/usr) --enable-optimizations --with-lto --disable-debugging-features --enable-shared --enable-configure,build/aot_pic/aot_all.bc,,so)
 $(call make_cpython_build,releaseunopt,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../configure --prefix=/usr --disable-debugging-features --enable-configure,build/aot/aot_all.bc,$(abspath build/releaseunopt_install))
 $(call make_cpython_build,releaseunoptshared,PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../configure --prefix=/usr --disable-debugging-features --enable-shared --enable-configure,build/aot_pic/aot_all.bc,$(abspath build/releaseunoptshared_install))
 $(call make_cpython_build,release,      PROFILE_TASK="$(PROFILE_TASK)" CC=gcc CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../configure --prefix=/usr --enable-optimizations --with-lto --disable-debugging-features --enable-configure,build/aot/aot_all.bc,$(abspath build/release_install),binary)
