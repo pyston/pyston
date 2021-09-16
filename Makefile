@@ -144,13 +144,13 @@ build/$(1)_install/usr/bin/python3.bolt: build/$(1)_install/usr/bin/python3.bolt
 
 build/$(1)_env/bin/python: build/$(1)_install/usr/bin/python3.bolt | $(VIRTUALENV)
 	$(VIRTUALENV) -p $$< build/$(1)_env
-	touch $@
+	touch $$@
 
 else
 
 build/$(1)_env/bin/python: build/$(1)_install/usr/bin/python3 | $(VIRTUALENV)
 	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$$(abspath build/$(1)_install/usr/lib) $(VIRTUALENV) -p $$< build/$(1)_env
-	touch $@
+	touch $$@
 
 endif
 
