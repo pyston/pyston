@@ -168,8 +168,12 @@ def process_log(log):
         # Remove filenames:
         # log = re.sub("/[^ ]*.py:\\d", "", log)
         # log = re.sub("/[^ ]*.py.*line \\d", "", log)
-        if "http://" not in l and len(l) < 300:
-            l = re.sub(r"""(^|[ \"\'/]|\.+)[\w\d_\-./]*/[\w\d_\-./]*($|[ \":\',])""", "<filename>", l)
+        if "http://" not in l:
+            # Try to avoid running this expensive regex on really long lines.
+            # So just run it on the first 300 characters and then join it back with the rest
+            l1, l2 = l[:300], l[300:]
+            l1 = re.sub(r"""(^|[ \"\'/]|\.+)[\w\d_\-./]*/[\w\d_\-./]*($|[ \":\',])""", "<filename>", l1)
+            l = l1 + l2
 
         # Remove pointer ids:
         l = re.sub('0x([0-9a-f]{8,})', "<pointer>", l)
