@@ -104,6 +104,7 @@ def compare(expected_output, output, show_output=True):
         for e, r in zip(expected, result):
             for k in set(e).union(r):
                 if abs(e.get(k, 0) - r.get(k, 0)) > allowed_differences.get(k, 0):
+                    print("Have %d vs %d %s" % (r.get(k, 0), e.get(k, 0), k))
                     results_match = False
 
 
@@ -178,6 +179,9 @@ def process_log(log):
         # Remove pointer ids:
         l = re.sub('0x([0-9a-f]{8,})', "<pointer>", l)
 
+        # Remove timestamps
+        l = re.sub("\\d\\d:\\d\\d:\\d\\d", "<timestamp>", l)
+
         # Normalize across python minor versions
         l = re.sub("Python 3.8.\\d+", "Python 3.8.x", l)
 
@@ -223,7 +227,9 @@ def check_log(log, expected_log):
 if __name__ == "__main__":
     if sys.argv[1] == "process_log":
         for l in sys.stdin:
-            print(process_log(l[:-1])[0])
+            r = process_log(l[:-1])
+            if r:
+                print(r[0])
     elif sys.argv[1] == "parse_output":
         print(parse_output(sys.stdin.read()))
     elif sys.argv[1] == "compare":

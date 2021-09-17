@@ -438,7 +438,7 @@ tests: $(patsubst %.py,%_unopt,$(TESTFILES))
 tests_dbg: $(patsubst %.py,%_dbg,$(TESTFILES))
 tests_opt: $(patsubst %.py,%_opt,$(TESTFILES))
 
-EXTERNAL_TESTSUITES:=django urllib3 setuptools six requests sqlalchemy
+EXTERNAL_TESTSUITES:=django urllib3 setuptools six requests sqlalchemy pandas
 testsuites: $(patsubst %,test_%,$(EXTERNAL_TESTSUITES))
 testsuites_dbg: $(patsubst %,testdbg_%,$(EXTERNAL_TESTSUITES))
 testsuites_opt: $(patsubst %,testopt_%,$(EXTERNAL_TESTSUITES))
