@@ -200,7 +200,7 @@ PyObject_GetItemLong(PyObject *o, PyLongObject *key, Py_ssize_t key_value)
 
     m = o->ob_type->tp_as_mapping;
     if (m && m->mp_subscript) {
-        PyObject *item = m->mp_subscript(o, key);
+        PyObject *item = m->mp_subscript(o, (PyObject*)key);
         assert((item != NULL) ^ (PyErr_Occurred() != NULL));
         return item;
     }
@@ -211,7 +211,7 @@ PyObject_GetItemLong(PyObject *o, PyLongObject *key, Py_ssize_t key_value)
     }
 
     if (PyType_Check(o)) {
-        PyObject *meth, *result, *stack[1] = {key};
+        PyObject *meth, *result, *stack[1] = { (PyObject*)key };
         if (_PyObject_LookupAttrId(o, &PyId___class_getitem__, &meth) < 0) {
             return NULL;
         }
