@@ -41,14 +41,13 @@ set -ex
 ln -sf /usr/lib/linux-tools/*/perf /usr/bin/perf
 make package -j`nproc`
 make build/release_env/bin/python3
-build/release_env/bin/python3 pyston/tools/make_portable_dir.py pyston_${VERSION}_amd64.deb pyston_${VERSION}_${DIST}
+build/release_env/bin/python3 pyston/tools/make_portable_dir.py pyston_${VERSION}_amd64.deb pyston_${VERSION}
 chown -R $(id -u):$(id -g) pyston_${VERSION}_amd64.deb
-chown -R $(id -u):$(id -g) pyston_${VERSION}_${DIST}
+chown -R $(id -u):$(id -g) pyston_${VERSION}
 cp -ar pyston_${VERSION}_amd64.deb /host-volume/pyston_${VERSION}_${DIST}.deb
-cp -ar pyston_${VERSION}_${DIST} /host-volume/pyston_${VERSION}_${DIST}
+cp -ar pyston_${VERSION} /host-volume/pyston_${VERSION}_${DIST}
 # create archive of portable dir
-cd /host-volume/pyston_${VERSION}_${DIST}
-tar -czf ../pyston_${VERSION}_${DIST}.tar.gz *
+tar -czf /host-volume/pyston_${VERSION}_${DIST}.tar.gz pyston_${VERSION}
 EOF
     docker image rm pyston-build:$DIST
 }
