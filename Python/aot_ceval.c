@@ -1239,7 +1239,7 @@ void jit_finish();
 static long opcache_min_runs = OPCACHE_MIN_RUNS;
 static long jit_min_runs = JIT_MIN_RUNS;
 
-#define JIT_FUNC_FAILED ((JitFunc*)0x1)
+#define JIT_FUNC_FAILED ((JitFunc)0x1)
 
 static PyObject* _Py_HOT_FUNCTION
 _PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObject** stack_pointer, JitFunc jit_code);

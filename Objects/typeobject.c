@@ -2933,7 +2933,7 @@ type_vectorcall(PyObject *metatype, PyObject *const *args,
         }
         PyTypeObject* type = Py_TYPE(args[0]);
         Py_INCREF(type);
-        return type;
+        return (PyObject*)type;
     }
     /* In other (much less common) cases, fall back to
        more flexible calling conventions. */

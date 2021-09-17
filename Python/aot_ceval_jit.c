@@ -477,7 +477,7 @@ static const char* get_opcode_name(int opcode) {
 }
 
 #define IS_32BIT_VAL(x) ((unsigned long)(x) <= UINT32_MAX)
-#define IS_32BIT_SIGNED_VAL(x) ((int32_t)(x) == (x))
+#define IS_32BIT_SIGNED_VAL(x) ((int32_t)(x) == (int64_t)(x))
 
 // looks which instruction can be reached by jumps
 // this is important for the deferred stack operations because
@@ -832,7 +832,7 @@ static void emit_mov_imm_or_lea(Jit* Dst, int r_idx, int other_idx, void* addr, 
 
 // sets register r_idx1 = addr1 and r_idx2 = addr2. Uses a lea if beneficial.
 static void emit_mov_imm2(Jit* Dst, int r_idx1, void* addr1, int r_idx2, void* addr2) {
-    emit_mov_imm(Dst, r_idx1, addr1);
+    emit_mov_imm(Dst, r_idx1, (unsigned long)addr1);
     emit_mov_imm_or_lea(Dst, r_idx2, r_idx1, addr2, addr1);
 }
 
@@ -1107,7 +1107,7 @@ static void deferred_vs_push(Jit* Dst, int location, unsigned long value) {
 }
 
 // returns one of OWNED, BORROWED, or IMMORTAL based on the reference ownership status
-static int deferred_vs_peek(Jit* Dst, int r_idx, int num) {
+static RefStatus deferred_vs_peek(Jit* Dst, int r_idx, int num) {
     JIT_ASSERT(num >= 1, "");
 
     RefStatus ref_status = OWNED;
@@ -1243,7 +1243,7 @@ static void deferred_vs_peek_top_and_apply(Jit* Dst, int r_idx_top) {
     }
 }
 
-static void deferred_vs_pop_n(Jit* Dst, int num, const int* const regs, int out_ref_status[]) {
+static void deferred_vs_pop_n(Jit* Dst, int num, const int* const regs, RefStatus out_ref_status[]) {
     for (int i=0; i<num; ++i) {
         out_ref_status[i] = deferred_vs_peek(Dst, regs[i], i+1);
     }
@@ -1256,11 +1256,11 @@ static int deferred_vs_pop1(Jit* Dst, int r_idx1) {
     deferred_vs_pop_n(Dst, 1, regs, &ref_status);
     return ref_status;
 }
-static void deferred_vs_pop2(Jit* Dst, int r_idx1, int r_idx2, int out_ref_status[]) {
+static void deferred_vs_pop2(Jit* Dst, int r_idx1, int r_idx2, RefStatus out_ref_status[]) {
     int regs[] = { r_idx1, r_idx2 };
     deferred_vs_pop_n(Dst, 2, regs, out_ref_status);
 }
-static void deferred_vs_pop3(Jit* Dst, int r_idx1, int r_idx2, int r_idx3, int out_ref_status[]) {
+static void deferred_vs_pop3(Jit* Dst, int r_idx1, int r_idx2, int r_idx3, RefStatus out_ref_status[]) {
     int regs[] = { r_idx1, r_idx2, r_idx3 };
     deferred_vs_pop_n(Dst, 3, regs, out_ref_status);
 }
@@ -1409,7 +1409,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             if (jit_stats_enabled) {
                 emit_inc_qword_ptr(Dst, &jit_stat_load_global_miss, 1 /*=can use tmp_reg*/);
             }
-            emit_mov_imm2(Dst, arg1_idx, (unsigned long)PyTuple_GET_ITEM(Dst->co_names, oparg),
+            emit_mov_imm2(Dst, arg1_idx, PyTuple_GET_ITEM(Dst->co_names, oparg),
                                 arg2_idx, co_opcache);
             emit_call_ext_func(Dst, get_aot_func_addr(Dst, opcode, oparg, co_opcache != 0 /*= use op cache */));
             emit_if_res_0_error(Dst);
@@ -1627,17 +1627,17 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             switch_section(Dst, SECTION_COLD);
             | 1:
             if (jit_stats_enabled) {
-                emit_inc_qword_ptr(Dst, opcode == opcode == LOAD_ATTR ? &jit_stat_load_attr_miss : &jit_stat_load_method_miss, 1 /*=can use tmp_reg*/);
+                emit_inc_qword_ptr(Dst, opcode == LOAD_ATTR ? &jit_stat_load_attr_miss : &jit_stat_load_method_miss, 1 /*=can use tmp_reg*/);
             }
             if (opcode == LOAD_ATTR) {
                 | mov arg2, arg1
                 if (ref_status == BORROWED) { // helper function needs a owned value
                     emit_incref(Dst, arg2_idx);
                 }
-                emit_mov_imm2(Dst, arg1_idx, (unsigned long)PyTuple_GET_ITEM(Dst->co_names, oparg),
+                emit_mov_imm2(Dst, arg1_idx, PyTuple_GET_ITEM(Dst->co_names, oparg),
                                     arg3_idx, co_opcache);
             } else {
-                emit_mov_imm2(Dst, arg1_idx, (unsigned long)PyTuple_GET_ITEM(Dst->co_names, oparg),
+                emit_mov_imm2(Dst, arg1_idx, PyTuple_GET_ITEM(Dst->co_names, oparg),
                                     arg2_idx, co_opcache);
             }
             emit_call_ext_func(Dst, get_aot_func_addr(Dst, opcode, oparg, co_opcache != 0 /*= use op cache */));
@@ -2933,7 +2933,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     _Static_assert(sizeof(((struct _ceval_runtime_state*)0)->tracing_possible) == 4, "");
     _Static_assert(sizeof(((struct _ceval_runtime_state*)0)->eval_breaker) == 4, "");
 
-    emit_mov_imm(Dst, interrupt_idx, &_PyRuntime.ceval.tracing_possible);
+    emit_mov_imm(Dst, interrupt_idx, (unsigned long)&_PyRuntime.ceval.tracing_possible);
 
     // clear deferred stack space (skip manual stack slots because they don't need to be zero)
     // we clear it so in case of error we can just decref this space
@@ -3115,7 +3115,7 @@ void jit_finish() {
         // dump emitted functions for 'perf report'
         for (int i=0; i<perf_map_num_funcs; ++i) {
             struct PerfMapEntry* entry = &perf_map_funcs[i];
-            char fn[120];
+            char fn[150];
             char func_name_unique[120];
             int index = 0;
             do {
