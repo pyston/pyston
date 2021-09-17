@@ -19,7 +19,7 @@ if __name__ == "__main__":
             return os.path.join(os.path.dirname(__file__), path)
 
         env_dir = os.path.abspath(os.path.join(tempdir, "env"))
-        subprocess.check_call([rel("../../build/bootstrap_env/bin/virtualenv"), "-p", sys.executable, env_dir])
+        subprocess.check_call([rel("../../../build/bootstrap_env/bin/virtualenv"), "-p", sys.executable, env_dir])
 
         subprocess.check_call([os.path.join(env_dir, "bin/pip"), "install", "-r", rel("urllib3_requirements.txt")])
         # Small hack: the comparison script looks for virtualenv setups, which it thinks are ended
