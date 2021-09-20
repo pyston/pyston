@@ -38,8 +38,12 @@ PyAPI_FUNC(PyObject*) _PyTraceMalloc_GetTraceback(
 
 #else
 
-#define PyTraceMalloc_Track(domain, ptr, size) (-2)
-#define PyTraceMalloc_Untrack(domain, ptr) (-2)
+static inline int _tracemalloc_success() {
+    return -2;
+}
+
+#define PyTraceMalloc_Track(domain, ptr, size) (_tracemalloc_success())
+#define PyTraceMalloc_Untrack(domain, ptr) (_tracemalloc_success())
 #define _PyTraceMalloc_GetTraceback(domain, ptr) (&_Py_NoneStruct)
 
 #endif // PY_DEBUGGING_FEATURES

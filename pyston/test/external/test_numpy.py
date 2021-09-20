@@ -22,7 +22,7 @@ if __name__ == "__main__":
             return os.path.join(os.path.dirname(__file__), path)
 
         env_dir = os.path.abspath(os.path.join(tempdir, "env"))
-        subprocess.check_call([rel("../../build/bootstrap_env/bin/virtualenv"), "-p", sys.executable, "--system-site-packages", env_dir])
+        subprocess.check_call([rel("../../../build/bootstrap_env/bin/virtualenv"), "-p", sys.executable, env_dir])
 
         # Numpy builds into its source directory, so create a clean copy of it
         numpy_dir = os.path.join(tempdir, "numpy")
@@ -48,5 +48,5 @@ if not hasattr(sys, "pyston_version_info"):
     sys.pyston_version_info = ()
 """)
 
-        r = subprocess.call([os.path.join(env_dir, "bin/python"), "-u", "runtests.py", "--mode=full"], cwd=numpy_dir)
+        r = subprocess.call([os.path.join(env_dir, "bin/python"), "-u", "runtests.py", "--mode=full", "-v"], cwd=numpy_dir)
         assert r in (0, 1)

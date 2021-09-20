@@ -31,3 +31,9 @@
 [submodule "pyston/test/external/numpy"]
 	path = pyston/test/external/numpy
 	url = https://github.com/numpy/numpy
+[submodule "pyston/test/external/sqlalchemy"]
+	path = pyston/test/external/sqlalchemy
+	url = https://github.com/sqlalchemy/sqlalchemy
+[submodule "pyston/test/external/pandas"]
+	path = pyston/test/external/pandas
+	url = https://github.com/pandas-dev/pandas
