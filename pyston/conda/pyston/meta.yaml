@@ -1,0 +1,76 @@
+{% set llvm_version = "10.0.1" %}
+
+package:
+  name: pyston
+  version: "2.3.1a"
+  skip: True  # [not linux]
+
+source:
+  path: ../../../
+
+build:
+  number: 0
+
+  # don't compile python code for now
+  skip_compile_pyc:
+    "*.py"
+
+outputs:
+  - name: pyston
+    script: build_base.sh
+
+    requirements:
+      build:
+        - {{ compiler('c') }}
+        - {{ compiler('cxx') }}
+        - python
+        - make
+        - cmake
+        - virtualenv
+        - pkg-config
+        - clang={{ llvm_version }}
+        - llvmdev={{ llvm_version }}
+        - llvm-tools={{ llvm_version }}
+        - compiler-rt={{ llvm_version }}
+        - libtool
+        - sqlite
+        - luajit
+        - bolt==2021.06.05
+
+        - zlib
+        - bzip2
+        - openssl
+        - xz
+        - readline
+        - ncurses
+        - libffi
+
+        # nitrous needs 'nm'
+        - binutils 
+
+        # pillow dependencies
+        - freetype
+        - jpeg
+        - libtiff
+        - libwebp
+
+
+      run:
+        - zlib
+        - bzip2
+        - openssl
+        - xz
+        - readline
+        - ncurses
+        - libffi
+
+test:
+  commands:
+    - pyston -c "print('works')"
+    - pyston -mpip list
+    - pyston -mpip install attrs
+
+about:
+  home: https://github.com/pyston/pyston
+  license: PSF
+  license_file: ../../../LICENSE

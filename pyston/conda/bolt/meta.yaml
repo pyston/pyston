@@ -1,0 +1,42 @@
+{% set commit_hash  = "0c14e20238604a4c05e174e71676857d45c60a0f" %}
+{% set version_name = "2021.06.05" %}  # date of the commit 
+
+package:
+  name: bolt
+  version: {{ version_name }}
+
+source:
+  # git_url: https://github.com/facebookincubator/BOLT
+  # usig git we can only checkout HEAD or a tag
+  # but the tags are too old for us so download an archive via github
+  url: https://github.com/facebookincubator/BOLT/archive/{{ commit_hash }}/bolt.zip
+
+build:
+  number: 0
+
+outputs:
+  - name: bolt
+    requirements:
+      build:
+        - {{ compiler('c') }}
+        - {{ compiler('cxx') }}
+        - make
+        - cmake
+        - zlib
+        - ncurses
+
+      run:
+        - zlib
+        - ncurses
+
+test:
+  commands:
+    - llvm-bolt --version
+    - perf2bolt --version
+    - merge-fdata --version
+
+about:
+  home: https://github.com/facebookincubator/BOLT/
+  licence: Apache License v2.0 with LLVM Exceptions
+  licence_file: LICENCE.TXT
+  summary: BOLT is a post-link optimizer developed to speed up large applications.
