@@ -29,4 +29,4 @@ override_dh_auto_configure:
 override_dh_auto_build:
 	make -j`nproc` -C .. build/release_env/bin/python
 	# Don't package pkgconfig:
-	rm -rf release_install/usr/lib/pkgconfig
+	rm -r ../build/release_install/usr/lib/pkgconfig

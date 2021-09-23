@@ -1,3 +1,8 @@
+pyston (2.3.1) unstable; urgency=medium
+
+  * Compatibility and packaging improvements
+
+ -- Kevin Modzelewski <kevmod@gmail.com>  Thu, 20 Sep 2021 17:46:12 +0200
 pyston (2.3) unstable; urgency=medium
 
   * embedding support and compatibility improvements
