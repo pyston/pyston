@@ -637,7 +637,11 @@ PyMem_Malloc(size_t size)
 #if PY_DEBUGGING_FEATURES
     return _PyMem.malloc(_PyMem.ctx, size);
 #else
+#ifdef WITH_PYMALLOC
     return _PyObject_Malloc(NULL, size);
+#else
+    return _PyMem_RawMalloc(NULL, size);
+#endif
 #endif
 }
 
@@ -650,7 +654,11 @@ PyMem_Calloc(size_t nelem, size_t elsize)
 #if PY_DEBUGGING_FEATURES
     return _PyMem.calloc(_PyMem.ctx, nelem, elsize);
 #else
+#ifdef WITH_PYMALLOC
     return _PyObject_Calloc(NULL, nelem, elsize);
+#else
+    return _PyMem_RawCalloc(NULL, nelem, elsize);
+#endif
 #endif
 }
 
@@ -663,7 +671,11 @@ PyMem_Realloc(void *ptr, size_t new_size)
 #if PY_DEBUGGING_FEATURES
     return _PyMem.realloc(_PyMem.ctx, ptr, new_size);
 #else
+#ifdef WITH_PYMALLOC
     return _PyObject_Realloc(NULL, ptr, new_size);
+#else
+    return _PyMem_RawRealloc(NULL, ptr, new_size);
+#endif
 #endif
 }
 
@@ -673,7 +685,11 @@ PyMem_Free(void *ptr)
 #if PY_DEBUGGING_FEATURES
     _PyMem.free(_PyMem.ctx, ptr);
 #else
+#ifdef WITH_PYMALLOC
     _PyObject_Free(NULL, ptr);
+#else
+    _PyMem_RawFree(NULL, ptr);
+#endif
 #endif
 }
 
@@ -733,7 +749,11 @@ PyObject_Malloc(size_t size)
 #if PY_DEBUGGING_FEATURES
     return _PyObject.malloc(_PyObject.ctx, size);
 #else
+#ifdef WITH_PYMALLOC
     return _PyObject_Malloc(NULL, size);
+#else
+    return _PyMem_RawMalloc(NULL, size);
+#endif
 #endif
 }
 
@@ -746,7 +766,11 @@ PyObject_Calloc(size_t nelem, size_t elsize)
 #if PY_DEBUGGING_FEATURES
     return _PyObject.calloc(_PyObject.ctx, nelem, elsize);
 #else
+#ifdef WITH_PYMALLOC
     return _PyObject_Calloc(NULL, nelem, elsize);
+#else
+    return _PyMem_RawCalloc(NULL, nelem, elsize);
+#endif
 #endif
 }
 
@@ -759,7 +783,11 @@ PyObject_Realloc(void *ptr, size_t new_size)
 #if PY_DEBUGGING_FEATURES
     return _PyObject.realloc(_PyObject.ctx, ptr, new_size);
 #else
+#ifdef WITH_PYMALLOC
     return _PyObject_Realloc(NULL, ptr, new_size);
+#else
+    return _PyMem_RawRealloc(NULL, ptr, new_size);
+#endif
 #endif
 }
 
@@ -769,7 +797,11 @@ PyObject_Free(void *ptr)
 #if PY_DEBUGGING_FEATURES
     _PyObject.free(_PyObject.ctx, ptr);
 #else
+#ifdef WITH_PYMALLOC
     _PyObject_Free(NULL, ptr);
+#else
+    _PyMem_RawFree(NULL, ptr);
+#endif
 #endif
 }
 
