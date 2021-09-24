@@ -100,7 +100,8 @@ public:
                          const RuntimeDyld::LoadedObjectInfo& L) {
                           static JITEventListener* jit_event
                               = JITEventListener::createPerfJITEventListener();
-                          jit_event->notifyObjectLoaded(K, Obj, L);
+                          if (jit_event)
+                              jit_event->notifyObjectLoaded(K, Obj, L);
                       }),
           CompileLayer(AcknowledgeORCv1Deprecation, ObjectLayer, SimpleCompiler(*TM)) {
         llvm::sys::DynamicLibrary::LoadLibraryPermanently(nullptr);

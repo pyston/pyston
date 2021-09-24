@@ -274,8 +274,8 @@ COVERAGE_INFO=	$(abs_builddir)/coverage.info
 COVERAGE_REPORT=$(abs_builddir)/lcov-report
 COVERAGE_REPORT_OPTIONS=--no-branch-coverage --title "CPython lcov report"
 
-CLANG=		../../build/Release/llvm/bin/clang
-CLANG_RT_PROFILE=../../build/Release/llvm/lib/clang/10.0.0/lib/linux/libclang_rt.profile-x86_64.a
+# PGO instrumented build of our traces requires us to link against this library
+CLANG_RT_PROFILE=$(shell ${CLANG} --print-resource-dir)/lib/linux/libclang_rt.profile-x86_64.a
 
 # === Definitions added by makesetup ===
 
