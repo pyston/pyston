@@ -1,6 +1,8 @@
 #!/bin/bash
-set -e
-VERSION=2.3
+
+set -eu
+
+VERSION=2.3.1
 OUTPUT_DIR=${PWD}/release/${VERSION}
 
 PARALLEL=
@@ -27,6 +29,25 @@ if [ -z "$RELEASES" ]; then
         exit 1
     fi
 fi
+
+# Make sure we have enough space available to do the build.
+# I haven't really tested these numbers, I think they're a bit lower
+# than the actual requirement
+if [ -z "$PARALLEL" ]; then
+    # 1kb blocks:
+    REQ_SPACE=20000000
+else
+    REQ_SPACE=60000000
+fi
+
+if [ $(df . | awk 'NR==2 {print $4}') -lt $REQ_SPACE ]; then
+    echo "Not enough disk space available"
+    exit 1
+fi
+
+# Setting this avoided a perf crash:
+echo "Setting kptr_restrict=0..."
+echo 0 | sudo tee /proc/sys/kernel/kptr_restrict
 
 mkdir -p $OUTPUT_DIR
 
@@ -62,6 +83,6 @@ do
 done
 wait
 
-ln -sf $OUTPUT_DIR/pyston_${VERSION}_16.04.tar.gz $OUTPUT_DIR/pyston_${VERSION}_portable.tar.gz
+ln -sf --relative $OUTPUT_DIR/pyston_${VERSION}_16.04.tar.gz $OUTPUT_DIR/pyston_${VERSION}_portable.tar.gz
 
 echo "FINISHED: wrote release to $OUTPUT_DIR"

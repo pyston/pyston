@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-VERSION=2.3
+VERSION=2.3.1
 INPUT_DIR=${PWD}/release/${VERSION}
 OUTPUT_DIR=`realpath ${INPUT_DIR}/bench`
 
