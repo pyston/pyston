@@ -1,0 +1,26 @@
+package:
+  name: python
+  version: "3.8.5"
+  skip: True  # [not linux]
+
+build:
+  number: 0
+  string: pyston
+  noarch: generic
+
+outputs:
+  - name: python
+    script: build_base.sh
+    requirements:
+      build:
+        - pyston
+      run:
+        - pyston
+
+test:
+  commands:
+    - python --version | grep Pyston
+
+about:
+  home: https://github.com/pyston/pyston
+  license: PSF
