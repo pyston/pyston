@@ -9,7 +9,7 @@ source:
   path: ../../../
 
 build:
-  number: 0
+  number: 1
 
   # don't compile python code for now
   skip_compile_pyc:
@@ -67,8 +67,6 @@ outputs:
 test:
   commands:
     - pyston -c "print('works')"
-    - pyston -mpip list
-    - pyston -mpip install attrs
 
 about:
   home: https://github.com/pyston/pyston

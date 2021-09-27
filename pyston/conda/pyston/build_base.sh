@@ -17,13 +17,14 @@ make -j`nproc` pyston3
 OUTDIR=$SRC_DIR/build/opt_install
 
 cp $OUTDIR/usr/bin/python3.bolt ${PREFIX}/bin/python3.8-pyston2.3
-cp $OUTDIR/usr/bin/pip3.8 ${PREFIX}/bin/pip-pyston2.3
 ln -s ${PREFIX}/bin/python3.8-pyston2.3 ${PREFIX}/bin/pyston
 ln -s ${PREFIX}/bin/python3.8-pyston2.3 ${PREFIX}/bin/pyston3
-ln -s ${PREFIX}/bin/pip-pyston2.3 ${PREFIX}/bin/pip-pyston
 
 cp -r $OUTDIR/usr/include/* ${PREFIX}/include/
 cp -r $OUTDIR/usr/lib/* ${PREFIX}/lib/
+
+# remove pip
+rm -r ${PREFIX}/lib/python3.8-pyston2.3/site-packages/pip*
 
 # replace python
 #ln -sf ${PREFIX}/bin/python3.8-pyston2.3 ${PREFIX}/bin/python
