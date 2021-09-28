@@ -31,6 +31,7 @@
 #include "frameobject.h"        /* for PyFrame_ClearFreeList */
 #include "pydtrace.h"
 #include "pytime.h"             /* for _PyTime_GetMonotonicClock() */
+#include "gcmalloc.h"
 
 /*[clinic input]
 module gc
@@ -1996,10 +1997,24 @@ PyObject_GC_UnTrack(void *op_raw)
     }
 }
 
+void
+PyObject_GC_Allocated() {
+    struct _gc_runtime_state *state = &_PyRuntime.gc;
+    state->generations[0].count++; /* number of allocated GC objects */
+    if (state->generations[0].count > state->generations[0].threshold &&
+        state->enabled &&
+        state->generations[0].threshold &&
+        !state->collecting &&
+        !PyErr_Occurred()) {
+        state->collecting = 1;
+        collect_generations(state);
+        state->collecting = 0;
+    }
+}
+
 PyObject *
 _PyObject_GC_Alloc(int use_calloc, size_t basicsize)
 {
-    struct _gc_runtime_state *state = &_PyRuntime.gc;
     PyObject *op;
     PyGC_Head *g;
     size_t size;
@@ -2015,16 +2030,7 @@ _PyObject_GC_Alloc(int use_calloc, size_t basicsize)
     assert(((uintptr_t)g & 3) == 0);  // g must be aligned 4bytes boundary
     g->_gc_next = 0;
     g->_gc_prev = 0;
-    state->generations[0].count++; /* number of allocated GC objects */
-    if (state->generations[0].count > state->generations[0].threshold &&
-        state->enabled &&
-        state->generations[0].threshold &&
-        !state->collecting &&
-        !PyErr_Occurred()) {
-        state->collecting = 1;
-        collect_generations(state);
-        state->collecting = 0;
-    }
+    PyObject_GC_Allocated();
     op = FROM_GC(g);
     return op;
 }
@@ -2045,6 +2051,15 @@ PyObject *
 _PyObject_GC_New(PyTypeObject *tp)
 {
     PyObject *op = _PyObject_GC_Malloc(_PyObject_SIZE(tp));
+    if (op != NULL)
+        op = PyObject_INIT(op, tp);
+    return op;
+}
+
+PyObject *
+_PyObject_GC_New_FromAllocator(PyTypeObject *tp, void *allocator)
+{
+    PyObject *op = gcmalloc_alloc(allocator);
     if (op != NULL)
         op = PyObject_INIT(op, tp);
     return op;

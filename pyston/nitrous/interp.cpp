@@ -244,6 +244,14 @@ public:
         if (always_trace.count(function_name))
             return true;
 
+        if (function_name == "gcmalloc_alloc")
+            return false;
+        if (function_name == "gcmalloc_free")
+            return false;
+        if (function_name == "new_gcallocator")
+            return false;
+        if (function_name == "PyObject_GC_Allocated")
+            return false;
         if (function_name == "PyObject_Malloc")
             return false;
         if (function_name == "_PyObject_GC_Malloc")

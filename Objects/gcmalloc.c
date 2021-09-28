@@ -7,10 +7,16 @@
    A gc-optimized memory allocator, based on pymalloc.
    The code is copied from obmalloc.c and modified.
 
-   Compared to pymalloc this includes the following changes:
+   Compared to pymalloc the main changes are:
    - Add the ability to separate objects by type
    - Add the ability to quickly enumerate live objects by type
-   - No fallback to the system allocator, skipping some checks
+
+   There are also more minor changes:
+   - No fallback to the system allocator, skipping some checks.
+     This is because this is a special-purpose allocator that
+     has to be opted into at compile time for fixed-size objects.
+   - This allocator adds a PyGC_HEAD header, since from the pov
+     of the client the exact gc mechanism is an implementation detail.
 
    The first change is done by refactoring the code so that the
    allocator state is no longer global.
@@ -20,6 +26,12 @@
    enumeration, not for freelist management, in order to keep the
    delta from the original code as small as possible.
 */
+
+/* Get an object's GC head */
+#define AS_GC(o) ((PyGC_Head *)(o)-1)
+
+/* Get the object given the GC head */
+#define FROM_GC(g) ((PyObject *)(((PyGC_Head *)g)+1))
 
 void * _PyObject_ArenaMmap(void *ctx, size_t size);
 void _PyObject_ArenaMunmap(void *ctx, void *ptr, size_t size);
@@ -145,9 +157,6 @@ void _PyObject_ArenaMunmap(void *ctx, void *ptr, size_t size);
 #define ALIGNMENT_SHIFT         3
 #endif
 
-/* Return the number of bytes in size class I, as a uint. */
-#define INDEX2SIZE(I) (((uint)(I) + 1) << ALIGNMENT_SHIFT)
-
 /*
  * Max size threshold below which malloc requests are considered to be
  * small enough in order to use preallocated memory pools. You can tune
@@ -236,6 +245,7 @@ struct pool_header {
     struct pool_header *nextpool;       /* next pool of this size class  */
     struct pool_header *prevpool;       /* previous pool       ""        */
     uint arenaindex;                    /* index into arenas of base adr */
+    // This is now either DUMMY (uninitialized) or 0:
     uint szidx;                         /* block size class index        */
     uint nextoffset;                    /* bytes to virgin block         */
     uint maxnextoffset;                 /* largest valid nextoffset      */
@@ -475,18 +485,25 @@ typedef struct _allocator {
 
     Py_ssize_t _Py_AllocatedBlocks;
 
-} Allocator;
+} GCAllocator;
 
-Allocator*
-new_allocator(size_t nbytes, PyTypeObject* type) {
-    assert(nbytes != 0);
+#define MIN_SIZE 16
+
+GCAllocator*
+new_gcallocator(size_t nbytes, PyTypeObject* type) {
+    nbytes += sizeof(PyGC_Head);
+
+    assert(nbytes >= MIN_SIZE);
+    assert(nbytes % ALIGNMENT == 0);
     assert(nbytes <= SMALL_REQUEST_THRESHOLD);
 
-    Allocator* alloc = (Allocator*)calloc(1, sizeof(Allocator));
+    GCAllocator* alloc = (GCAllocator*)calloc(1, sizeof(GCAllocator));
 
     alloc->nbytes = nbytes;
     alloc->usedpools[0] = PTA(alloc->usedpools, 0);
     alloc->usedpools[1] = PTA(alloc->usedpools, 0);
+
+    return alloc;
 }
 
 /* How many arena_objects do we initially allocate?
@@ -501,7 +518,7 @@ new_allocator(size_t nbytes, PyTypeObject* type) {
  * `usable_arenas` to the return value.
  */
 static struct arena_object*
-new_arena(Allocator* alloc)
+new_arena(GCAllocator* alloc)
 {
     struct arena_object* arenaobj;
     uint excess;        /* number of bytes above pool alignment */
@@ -615,8 +632,8 @@ new_arena(Allocator* alloc)
    Return NULL if gcmalloc failed to allocate the memory block: on bigger
    requests, on error in the code below (as a last chance to serve the request)
    or when the max memory limit has been reached. */
-static void*
-gcmalloc_alloc(Allocator *alloc)
+void*
+gcmalloc_alloc(GCAllocator *alloc)
 {
     block *bp;
     poolp pool;
@@ -635,8 +652,7 @@ gcmalloc_alloc(Allocator *alloc)
     /*
      * Most frequent paths first
      */
-    size = 0;
-    pool = alloc->usedpools[size + size];
+    pool = alloc->usedpools[0];
     if (pool != pool->nextpool) {
         /*
          * There is a used pool for this size class.
@@ -656,7 +672,7 @@ gcmalloc_alloc(Allocator *alloc)
             /* There is room for another block. */
             pool->freeblock = (block*)pool +
                               pool->nextoffset;
-            pool->nextoffset += INDEX2SIZE(size);
+            pool->nextoffset += alloc->nbytes;
             *(block **)(pool->freeblock) = NULL;
             goto success;
         }
@@ -738,13 +754,13 @@ gcmalloc_alloc(Allocator *alloc)
 
     init_pool:
         /* Frontlink to used pools. */
-        next = alloc->usedpools[size + size]; /* == prev */
+        next = alloc->usedpools[0]; /* == prev */
         pool->nextpool = next;
         pool->prevpool = next;
         next->nextpool = pool;
         next->prevpool = pool;
         pool->ref.count = 1;
-        if (pool->szidx == size) {
+        if (pool->szidx == 0) {
             /* Luckily, this pool last contained blocks
              * of the same size class, so its header
              * and free list are already initialized.
@@ -759,8 +775,8 @@ gcmalloc_alloc(Allocator *alloc)
          * contain just the second block, and return the first
          * block.
          */
-        pool->szidx = size;
-        size = INDEX2SIZE(size);
+        pool->szidx = 0;
+        uint size = alloc->nbytes;
         bp = (block *)pool + POOL_OVERHEAD;
         pool->nextoffset = POOL_OVERHEAD + (size << 1);
         pool->maxnextoffset = POOL_SIZE - size;
@@ -797,7 +813,7 @@ gcmalloc_alloc(Allocator *alloc)
 
 success:
     assert(bp != NULL);
-    return (void *)bp;
+    return FROM_GC(bp);
 
 failed:
     return NULL;
@@ -806,9 +822,11 @@ failed:
 
 /* Free a memory block allocated by gcmalloc_alloc().
 */
-static void
-gcmalloc_free(Allocator *alloc, void *p)
+void
+gcmalloc_free(GCAllocator *alloc, void *p)
 {
+    p = AS_GC(p);
+
     poolp pool;
     block *lastfree;
     poolp next, prev;
