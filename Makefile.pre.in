@@ -1779,7 +1779,7 @@ aot_optimized.o: $(AOT_DIR)/aot_all.bc
 	elif [ -d $(AOT_DIR)/aot_prof ]; \
 	then \
 		echo "traces are using PGO"; \
-		../../build/Release/llvm/bin/llvm-profdata merge -output=$(AOT_DIR)/aot_prof.profdata $(AOT_DIR)/aot_prof/*.profraw || exit 1; \
+		$(LLVM_PROFDATA) merge -output=$(AOT_DIR)/aot_prof.profdata $(AOT_DIR)/aot_prof/*.profraw || exit 1; \
 		$(CLANG) -c -O2 $(CFLAGSFORSHARED) -fprofile-use=`realpath $(AOT_DIR)/aot_prof.profdata` -o $@ $(AOT_DIR)/aot_all.bc; \
 	else \
 		echo "traces are not using PGO"; \

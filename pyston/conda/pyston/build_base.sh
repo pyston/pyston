@@ -4,6 +4,15 @@ set -eux
 # pyston should not compile llvm and bolt but instead use the conda packages
 export PYSTON_USE_SYS_BINS=1
 
+# the conda compiler is named 'x86_64-conda-linux-gnu-cc' but cpython compares 
+# the name to *gcc*, *clang* in the configure file - so we have to use the real name. 
+# Code mostly copied from the cpython recipe.
+AR=$(basename "${AR}")
+CC=$(basename "${GCC}")
+CXX=$(basename "${CXX}")
+RANLIB=$(basename "${RANLIB}")
+READELF=$(basename "${READELF}")
+
 # overwrite default conda build flags else the bolt instrumented binary will not work
 CFLAGS="-isystem ${PREFIX}/include"
 LDFLAGS="-Wl,-rpath,${PREFIX}/lib -Wl,-rpath-link,${PREFIX}/lib -L${PREFIX}/lib"

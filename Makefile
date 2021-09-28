@@ -5,12 +5,14 @@ ifeq ($(PYSTON_USE_SYS_BINS),1)
 BOLT:=$(shell which llvm-bolt)
 CLANG:=$(shell which clang)
 LLVM_LINK:=$(shell which llvm-link)
+LLVM_PROFDATA:=$(shell which llvm-profdata)
 MERGE_FDATA:=$(shell which merge-fdata)
 PERF2BOLT:=$(shell which perf2bolt)
 else
 BOLT:=$(abspath build/bolt/bin/llvm-bolt)
 CLANG:=$(abspath build/Release/llvm/bin/clang)
 LLVM_LINK:=$(abspath build/Release/llvm/bin/llvm-link)
+LLVM_PROFDATA:=$(abspath build/Release/llvm/bin/llvm-profdata)
 MERGE_FDATA:=$(abspath build/bolt/bin/merge-fdata)
 PERF2BOLT:=$(abspath build/bolt/bin/perf2bolt)
 endif
@@ -125,6 +127,7 @@ RELEASE:=$(shell lsb_release -sr)
 EXTRA_BOLT_OPTS:=
 ifeq ($(RELEASE),16.04)
 else ifeq ($(RELEASE),18.04)
+else ifeq ($(CONDA_BUILD),1)
 else
 EXTRA_BOLT_OPTS:=-frame-opt=hot
 endif
@@ -139,11 +142,11 @@ build/$(1)_build/Makefile: $(MAKEFILE_DEPENDENCIES)
 	cd build/$(1)_build; $(2)
 
 build/$(1)_build/pyston: build/$(1)_build/Makefile $(wildcard */*.c) $(wildcard */*.h) $(3)
-	cd build/$(1)_build; CLANG=$(CLANG) $$(MAKE)
+	cd build/$(1)_build; CLANG=$(CLANG) LLVM_PROFDATA=$(LLVM_PROFDATA) $$(MAKE)
 	touch $$@ # some cpython .c files don't affect the python executable
 
 build/$(1)_install/usr/bin/python3: build/$(1)_build/pyston
-	cd build/$(1)_build; CLANG=$(CLANG) $$(MAKE) install DESTDIR=$(4) $(if $(findstring so,$(5)),INSTSONAME=libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.prebolt)
+	cd build/$(1)_build; CLANG=$(CLANG) LLVM_PROFDATA=$(LLVM_PROFDATA) $$(MAKE) install DESTDIR=$(4) $(if $(findstring so,$(5)),INSTSONAME=libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.prebolt)
 
 $(1): build/$(1)_env/bin/python
 
