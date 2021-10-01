@@ -133,11 +133,15 @@ def is_so(filename):
     return filename.endswith(".so")
 
 def make_portable_dir(outdir):
+    for fn in os.listdir(outdir + "/usr"):
+        os.rename(os.path.join(outdir, "usr", fn), os.path.join(outdir, fn))
+    os.rmdir(outdir + "/usr")
+
     dependencies = recursive_get_dependencies(
-        Dependency("pyston", outdir + "/usr/bin/pyston"))
+        Dependency("pyston", outdir + "/bin/pyston"))
 
     # get output lib directory
-    paths = glob.glob(outdir + "/usr/lib/python3.8-pyston*/lib-dynload/")
+    paths = glob.glob(outdir + "/lib/python3.8-pyston*/lib-dynload/")
     assert len(paths) == 1 and paths[0].endswith("/")
     path = paths[0]
 
@@ -149,15 +153,15 @@ def make_portable_dir(outdir):
         # the path to our own libs.
         set_rpath(path + f, "/lib64:/usr/lib/x86_64-linux-gnu:$ORIGIN/../../../lib")
 
-    copy_libs(dependencies, outdir + "/usr/lib")
+    copy_libs(dependencies, outdir + "/lib")
 
     # remove pip wrappers which will not work because of hardcoded #!path
-    for f in glob.glob(outdir + "/usr/bin/pip*"):
+    for f in glob.glob(outdir + "/bin/pip*"):
         print(f"removing {f}")
         os.remove(f)
 
     # create toplevel symlinks for quick access
-    for f in glob.glob(outdir + "/usr/bin/pyston*"):
+    for f in glob.glob(outdir + "/bin/pyston*"):
         src = os.path.relpath(f, outdir)
         dst = os.path.join(outdir, os.path.basename(f))
         print(f"creating symlink {dst} -> {src}")
