@@ -9,7 +9,7 @@
 
    Compared to pymalloc the main changes are:
    - Add the ability to separate objects by type
-   - Add the ability to quickly enumerate live objects by type
+   - Add the ability to quickly enumerate live objects by type and generation
 
    There are also more minor changes:
    - No fallback to the system allocator, skipping some checks.
@@ -21,10 +21,13 @@
    The first change is done by refactoring the code so that the
    allocator state is no longer global.
 
-   The second is by adding a bitmap to pool objects that let them
-   be quickly scanned. The bitmap is only used for the live-object-
-   enumeration, not for freelist management, in order to keep the
-   delta from the original code as small as possible.
+   The second is by linking pools into linked lists based on the lowest
+   generation number of any of their contained objects. This way we can
+   quickly enumerate any pools with any objects in generation 0/1/2.
+
+   To find the objects within a pool, we maintain three bitmaps, one per
+   generation. An entry in the bitmap is set if there is a live object
+   at that address that belongs to the corresponding generation.
 */
 
 /* Get an object's GC head */
@@ -237,18 +240,39 @@ void _PyObject_ArenaMunmap(void *ctx, void *ptr, size_t size);
 /* When you say memory, my mind reasons in terms of (pointers to) blocks */
 typedef uint8_t block;
 
+// How many bytes of memory are assigned to a single bitmap location
+#define BITMAP_OBJECT_SIZE 16
+
 /* Pool for small blocks. */
 struct pool_header {
     union { block *_padding;
             uint count; } ref;          /* number of allocated blocks    */
     block *freeblock;                   /* pool's free list head         */
-    struct pool_header *nextpool;       /* next pool of this size class  */
-    struct pool_header *prevpool;       /* previous pool       ""        */
+    struct pool_header *nextusedpool;       /* next pool of this size class  */
+    struct pool_header *prevusedpool;       /* previous pool       ""        */
+    struct pool_header *nextgenpool;        /* next pool in this generation  */
+    struct pool_header *prevgenpool;        /* previous pool       ""        */
+    char is_young;              /* 1 if this pool is linked into the youngest generation, 0 if not */
     uint arenaindex;                    /* index into arenas of base adr */
     // This is now either DUMMY (uninitialized) or 0:
     uint szidx;                         /* block size class index        */
     uint nextoffset;                    /* bytes to virgin block         */
     uint maxnextoffset;                 /* largest valid nextoffset      */
+
+    // Bitmap of if block belongs to generation N
+    // To keep things simple, the mapping from block to bit in this bitmap
+    // is just offset_of_block / BITMAP_OBJECT_SIZE
+    // ie it does not depend on the size of the object allocated, and
+    // it does not skip the pool_header block.
+    // This makes the bitmaps somewhat larger with the benefit of simplicity
+    // and runtime speed.
+    //
+    // Each BITMAP_OBJECT_SIZE-sized block of memory (16 bytes) requires
+    // three bits, resulting in a 2% overhead for maintaining these bitmaps.
+    // This could be reduced by increasing BITMAP_OBJECT_SIZE to 32, or
+    // changing the above design decision, or storing the generation number
+    // as a two-bit integer instead of three bit flags.
+    long gen_bitmaps[NUM_GENERATIONS][POOL_SIZE / BITMAP_OBJECT_SIZE / (8 * sizeof(long))];
 };
 
 typedef struct pool_header *poolp;
@@ -326,15 +350,15 @@ used == partially used, neither empty nor full
     needs space.
     The pool holds blocks of a fixed size, and is in the circular list headed
     at usedpools[i] (see above).  It's linked to the other used pools of the
-    same size class via the pool_header's nextpool and prevpool members.
+    same size class via the pool_header's nextusedpool and prevusedpool members.
     If all but one block is currently allocated, a malloc can cause a
     transition to the full state.  If all but one block is not currently
     allocated, a free can cause a transition to the empty state.
 
 full == all the pool's blocks are currently allocated
     On transition to full, a pool is unlinked from its usedpools[] list.
-    It's not linked to from anything then anymore, and its nextpool and
-    prevpool members are meaningless until it transitions back to used.
+    It's not linked to from anything then anymore, and its nextusedpool and
+    prevusedpool members are meaningless until it transitions back to used.
     A free of a block in a full pool puts the pool back in the used state.
     Then it's linked in at the front of the appropriate usedpools[] list, so
     that the next allocation for its size class will reuse the freed block.
@@ -342,7 +366,7 @@ full == all the pool's blocks are currently allocated
 empty == all the pool's blocks are currently available for allocation
     On transition to empty, a pool is unlinked from its usedpools[] list,
     and linked to the front of its arena_object's singly-linked freepools list,
-    via its nextpool member.  The prevpool member has no meaning in this case.
+    via its nextusedpool member.  The prevusedpool member has no meaning in this case.
     Empty pools have no inherent size class:  the next time a malloc finds
     an empty list in usedpools[], it takes the first pool off of freepools.
     If the size class needed happens to be the same as the size class the pool
@@ -374,14 +398,14 @@ once when and only when nextoffset > maxnextoffset.
 
 Major obscurity:  While the usedpools vector is declared to have poolp
 entries, it doesn't really.  It really contains two pointers per (conceptual)
-poolp entry, the nextpool and prevpool members of a pool_header.  The
+poolp entry, the nextusedpool and prevusedpool members of a pool_header.  The
 excruciating initialization code below fools C so that
 
     usedpool[i+i]
 
 "acts like" a genuine poolp, but only so long as you only reference its
-nextpool and prevpool members.  The "- 2*sizeof(block *)" gibberish is
-compensating for that a pool_header's nextpool and prevpool members
+nextusedpool and prevusedpool members.  The "- 2*sizeof(block *)" gibberish is
+compensating for that a pool_header's nextusedpool and prevusedpool members
 immediately follow a pool_header's first two members:
 
     union { block *_padding;
@@ -390,7 +414,7 @@ immediately follow a pool_header's first two members:
 
 each of which consume sizeof(block *) bytes.  So what usedpools[i+i] really
 contains is a fudged-up pointer p such that *if* C believes it's a poolp
-pointer, then p->nextpool and p->prevpool are both p (meaning that the headed
+pointer, then p->nextusedpool and p->prevusedpool are both p (meaning that the headed
 circular list is empty).
 
 It's unclear why the usedpools setup is so convoluted.  It could be to
@@ -399,7 +423,7 @@ minimize the amount of cache required to hold this heavily-referenced table
 referencing code has to remember to "double the index" and doing so isn't
 free, usedpools[0] isn't a strictly legal pointer, and we're crucially relying
 on that C doesn't insert any padding anywhere in a pool_header at or before
-the prevpool member.
+the prevusedpool member.
 **************************************************************************** */
 
 /*==========================================================================
@@ -449,13 +473,20 @@ with nfp free pools.  This is NULL if and only if there is no arena with
 nfp free pools in usable_arenas.
 */
 
-#define PTA(usedpools, x)  ((poolp )((uint8_t *)&(usedpools[2*(x)]) - 2*sizeof(block *)))
-#define PT(usedpools, x)   PTA(usedpools, x), PTA(usedpools, x)
+/*
+ nptrs: the number of pointer-sized words that the linked-list entries
+ are offset into the pool_header object
+*/
+#define PTA(llhead, x, nptrs)  ((poolp )((uint8_t *)&(llhead[2*(x)]) - nptrs*sizeof(block *)))
 
 typedef struct _allocator {
     size_t nbytes;
 
+    // A doubly-linked list of pools connected by their {next,prev}usedpool members
     poolp usedpools[2];
+
+    // Three doubly-linked lists of pools connected by their {next,prev}genpool members
+    poolp generations[NUM_GENERATIONS][2];
 
     /* Array of objects used to track chunks of memory (arenas). */
     struct arena_object* arenas;
@@ -487,21 +518,23 @@ typedef struct _allocator {
 
 } GCAllocator;
 
-#define MIN_SIZE 16
-
 GCAllocator*
 new_gcallocator(size_t nbytes, PyTypeObject* type) {
     nbytes += sizeof(PyGC_Head);
+    nbytes = _Py_SIZE_ROUND_UP(nbytes, BITMAP_OBJECT_SIZE);
 
-    assert(nbytes >= MIN_SIZE);
-    assert(nbytes % ALIGNMENT == 0);
     assert(nbytes <= SMALL_REQUEST_THRESHOLD);
 
     GCAllocator* alloc = (GCAllocator*)calloc(1, sizeof(GCAllocator));
 
     alloc->nbytes = nbytes;
-    alloc->usedpools[0] = PTA(alloc->usedpools, 0);
-    alloc->usedpools[1] = PTA(alloc->usedpools, 0);
+    alloc->usedpools[0] = PTA(alloc->usedpools, 0, 2);
+    alloc->usedpools[1] = PTA(alloc->usedpools, 0, 2);
+
+    for (int i = 0; i < NUM_GENERATIONS; i++) {
+        alloc->generations[i][0] = PTA(alloc->generations[i], 0, 4);
+        alloc->generations[i][1] = PTA(alloc->generations[i], 0, 4);
+    }
 
     return alloc;
 }
@@ -615,6 +648,12 @@ new_arena(GCAllocator* alloc)
     return arenaobj;
 }
 
+set_bitmap(poolp pool, block *bp) {
+    int idx = ((char*)bp - (char*)pool) / BITMAP_OBJECT_SIZE;
+
+    long* ptr = pool->gen_bitmaps[0] + (idx / (8 * sizeof(long)));
+    *ptr |= 1 << (idx % (8 * sizeof(long)));
+}
 
 
 /*==========================================================================*/
@@ -638,6 +677,7 @@ gcmalloc_alloc(GCAllocator *alloc)
     block *bp;
     poolp pool;
     poolp next;
+    poolp prev;
     uint size;
 
 #ifdef WITH_VALGRIND
@@ -653,7 +693,7 @@ gcmalloc_alloc(GCAllocator *alloc)
      * Most frequent paths first
      */
     pool = alloc->usedpools[0];
-    if (pool != pool->nextpool) {
+    if (pool != pool->nextusedpool) {
         /*
          * There is a used pool for this size class.
          * Pick up the head block of its free list.
@@ -678,10 +718,10 @@ gcmalloc_alloc(GCAllocator *alloc)
         }
 
         /* Pool is full, unlink from used pools. */
-        next = pool->nextpool;
-        pool = pool->prevpool;
-        next->prevpool = pool;
-        pool->nextpool = next;
+        next = pool->nextusedpool;
+        prev = pool->prevusedpool;
+        next->prevusedpool = prev;
+        prev->nextusedpool = next;
         goto success;
     }
 
@@ -726,7 +766,7 @@ gcmalloc_alloc(GCAllocator *alloc)
     pool = alloc->usable_arenas->freepools;
     if (pool != NULL) {
         /* Unlink from cached pools. */
-        alloc->usable_arenas->freepools = pool->nextpool;
+        alloc->usable_arenas->freepools = pool->nextusedpool;
         --alloc->usable_arenas->nfreepools;
         if (alloc->usable_arenas->nfreepools == 0) {
             /* Wholly allocated:  remove. */
@@ -755,10 +795,18 @@ gcmalloc_alloc(GCAllocator *alloc)
     init_pool:
         /* Frontlink to used pools. */
         next = alloc->usedpools[0]; /* == prev */
-        pool->nextpool = next;
-        pool->prevpool = next;
-        next->nextpool = pool;
-        next->prevpool = pool;
+        pool->nextusedpool = next;
+        pool->prevusedpool = next;
+        next->nextusedpool = pool;
+        next->prevusedpool = pool;
+
+        /* Add to gen 0 */
+        next = alloc->generations[0][0];
+        pool->nextgenpool = next;
+        pool->prevgenpool = next;
+        next->nextgenpool = pool;
+        next->prevgenpool = pool;
+
         pool->ref.count = 1;
         if (pool->szidx == 0) {
             /* Luckily, this pool last contained blocks
@@ -782,6 +830,8 @@ gcmalloc_alloc(GCAllocator *alloc)
         pool->maxnextoffset = POOL_SIZE - size;
         pool->freeblock = bp + size;
         *(block **)(pool->freeblock) = NULL;
+        memset(pool->gen_bitmaps, 0, sizeof(pool->gen_bitmaps));
+        pool->is_young = 1;
         goto success;
     }
 
@@ -813,6 +863,29 @@ gcmalloc_alloc(GCAllocator *alloc)
 
 success:
     assert(bp != NULL);
+
+    set_bitmap(pool, bp);
+
+    if (!pool->is_young) {
+        // Unlink from current gen. Guaranteed to be part of a generation list
+        // because the only pools that are not are the ones in freepools,
+        // and if we picked a pool from there we already initialized it earlier
+        // and set is_young=1
+        next = pool->nextgenpool;
+        prev = pool->prevgenpool;
+        next->prevgenpool = prev;
+        prev->nextgenpool = next;
+
+        // link into gen 0
+        next = alloc->generations[0][0];
+        pool->nextgenpool = next;
+        pool->prevgenpool = next;
+        next->nextgenpool = pool;
+        next->prevgenpool = pool;
+
+        pool->is_young = 1;
+    }
+
     return FROM_GC(bp);
 
 failed:
@@ -862,13 +935,13 @@ gcmalloc_free(GCAllocator *alloc, void *p)
         assert(pool->ref.count > 0);            /* else the pool is empty */
         size = pool->szidx;
         next = alloc->usedpools[size + size];
-        prev = next->prevpool;
+        prev = next->prevusedpool;
 
         /* insert pool before next:   prev <-> pool <-> next */
-        pool->nextpool = next;
-        pool->prevpool = prev;
-        next->prevpool = pool;
-        prev->nextpool = pool;
+        pool->nextusedpool = next;
+        pool->prevusedpool = prev;
+        next->prevusedpool = pool;
+        prev->nextusedpool = pool;
         goto success;
     }
 
@@ -887,16 +960,24 @@ gcmalloc_free(GCAllocator *alloc, void *p)
      * previously freed pools will be allocated later
      * (being not referenced, they are perhaps paged out).
      */
-    next = pool->nextpool;
-    prev = pool->prevpool;
-    next->prevpool = prev;
-    prev->nextpool = next;
+    next = pool->nextusedpool;
+    prev = pool->prevusedpool;
+    next->prevusedpool = prev;
+    prev->nextusedpool = next;
+
+    // Also unlink from the generation list
+    next = pool->nextgenpool;
+    prev = pool->prevgenpool;
+    next->prevgenpool = prev;
+    prev->nextgenpool = next;
+    // This isn't strictly necessary but will make bugs show up faster:
+    pool->nextgenpool = pool->prevgenpool = NULL;
 
     /* Link the pool to freepools.  This is a singly-linked
-     * list, and pool->prevpool isn't used there.
+     * list, and pool->prevusedpool isn't used there.
      */
     ao = &alloc->arenas[pool->arenaindex];
-    pool->nextpool = ao->freepools;
+    pool->nextusedpool = ao->freepools;
     ao->freepools = pool;
     nf = ao->nfreepools;
     /* If this is the rightmost arena with this number of free pools,
