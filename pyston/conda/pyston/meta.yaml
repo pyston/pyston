@@ -9,7 +9,7 @@ source:
   path: ../../../
 
 build:
-  number: 1
+  number: 2
 
   # don't compile python code for now
   skip_compile_pyc:
@@ -35,7 +35,7 @@ outputs:
         - libtool
         - sqlite
         - luajit
-        - bolt==2021.06.05
+        - bolt==2.3.1 *_pyston
 
         - zlib
         - bzip2

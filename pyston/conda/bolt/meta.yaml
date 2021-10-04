@@ -1,18 +1,18 @@
-{% set commit_hash  = "0c14e20238604a4c05e174e71676857d45c60a0f" %}
-{% set version_name = "2021.06.05" %}  # date of the commit 
+{% set build_num = 0 %}
+{% set version = "2.3.1" %}
 
 package:
   name: bolt
-  version: {{ version_name }}
+  version: {{ version }}
 
 source:
-  # git_url: https://github.com/facebookincubator/BOLT
-  # usig git we can only checkout HEAD or a tag
-  # but the tags are too old for us so download an archive via github
-  url: https://github.com/facebookincubator/BOLT/archive/{{ commit_hash }}/bolt.zip
+  git_url: https://github.com/pyston/BOLT
+  git_rev: pyston_{{version}}
+  git_depth: -1
 
 build:
-  number: 0
+  number: {{ build_num }}
+  string: {{ build_num }}_pyston
 
 outputs:
   - name: bolt
@@ -36,7 +36,7 @@ test:
     - merge-fdata --version
 
 about:
-  home: https://github.com/facebookincubator/BOLT/
+  home: https://github.com/pyston/BOLT/
   licence: Apache License v2.0 with LLVM Exceptions
   licence_file: LICENCE.TXT
   summary: BOLT is a post-link optimizer developed to speed up large applications.
