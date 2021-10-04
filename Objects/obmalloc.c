@@ -147,7 +147,7 @@ _PyObject_ArenaVirtualFree(void *ctx, void *ptr, size_t size)
 }
 
 #elif defined(ARENAS_USE_MMAP)
-static void *
+void *
 _PyObject_ArenaMmap(void *ctx, size_t size)
 {
     void *ptr;
@@ -159,7 +159,7 @@ _PyObject_ArenaMmap(void *ctx, size_t size)
     return ptr;
 }
 
-static void
+void
 _PyObject_ArenaMunmap(void *ctx, void *ptr, size_t size)
 {
     munmap(ptr, size);
