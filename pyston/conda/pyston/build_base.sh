@@ -35,6 +35,7 @@ cp -r $OUTDIR/usr/lib/* ${PREFIX}/lib/
 # remove pip
 rm -r ${PREFIX}/lib/python3.8-pyston2.3/site-packages/pip*
 
-# replace python
-#ln -sf ${PREFIX}/bin/python3.8-pyston2.3 ${PREFIX}/bin/python
-#ln -sf ${PREFIX}/bin/python3.8-pyston2.3 ${PREFIX}/bin/python3
+# move site-packages directory to cpythons default site-package directory and create a symlink from pyston location
+mkdir ${PREFIX}/lib/python3.8/
+mv ${PREFIX}/lib/python3.8-pyston2.3/site-packages ${PREFIX}/lib/python3.8/
+ln -s ${PREFIX}/lib/python3.8/site-packages/ ${PREFIX}/lib/python3.8-pyston2.3/site-packages
