@@ -1740,7 +1740,7 @@ class PyBuildExt(build_ext):
 
     def detect_tkinter_darwin(self):
         # The _tkinter module, using frameworks. Since frameworks are quite
-        # different the UNIX search logic is not sharable.
+        # different the UNIX search logic is not shareable.
         from os.path import join, exists
         framework_dirs = [
             '/Library/Frameworks',
@@ -1765,7 +1765,7 @@ class PyBuildExt(build_ext):
                     if not exists(join(F, fw + '.framework')):
                         break
             else:
-                # ok, F is now directory with both frameworks. Continure
+                # ok, F is now directory with both frameworks. Continue
                 # building
                 break
         else:
