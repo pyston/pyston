@@ -19,6 +19,9 @@ outputs:
       string: {{ build_num }}_{{ pyston_version2.replace('.', '') }}_pyston
       track_features:
         - pyston
+      script_env:
+        - PYSTON_VERSION2={{ pyston_version2 }}
+        - PYTHON_VERSION2={{ python_version2 }}
 
     run_exports:
       weak:

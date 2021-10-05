@@ -20,6 +20,10 @@ build:
   skip_compile_pyc:
     "*.py"
 
+  script_env:
+   - PYSTON_VERSION2={{ pyston_version2 }}
+   - PYTHON_VERSION2={{ python_version2 }}
+
 outputs:
   - name: pyston{{ pyston_version2 }}
     script: build_base.sh
