@@ -967,19 +967,6 @@ static int running_on_valgrind = -1;
 #define NB_SMALL_SIZE_CLASSES   (SMALL_REQUEST_THRESHOLD / ALIGNMENT)
 
 /*
- * The system's VMM page size can be obtained on most unices with a
- * getpagesize() call or deduced from various header files. To make
- * things simpler, we assume that it is 4K, which is OK for most systems.
- * It is probably better if this is the native page size, but it doesn't
- * have to be.  In theory, if SYSTEM_PAGE_SIZE is larger than the native page
- * size, then `POOL_ADDR(p)->arenaindex' could rarely cause a segmentation
- * violation fault.  4K is apparently OK for all the platforms that python
- * currently targets.
- */
-#define SYSTEM_PAGE_SIZE        (4 * 1024)
-#define SYSTEM_PAGE_SIZE_MASK   (SYSTEM_PAGE_SIZE - 1)
-
-/*
  * Maximum amount of memory managed by the allocator for small requests.
  */
 #ifdef WITH_MEMORY_LIMITS

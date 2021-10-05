@@ -178,18 +178,6 @@ void _PyObject_ArenaMunmap(void *ctx, void *ptr, size_t size);
 #define SMALL_REQUEST_THRESHOLD 512
 #define NB_SMALL_SIZE_CLASSES   (SMALL_REQUEST_THRESHOLD / ALIGNMENT)
 
-/*
- * The system's VMM page size can be obtained on most unices with a
- * getpagesize() call or deduced from various header files. To make
- * things simpler, we assume that it is 4K, which is OK for most systems.
- * It is probably better if this is the native page size, but it doesn't
- * have to be.  In theory, if SYSTEM_PAGE_SIZE is larger than the native page
- * size, then `POOL_ADDR(p)->arenaindex' could rarely cause a segmentation
- * violation fault.  4K is apparently OK for all the platforms that python
- * currently targets.
- */
-#define SYSTEM_PAGE_SIZE        (4 * 1024)
-#define SYSTEM_PAGE_SIZE_MASK   (SYSTEM_PAGE_SIZE - 1)
 
 /*
  * Maximum amount of memory managed by the allocator for small requests.
@@ -200,35 +188,8 @@ void _PyObject_ArenaMunmap(void *ctx, void *ptr, size_t size);
 #endif
 #endif
 
-/*
- * The allocator sub-allocates <Big> blocks of memory (called arenas) aligned
- * on a page boundary. This is a reserved virtual address space for the
- * current process (obtained through a malloc()/mmap() call). In no way this
- * means that the memory arenas will be used entirely. A malloc(<Big>) is
- * usually an address range reservation for <Big> bytes, unless all pages within
- * this space are referenced subsequently. So malloc'ing big blocks and not
- * using them does not mean "wasting memory". It's an addressable range
- * wastage...
- *
- * Arenas are allocated with mmap() on systems supporting anonymous memory
- * mappings to reduce heap fragmentation.
- */
-#define ARENA_SIZE              (256 << 10)     /* 256KB */
-
 #ifdef WITH_MEMORY_LIMITS
-#define MAX_ARENAS              (SMALL_MEMORY_LIMIT / ARENA_SIZE)
-#endif
-
-/*
- * Size of the pools used for small blocks. Should be a power of 2,
- * between 1K and SYSTEM_PAGE_SIZE, that is: 1k, 2k, 4k.
- */
-#define POOL_SIZE               SYSTEM_PAGE_SIZE        /* must be 2^N */
-#define POOL_SIZE_MASK          SYSTEM_PAGE_SIZE_MASK
-
-#define MAX_POOLS_IN_ARENA  (ARENA_SIZE / POOL_SIZE)
-#if MAX_POOLS_IN_ARENA * POOL_SIZE != ARENA_SIZE
-#   error "arena size not an exact multiple of pool size"
+#define MAX_ARENAS              (SMALL_MEMORY_LIMIT / GC_ARENA_SIZE)
 #endif
 
 /*
@@ -240,42 +201,7 @@ void _PyObject_ArenaMunmap(void *ctx, void *ptr, size_t size);
 /* When you say memory, my mind reasons in terms of (pointers to) blocks */
 typedef uint8_t block;
 
-// How many bytes of memory are assigned to a single bitmap location
-#define BITMAP_OBJECT_SIZE 16
-
-/* Pool for small blocks. */
-struct pool_header {
-    union { block *_padding;
-            uint count; } ref;          /* number of allocated blocks    */
-    block *freeblock;                   /* pool's free list head         */
-    struct pool_header *nextusedpool;       /* next pool of this size class  */
-    struct pool_header *prevusedpool;       /* previous pool       ""        */
-    struct pool_header *nextgenpool;        /* next pool in this generation  */
-    struct pool_header *prevgenpool;        /* previous pool       ""        */
-    char is_young;              /* 1 if this pool is linked into the youngest generation, 0 if not */
-    uint arenaindex;                    /* index into arenas of base adr */
-    // This is now either DUMMY (uninitialized) or 0:
-    uint szidx;                         /* block size class index        */
-    uint nextoffset;                    /* bytes to virgin block         */
-    uint maxnextoffset;                 /* largest valid nextoffset      */
-
-    // Bitmap of if block belongs to generation N
-    // To keep things simple, the mapping from block to bit in this bitmap
-    // is just offset_of_block / BITMAP_OBJECT_SIZE
-    // ie it does not depend on the size of the object allocated, and
-    // it does not skip the pool_header block.
-    // This makes the bitmaps somewhat larger with the benefit of simplicity
-    // and runtime speed.
-    //
-    // Each BITMAP_OBJECT_SIZE-sized block of memory (16 bytes) requires
-    // three bits, resulting in a 2% overhead for maintaining these bitmaps.
-    // This could be reduced by increasing BITMAP_OBJECT_SIZE to 32, or
-    // changing the above design decision, or storing the generation number
-    // as a two-bit integer instead of three bit flags.
-    long gen_bitmaps[NUM_GENERATIONS][POOL_SIZE / BITMAP_OBJECT_SIZE / (8 * sizeof(long))];
-};
-
-typedef struct pool_header *poolp;
+typedef struct gc_pool_header *poolp;
 
 /* Record keeping for arenas. */
 struct arena_object {
@@ -298,7 +224,7 @@ struct arena_object {
     uint ntotalpools;
 
     /* Singly-linked list of available pools. */
-    struct pool_header* freepools;
+    struct gc_pool_header* freepools;
 
     /* Whenever this arena_object is not associated with an allocated
      * arena, the nextarena member is used to link all unassociated
@@ -318,15 +244,15 @@ struct arena_object {
     struct arena_object* prevarena;
 };
 
-#define POOL_OVERHEAD   _Py_SIZE_ROUND_UP(sizeof(struct pool_header), ALIGNMENT)
+#define POOL_OVERHEAD   _Py_SIZE_ROUND_UP(sizeof(struct gc_pool_header), ALIGNMENT)
 
 #define DUMMY_SIZE_IDX          0xffff  /* size class of newly cached pools */
 
 /* Round pointer P down to the closest pool-aligned address <= P, as a poolp */
-#define POOL_ADDR(P) ((poolp)_Py_ALIGN_DOWN((P), POOL_SIZE))
+#define POOL_ADDR(P) ((poolp)_Py_ALIGN_DOWN((P), GC_POOL_SIZE))
 
 /* Return total number of blocks in pool of size index I, as a uint. */
-#define NUMBLOCKS(I) ((uint)(POOL_SIZE - POOL_OVERHEAD) / INDEX2SIZE(I))
+#define NUMBLOCKS(I) ((uint)(GC_POOL_SIZE - POOL_OVERHEAD) / INDEX2SIZE(I))
 
 /*==========================================================================*/
 
@@ -350,7 +276,7 @@ used == partially used, neither empty nor full
     needs space.
     The pool holds blocks of a fixed size, and is in the circular list headed
     at usedpools[i] (see above).  It's linked to the other used pools of the
-    same size class via the pool_header's nextusedpool and prevusedpool members.
+    same size class via the gc_pool_header's nextusedpool and prevusedpool members.
     If all but one block is currently allocated, a malloc can cause a
     transition to the full state.  If all but one block is not currently
     allocated, a free can cause a transition to the empty state.
@@ -389,8 +315,8 @@ So long as a pool is in the used state, we're certain there *is* a block
 available for allocating, and pool->freeblock is not NULL.  If pool->freeblock
 points to the end of the free list before we've carved the entire pool into
 blocks, that means we simply haven't yet gotten to one of the higher-address
-blocks.  The offset from the pool_header to the start of "the next" virgin
-block is stored in the pool_header nextoffset member, and the largest value
+blocks.  The offset from the gc_pool_header to the start of "the next" virgin
+block is stored in the gc_pool_header nextoffset member, and the largest value
 of nextoffset that makes sense is stored in the maxnextoffset member when a
 pool is initialized.  All the blocks in a pool have been passed out at least
 once when and only when nextoffset > maxnextoffset.
@@ -398,15 +324,15 @@ once when and only when nextoffset > maxnextoffset.
 
 Major obscurity:  While the usedpools vector is declared to have poolp
 entries, it doesn't really.  It really contains two pointers per (conceptual)
-poolp entry, the nextusedpool and prevusedpool members of a pool_header.  The
+poolp entry, the nextusedpool and prevusedpool members of a gc_pool_header.  The
 excruciating initialization code below fools C so that
 
     usedpool[i+i]
 
 "acts like" a genuine poolp, but only so long as you only reference its
 nextusedpool and prevusedpool members.  The "- 2*sizeof(block *)" gibberish is
-compensating for that a pool_header's nextusedpool and prevusedpool members
-immediately follow a pool_header's first two members:
+compensating for that a gc_pool_header's nextusedpool and prevusedpool members
+immediately follow a gc_pool_header's first two members:
 
     union { block *_padding;
             uint count; } ref;
@@ -419,10 +345,10 @@ circular list is empty).
 
 It's unclear why the usedpools setup is so convoluted.  It could be to
 minimize the amount of cache required to hold this heavily-referenced table
-(which only *needs* the two interpool pointer members of a pool_header). OTOH,
+(which only *needs* the two interpool pointer members of a gc_pool_header). OTOH,
 referencing code has to remember to "double the index" and doing so isn't
 free, usedpools[0] isn't a strictly legal pointer, and we're crucially relying
-on that C doesn't insert any padding anywhere in a pool_header at or before
+on that C doesn't insert any padding anywhere in a gc_pool_header at or before
 the prevusedpool member.
 **************************************************************************** */
 
@@ -475,53 +401,14 @@ nfp free pools in usable_arenas.
 
 /*
  nptrs: the number of pointer-sized words that the linked-list entries
- are offset into the pool_header object
+ are offset into the gc_pool_header object
 */
 #define PTA(llhead, x, nptrs)  ((poolp )((uint8_t *)&(llhead[2*(x)]) - nptrs*sizeof(block *)))
-
-typedef struct _allocator {
-    size_t nbytes;
-
-    // A doubly-linked list of pools connected by their {next,prev}usedpool members
-    poolp usedpools[2];
-
-    // Three doubly-linked lists of pools connected by their {next,prev}genpool members
-    poolp generations[NUM_GENERATIONS][2];
-
-    /* Array of objects used to track chunks of memory (arenas). */
-    struct arena_object* arenas;
-    /* Number of slots currently allocated in the `arenas` vector. */
-    uint maxarenas;
-
-    /* The head of the singly-linked, NULL-terminated list of available
-     * arena_objects.
-     */
-    struct arena_object* unused_arena_objects;
-
-    /* The head of the doubly-linked, NULL-terminated at each end, list of
-     * arena_objects associated with arenas that have pools available.
-     */
-    struct arena_object* usable_arenas;
-
-    /* nfp2lasta[nfp] is the last arena in usable_arenas with nfp free pools */
-    struct arena_object* nfp2lasta[MAX_POOLS_IN_ARENA + 1];
-
-    /* Number of arenas allocated that haven't been free()'d. */
-    size_t narenas_currently_allocated;
-
-    /* Total number of times malloc() called to allocate an arena. */
-    size_t ntimes_arena_allocated;
-    /* High water mark (max value ever seen) for narenas_currently_allocated. */
-    size_t narenas_highwater;
-
-    Py_ssize_t _Py_AllocatedBlocks;
-
-} GCAllocator;
 
 GCAllocator*
 new_gcallocator(size_t nbytes, PyTypeObject* type) {
     nbytes += sizeof(PyGC_Head);
-    nbytes = _Py_SIZE_ROUND_UP(nbytes, BITMAP_OBJECT_SIZE);
+    nbytes = _Py_SIZE_ROUND_UP(nbytes, GC_BITMAP_OBJECT_SIZE);
 
     assert(nbytes <= SMALL_REQUEST_THRESHOLD);
 
@@ -540,7 +427,7 @@ new_gcallocator(size_t nbytes, PyTypeObject* type) {
 }
 
 /* How many arena_objects do we initially allocate?
- * 16 = can allocate 16 arenas = 16 * ARENA_SIZE = 4MB before growing the
+ * 16 = can allocate 16 arenas = 16 * GC_ARENA_SIZE = 4MB before growing the
  * `arenas` vector.
  */
 #define INITIAL_ARENA_OBJECTS 16
@@ -615,9 +502,9 @@ new_arena(GCAllocator* alloc)
     alloc->unused_arena_objects = arenaobj->nextarena;
     assert(arenaobj->address == 0);
 #if PY_DEBUGGING_FEATURES
-    address = _PyObject_Arena.alloc(_PyObject_Arena.ctx, ARENA_SIZE);
+    address = _PyObject_Arena.alloc(_PyObject_Arena.ctx, GC_ARENA_SIZE);
 #else
-    address = _PyObject_ArenaMmap(NULL, ARENA_SIZE);
+    address = _PyObject_ArenaMmap(NULL, GC_ARENA_SIZE);
 #endif
     if (address == NULL) {
         /* The allocation failed: return NULL after putting the
@@ -637,11 +524,11 @@ new_arena(GCAllocator* alloc)
     /* pool_address <- first pool-aligned address in the arena
        nfreepools <- number of whole pools that fit after alignment */
     arenaobj->pool_address = (block*)arenaobj->address;
-    arenaobj->nfreepools = MAX_POOLS_IN_ARENA;
-    excess = (uint)(arenaobj->address & POOL_SIZE_MASK);
+    arenaobj->nfreepools = MAX_GC_POOLS_IN_ARENA;
+    excess = (uint)(arenaobj->address & GC_POOL_SIZE_MASK);
     if (excess != 0) {
         --arenaobj->nfreepools;
-        arenaobj->pool_address += POOL_SIZE - excess;
+        arenaobj->pool_address += GC_POOL_SIZE - excess;
     }
     arenaobj->ntotalpools = arenaobj->nfreepools;
 
@@ -649,7 +536,7 @@ new_arena(GCAllocator* alloc)
 }
 
 set_bitmap(poolp pool, block *bp) {
-    int idx = ((char*)bp - (char*)pool) / BITMAP_OBJECT_SIZE;
+    int idx = ((char*)bp - (char*)pool) / GC_BITMAP_OBJECT_SIZE;
 
     long* ptr = pool->gen_bitmaps[0] + (idx / (8 * sizeof(long)));
     *ptr |= 1 << (idx % (8 * sizeof(long)));
@@ -789,7 +676,7 @@ gcmalloc_alloc(GCAllocator *alloc)
             assert(alloc->usable_arenas->freepools != NULL ||
                    alloc->usable_arenas->pool_address <=
                    (block*)alloc->usable_arenas->address +
-                       ARENA_SIZE - POOL_SIZE);
+                       GC_ARENA_SIZE - GC_POOL_SIZE);
         }
 
     init_pool:
@@ -827,7 +714,7 @@ gcmalloc_alloc(GCAllocator *alloc)
         uint size = alloc->nbytes;
         bp = (block *)pool + POOL_OVERHEAD;
         pool->nextoffset = POOL_OVERHEAD + (size << 1);
-        pool->maxnextoffset = POOL_SIZE - size;
+        pool->maxnextoffset = GC_POOL_SIZE - size;
         pool->freeblock = bp + size;
         *(block **)(pool->freeblock) = NULL;
         memset(pool->gen_bitmaps, 0, sizeof(pool->gen_bitmaps));
@@ -840,11 +727,11 @@ gcmalloc_alloc(GCAllocator *alloc)
     assert(alloc->usable_arenas->freepools == NULL);
     pool = (poolp)alloc->usable_arenas->pool_address;
     assert((block*)pool <= (block*)alloc->usable_arenas->address +
-                             ARENA_SIZE - POOL_SIZE);
+                             GC_ARENA_SIZE - GC_POOL_SIZE);
     pool->arenaindex = (uint)(alloc->usable_arenas - alloc->arenas);
     assert(&arenas[pool->arenaindex] == alloc->usable_arenas);
     pool->szidx = DUMMY_SIZE_IDX;
-    alloc->usable_arenas->pool_address += POOL_SIZE;
+    alloc->usable_arenas->pool_address += GC_POOL_SIZE;
     --alloc->usable_arenas->nfreepools;
 
     if (alloc->usable_arenas->nfreepools == 0) {
@@ -1045,10 +932,10 @@ gcmalloc_free(GCAllocator *alloc, void *p)
         /* Free the entire arena. */
 #if PY_DEBUGGING_FEATURES
         _PyObject_Arena.free(_PyObject_Arena.ctx,
-                             (void *)ao->address, ARENA_SIZE);
+                             (void *)ao->address, GC_ARENA_SIZE);
 #else
         _PyObject_ArenaMunmap(NULL,
-                             (void *)ao->address, ARENA_SIZE);
+                             (void *)ao->address, GC_ARENA_SIZE);
 #endif
         ao->address = 0;                        /* mark unassociated */
         --alloc->narenas_currently_allocated;
