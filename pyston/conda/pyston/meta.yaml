@@ -1,15 +1,19 @@
 {% set llvm_version = "10.0.1" %}
+{% set pyston_version = "2.3.1" %}
+{% set python_version = "3.8.5" %}
+{% set pyston_version2 = ".".join(pyston_version.split(".")[:2]) %}
+{% set python_version2 = ".".join(python_version.split(".")[:2]) %}
 
 package:
   name: pyston
-  version: "2.3.1a"
+  version: {{ pyston_version }}
   skip: True  # [not linux]
 
 source:
   path: ../../../
 
 build:
-  number: 2
+  number: 1
 
   # don't compile python code for now
   skip_compile_pyc:
@@ -63,6 +67,9 @@ outputs:
         - readline
         - ncurses
         - libffi
+      
+      run_constrained:
+        python {{ python_version }} *_{{ pyston_version2.replace('.', '') }}_pyston
 
 test:
   commands:
