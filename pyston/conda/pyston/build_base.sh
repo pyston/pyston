@@ -35,7 +35,7 @@ cp -r $OUTDIR/usr/lib/* ${PREFIX}/lib/
 # remove pip
 rm -r ${PREFIX}/lib/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}/site-packages/pip*
 
-# move site-packages directory to cpythons default site-package directory and create a symlink from pyston location
-mkdir ${PREFIX}/lib/python${PYTHON_VERSION2}/
-mv ${PREFIX}/lib/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}/site-packages ${PREFIX}/lib/python${PYTHON_VERSION2}/
+# remove pystons site-packages directory and replace it with a symlink to cpythons default site-package directory
+rm -r ${PREFIX}/lib/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}/site-packages
+mkdir -p ${PREFIX}/lib/python${PYTHON_VERSION2}/site-packages || true
 ln -s ${PREFIX}/lib/python${PYTHON_VERSION2}/site-packages/ ${PREFIX}/lib/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}/site-packages
