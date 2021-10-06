@@ -286,14 +286,16 @@ struct gc_pool_header {
     long gen_bitmaps[NUM_GENERATIONS][GC_POOL_SIZE / GC_BITMAP_OBJECT_SIZE / (8 * sizeof(long))];
 };
 
+typedef struct gc_pool_header *gcpoolp;
+
 typedef struct _allocator {
     size_t nbytes;
 
     // A doubly-linked list of pools connected by their {next,prev}usedpool members
-    struct gc_pool_header* usedpools[2];
+    gcpoolp usedpools[2];
 
     // Three doubly-linked lists of pools connected by their {next,prev}genpool members
-    struct gc_pool_header* generations[NUM_GENERATIONS][2];
+    gcpoolp generations[NUM_GENERATIONS][2];
 
     /* Array of objects used to track chunks of memory (arenas). */
     struct arena_object* arenas;

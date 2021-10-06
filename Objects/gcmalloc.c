@@ -201,8 +201,6 @@ void _PyObject_ArenaMunmap(void *ctx, void *ptr, size_t size);
 /* When you say memory, my mind reasons in terms of (pointers to) blocks */
 typedef uint8_t block;
 
-typedef struct gc_pool_header *poolp;
-
 /* Record keeping for arenas. */
 struct arena_object {
     /* The address of the arena, as returned by malloc.  Note that 0
@@ -248,8 +246,8 @@ struct arena_object {
 
 #define DUMMY_SIZE_IDX          0xffff  /* size class of newly cached pools */
 
-/* Round pointer P down to the closest pool-aligned address <= P, as a poolp */
-#define POOL_ADDR(P) ((poolp)_Py_ALIGN_DOWN((P), GC_POOL_SIZE))
+/* Round pointer P down to the closest pool-aligned address <= P, as a gcpoolp */
+#define POOL_ADDR(P) ((gcpoolp)_Py_ALIGN_DOWN((P), GC_POOL_SIZE))
 
 /* Return total number of blocks in pool of size index I, as a uint. */
 #define NUMBLOCKS(I) ((uint)(GC_POOL_SIZE - POOL_OVERHEAD) / INDEX2SIZE(I))
@@ -322,14 +320,14 @@ pool is initialized.  All the blocks in a pool have been passed out at least
 once when and only when nextoffset > maxnextoffset.
 
 
-Major obscurity:  While the usedpools vector is declared to have poolp
+Major obscurity:  While the usedpools vector is declared to have gcpoolp
 entries, it doesn't really.  It really contains two pointers per (conceptual)
-poolp entry, the nextusedpool and prevusedpool members of a gc_pool_header.  The
+gcpoolp entry, the nextusedpool and prevusedpool members of a gc_pool_header.  The
 excruciating initialization code below fools C so that
 
     usedpool[i+i]
 
-"acts like" a genuine poolp, but only so long as you only reference its
+"acts like" a genuine gcpoolp, but only so long as you only reference its
 nextusedpool and prevusedpool members.  The "- 2*sizeof(block *)" gibberish is
 compensating for that a gc_pool_header's nextusedpool and prevusedpool members
 immediately follow a gc_pool_header's first two members:
@@ -339,7 +337,7 @@ immediately follow a gc_pool_header's first two members:
     block *freeblock;
 
 each of which consume sizeof(block *) bytes.  So what usedpools[i+i] really
-contains is a fudged-up pointer p such that *if* C believes it's a poolp
+contains is a fudged-up pointer p such that *if* C believes it's a gcpoolp
 pointer, then p->nextusedpool and p->prevusedpool are both p (meaning that the headed
 circular list is empty).
 
@@ -403,7 +401,7 @@ nfp free pools in usable_arenas.
  nptrs: the number of pointer-sized words that the linked-list entries
  are offset into the gc_pool_header object
 */
-#define PTA(llhead, x, nptrs)  ((poolp )((uint8_t *)&(llhead[2*(x)]) - nptrs*sizeof(block *)))
+#define PTA(llhead, x, nptrs)  ((gcpoolp )((uint8_t *)&(llhead[2*(x)]) - nptrs*sizeof(block *)))
 
 GCAllocator*
 new_gcallocator(size_t nbytes, PyTypeObject* type) {
@@ -535,7 +533,7 @@ new_arena(GCAllocator* alloc)
     return arenaobj;
 }
 
-set_bitmap(poolp pool, block *bp) {
+set_bitmap(gcpoolp pool, block *bp) {
     int idx = ((char*)bp - (char*)pool) / GC_BITMAP_OBJECT_SIZE;
 
     long* ptr = pool->gen_bitmaps[0] + (idx / (8 * sizeof(long)));
@@ -562,9 +560,9 @@ void*
 gcmalloc_alloc(GCAllocator *alloc)
 {
     block *bp;
-    poolp pool;
-    poolp next;
-    poolp prev;
+    gcpoolp pool;
+    gcpoolp next;
+    gcpoolp prev;
     uint size;
 
 #ifdef WITH_VALGRIND
@@ -725,7 +723,7 @@ gcmalloc_alloc(GCAllocator *alloc)
     /* Carve off a new pool. */
     assert(alloc->usable_arenas->nfreepools > 0);
     assert(alloc->usable_arenas->freepools == NULL);
-    pool = (poolp)alloc->usable_arenas->pool_address;
+    pool = (gcpoolp)alloc->usable_arenas->pool_address;
     assert((block*)pool <= (block*)alloc->usable_arenas->address +
                              GC_ARENA_SIZE - GC_POOL_SIZE);
     pool->arenaindex = (uint)(alloc->usable_arenas - alloc->arenas);
@@ -787,9 +785,9 @@ gcmalloc_free(GCAllocator *alloc, void *p)
 {
     p = AS_GC(p);
 
-    poolp pool;
+    gcpoolp pool;
     block *lastfree;
-    poolp next, prev;
+    gcpoolp next, prev;
     uint size;
 
     assert(p != NULL);
