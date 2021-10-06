@@ -8,6 +8,7 @@ LLVM_LINK:=$(shell which llvm-link)
 LLVM_PROFDATA:=$(shell which llvm-profdata)
 MERGE_FDATA:=$(shell which merge-fdata)
 PERF2BOLT:=$(shell which perf2bolt)
+RELEASE:=
 else
 BOLT:=$(abspath build/bolt/bin/llvm-bolt)
 CLANG:=$(abspath build/Release/llvm/bin/clang)
@@ -15,6 +16,7 @@ LLVM_LINK:=$(abspath build/Release/llvm/bin/llvm-link)
 LLVM_PROFDATA:=$(abspath build/Release/llvm/bin/llvm-profdata)
 MERGE_FDATA:=$(abspath build/bolt/bin/merge-fdata)
 PERF2BOLT:=$(abspath build/bolt/bin/perf2bolt)
+RELEASE:=$(shell lsb_release -sr)
 endif
 
 GDB:=gdb
@@ -123,7 +125,6 @@ build/systemdbg_env/bin/python: | $(VIRTUALENV)
 build/pypy_env/bin/python: | $(VIRTUALENV)
 	$(VIRTUALENV) -p pypy3 build/pypy_env
 
-RELEASE:=$(shell lsb_release -sr)
 EXTRA_BOLT_OPTS:=
 ifeq ($(RELEASE),16.04)
 else ifeq ($(RELEASE),18.04)
@@ -499,7 +500,7 @@ dbg_test: python/test/dbg_method_call_unopt
 # llvm-bolt must be build outside of dpkg-buildpackage or it will segfault
 .PHONY: package
 package: bolt
-ifeq ($(shell lsb_release -sr),16.04)
+ifeq ($(RELEASE),16.04)
 	# 16.04 needs this file but on newer ubuntu versions it will make it fail
 	echo 10 > pyston/debian/compat
 	cd pyston; DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage -b -d
