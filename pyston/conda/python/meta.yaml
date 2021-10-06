@@ -1,44 +1,58 @@
-{% set build_num = 1 %}
+{% set build_num = 3 %}
 {% set pyston_version = "2.3.1" %}
 {% set python_version = "3.8.5" %}
 {% set pyston_version2 = ".".join(pyston_version.split(".")[:2]) %}
 {% set python_version2 = ".".join(python_version.split(".")[:2]) %}
 
 package:
-  name: python
+  name: python-meta
   version: {{ python_version }}
   skip: True  # [not linux]
-
-build:
-  number: {{ build_num }}
-  string: {{ build_num }}_{{ pyston_version2.replace('.', '') }}_pyston
-  #noarch: generic
-  track_features:
-    - pyston
 
 outputs:
   - name: python
     script: build_base.sh
     version: {{ python_version }}
 
+    build:
+      number: {{ build_num }}
+      string: {{ build_num }}_{{ pyston_version2.replace('.', '') }}_pyston
+      track_features:
+        - pyston
+
     run_exports:
       weak:
-        - pyston >={{ pyston_version }}
+        - pyston{{ pyston_version2 }} >={{ pyston_version }}
         - python_abi {{ python_version2 }} *_{{ pyston_version2.replace('.', '') }}_pyston
       noarch:
         - {{ pin_subpackage("python", max_pin="x.x", min_pin="x.x") }}
 
     requirements:
       build:
-        - pyston {{ pyston_version }}
+        - pyston{{ pyston_version2 }} {{ pyston_version }}
 
       run:
-        - pyston {{ pyston_version }}
+        - pyston{{ pyston_version2 }} {{ pyston_version }}
         - python_abi {{ python_version2 }} *_{{ pyston_version2.replace('.', '') }}_pyston
 
-test:
-  commands:
-    - python --version | grep Pyston
+    test:
+      commands:
+        - python --version | grep Pyston
+
+  - name: pyston
+    version: {{ pyston_version }}
+
+    build:
+      number: {{ build_num }}
+      noarch: generic
+
+    requirements:
+      run:
+        - python {{ python_version }} {{ build_num }}_{{ pyston_version2.replace('.', '') }}_pyston
+
+    test:
+      commands:
+        - python --version | grep Pyston
 
 about:
   home: https://github.com/pyston/pyston
