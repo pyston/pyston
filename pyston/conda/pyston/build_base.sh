@@ -35,7 +35,9 @@ cp -r $OUTDIR/usr/lib/* ${PREFIX}/lib/
 # remove pip
 rm -r ${PREFIX}/lib/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}/site-packages/pip*
 
-# remove pystons site-packages directory and replace it with a symlink to cpythons default site-package directory
-rm -r ${PREFIX}/lib/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}/site-packages
+# remove pystons site-packages directory and replace it with a symlink to cpythons default site-packages directory
+# we copy in our site-package/README.txt and package it to make sure the directory get's created.
 mkdir -p ${PREFIX}/lib/python${PYTHON_VERSION2}/site-packages || true
+cp ${PREFIX}/lib/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}/site-packages/README.txt ${PREFIX}/lib/python${PYTHON_VERSION2}/site-packages
+rm -r ${PREFIX}/lib/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}/site-packages
 ln -s ${PREFIX}/lib/python${PYTHON_VERSION2}/site-packages/ ${PREFIX}/lib/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}/site-packages
