@@ -325,7 +325,15 @@ typedef struct _allocator {
 
     Py_ssize_t _Py_AllocatedBlocks;
 
+    struct _allocator *next_allocator;
+
 } GCAllocator;
+
+#define GCPOOL_HEAD(alloc, generation)  ((gcpoolp )((uint8_t *)&(alloc->generations[generation][0]) - 4*sizeof(void *)))
+
+// Singly-linked list of allocated GCAllocators, linked via
+// the next_allocator field
+extern GCAllocator* allocator_list;
 
 #ifdef __cplusplus
 }

@@ -401,7 +401,9 @@ nfp free pools in usable_arenas.
  nptrs: the number of pointer-sized words that the linked-list entries
  are offset into the gc_pool_header object
 */
-#define PTA(llhead, x, nptrs)  ((gcpoolp )((uint8_t *)&(llhead[2*(x)]) - nptrs*sizeof(block *)))
+#define PTA(usedpools, x)  ((gcpoolp )((uint8_t *)&(usedpools[2*(x)]) - 2*sizeof(block *)))
+
+GCAllocator* allocator_list = NULL;
 
 GCAllocator*
 new_gcallocator(size_t nbytes, PyTypeObject* type) {
@@ -413,13 +415,16 @@ new_gcallocator(size_t nbytes, PyTypeObject* type) {
     GCAllocator* alloc = (GCAllocator*)calloc(1, sizeof(GCAllocator));
 
     alloc->nbytes = nbytes;
-    alloc->usedpools[0] = PTA(alloc->usedpools, 0, 2);
-    alloc->usedpools[1] = PTA(alloc->usedpools, 0, 2);
+    alloc->usedpools[0] = PTA(alloc->usedpools, 0);
+    alloc->usedpools[1] = PTA(alloc->usedpools, 0);
 
     for (int i = 0; i < NUM_GENERATIONS; i++) {
-        alloc->generations[i][0] = PTA(alloc->generations[i], 0, 4);
-        alloc->generations[i][1] = PTA(alloc->generations[i], 0, 4);
+        alloc->generations[i][0] = GCPOOL_HEAD(alloc, i);
+        alloc->generations[i][1] = GCPOOL_HEAD(alloc, i);
     }
+
+    alloc->next_allocator = allocator_list;
+    allocator_list = alloc;
 
     return alloc;
 }
@@ -533,11 +538,15 @@ new_arena(GCAllocator* alloc)
     return arenaobj;
 }
 
-set_bitmap(gcpoolp pool, block *bp) {
+set_gen0_bitmap(gcpoolp pool, block *bp) {
     int idx = ((char*)bp - (char*)pool) / GC_BITMAP_OBJECT_SIZE;
+    assert(idx >= 0);
+    assert(idx < sizeof(gen_bitmaps[0]) * 8);
 
     long* ptr = pool->gen_bitmaps[0] + (idx / (8 * sizeof(long)));
-    *ptr |= 1 << (idx % (8 * sizeof(long)));
+    long mask = 1L << (idx % (8 * sizeof(long)));
+
+    *ptr |= mask;
 }
 
 
@@ -686,10 +695,13 @@ gcmalloc_alloc(GCAllocator *alloc)
         next->prevusedpool = pool;
 
         /* Add to gen 0 */
+        // Note this doesn't use the same code as the above block, because
+        // that block uses the fact that alloc->usedpools[0] is empty, so next=prev
         next = alloc->generations[0][0];
+        prev = next->prevgenpool;
         pool->nextgenpool = next;
-        pool->prevgenpool = next;
-        next->nextgenpool = pool;
+        pool->prevgenpool = prev;
+        prev->nextgenpool = pool;
         next->prevgenpool = pool;
 
         pool->ref.count = 1;
@@ -749,7 +761,7 @@ gcmalloc_alloc(GCAllocator *alloc)
 success:
     assert(bp != NULL);
 
-    set_bitmap(pool, bp);
+    set_gen0_bitmap(pool, bp);
 
     if (!pool->is_young) {
         // Unlink from current gen. Guaranteed to be part of a generation list
