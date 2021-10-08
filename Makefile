@@ -490,3 +490,6 @@ bench: $(OPT_BENCH_ENV) $(SYSTEM_BENCH_ENV)
 
 full_bench: $(OPT_BENCH_ENV) $(SYSTEM_BENCH_ENV) $(PYPY_BENCH_ENV)
 	$(MAKE) -C pyston/tools/benchmarks_runner analyze
+
+tags:
+	ctags -R --exclude=pyston --exclude=build .

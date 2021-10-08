@@ -399,7 +399,9 @@ int dict_traverse(PyObject *op, visitproc visit, void *arg);
 int list_traverse(PyListObject *o, visitproc visit, void *arg);
 
 __attribute__((always_inline)) __attribute__((flatten))
-static void inlined_tp_traverse(PyObject* op, visitproc proc, void* c) {
+static void
+inlined_tp_traverse(PyObject* op, visitproc proc, void* c)
+{
     if (Py_TYPE(op) == &PyTuple_Type) {
         tupletraverse((PyTupleObject*)op, proc, c);
     } else if (Py_TYPE(op) == &PyFunction_Type) {
@@ -1998,7 +2000,8 @@ PyObject_GC_UnTrack(void *op_raw)
 }
 
 void
-PyObject_GC_Allocated() {
+PyObject_GC_Allocated()
+{
     struct _gc_runtime_state *state = &_PyRuntime.gc;
     state->generations[0].count++; /* number of allocated GC objects */
     if (state->generations[0].count > state->generations[0].threshold &&
