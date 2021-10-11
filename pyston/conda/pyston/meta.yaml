@@ -1,4 +1,4 @@
-{% set build_num = 7 %}
+{% set build_num = 0 %}
 {% set llvm_version = "10.0.1" %}
 {% set pyston_version = "2.3.1" %}
 {% set python_version = "3.8.5" %}
@@ -89,3 +89,4 @@ about:
   home: https://github.com/pyston/pyston
   license: PSF
   license_file: ../../../LICENSE
+  summary: Pyston Python implementation

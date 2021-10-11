@@ -1,0 +1,30 @@
+{% set build_num = 0 %}
+{% set pyston_version = "2.3.1" %}
+{% set python_version = "3.8.5" %}
+{% set pyston_version2 = ".".join(pyston_version.split(".")[:2]) %}
+{% set python_version2 = ".".join(python_version.split(".")[:2]) %}
+
+package:
+  name: python_abi
+  version: {{ python_version2 }}
+
+build:
+  number: {{ build_num }}
+  string: {{ build_num }}_{{ pyston_version2.replace('.', '') }}_pyston
+  track_features:
+    - pyston
+
+requirements:
+  run:
+    - pyston{{ pyston_version2 }} {{ pyston_version }}
+  run_constrained:
+    - python {{ python_version2 }}.* *_{{ pyston_version2.replace('.', '') }}_pyston
+
+test:
+  commands:
+    - pyston --version
+
+about:
+  home: https://github.com/pyston/pyston
+  license: PSF
+  license_file: ../../../LICENSE

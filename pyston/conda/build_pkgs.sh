@@ -2,11 +2,16 @@
 set -eux
 
 PYSTON_PKG_VER="3.8.5 *_23_pyston"
-OUT_DIR=${PWD}/release/conda_pkgs
+OUTPUT_DIR=${PWD}/release/conda_pkgs
 
-mkdir -p ${OUT_DIR}
+if [ -d $OUTPUT_DIR ]
+then
+    echo "Directory $OUTPUT_DIR already exists";
+    exit 1
+fi
+mkdir -p ${OUTPUT_DIR}
 
-docker run -iv${PWD}:/pyston_dir:ro -v${OUT_DIR}:/conda_pkgs continuumio/miniconda3 sh -s <<EOF
+docker run -iv${PWD}:/pyston_dir:ro -v${OUTPUT_DIR}:/conda_pkgs continuumio/miniconda3 sh -s <<EOF
 set -eux
 conda install conda-build -y
 conda build pyston_dir/pyston/conda/compiler-rt
@@ -30,5 +35,6 @@ do
     mkdir /conda_pkgs/\${arch}
     cp /opt/conda/conda-bld/\${arch}/*.tar.bz2 /conda_pkgs/\${arch}
 done
+chown -R $(id -u):$(id -g) /conda_pkgs/
 
 EOF
