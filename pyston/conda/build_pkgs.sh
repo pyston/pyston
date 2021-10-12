@@ -30,6 +30,12 @@ do
     CONDA_ADD_PIP_AS_PYTHON_DEPENDENCY=0 conda build \${pkg}-feedstock/recipe --python="${PYSTON_PKG_VER}" --override-channels -c conda-forge --use-local
 done
 
+# build numpy 1.20.3 using openblas
+git clone https://github.com/AnacondaRecipes/numpy-feedstock.git -b pbs_1.20.3_20210520T162213
+# 'test_for_reference_leak' fails for pyston - disable it
+sed -i 's/_not_a_real_test/test_for_reference_leak/g' numpy-feedstock/recipe/meta.yaml
+conda build numpy-feedstock/ --python="${PYSTON_PKG_VER}" --override-channels -c conda-forge --use-local --extra-deps pyston --variants="{blas_impl: openblas, openblas: 0.3.3, c_compiler_version: 7.5.0, cxx_compiler_version: 7.5.0}"
+
 for arch in noarch linux-64
 do
     mkdir /conda_pkgs/\${arch}
