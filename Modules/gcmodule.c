@@ -224,6 +224,7 @@ iterate_over_gcallocated(int generation, void (*func)(PyGC_Head*, uintptr_t), ui
 #define GCPOOL_HEAD(alloc, generation)  ((gcpoolp )((uint8_t *)&(alloc->generations[generation][0]) - 4*sizeof(void *)))
         gcpoolp list = GCPOOL_HEAD(alloc, generation);
         for (gcpoolp pool = list->nextgenpool; pool != list; pool = pool->nextgenpool) {
+            // TODO: use tzcount to do this much faster
             int idx = 0;
             for (int i = 0; i < sizeof(pool->gen_bitmaps[0]) / sizeof(pool->gen_bitmaps[0][0]); i++) {
                 long bitmap = pool->gen_bitmaps[generation][i];
