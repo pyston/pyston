@@ -600,6 +600,9 @@ func_clear(PyFunctionObject *op)
 static void
 func_dealloc(PyFunctionObject *op)
 {
+    if (_PyObject_GC_IS_TRACKED(op))
+        _PyObject_GC_UNTRACK(op);
+
     if (op->func_weakreflist != NULL) {
         PyObject_ClearWeakRefs((PyObject *) op);
     }

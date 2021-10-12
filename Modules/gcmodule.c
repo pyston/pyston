@@ -436,9 +436,24 @@ gcpool_merge_generations(gcpoolp fromlist, gcpoolp tolist, int generation)
     while (pool != fromlist) {
         for (int gen = 0; gen < generation; gen++) {
             for (int i = 0; i < sizeof(pool->gen_bitmaps[0]) / sizeof(pool->gen_bitmaps[0][0]); i++) {
-                printf("%p %lx %lx\n", pool, pool->gen_bitmaps[gen][i], pool->gen_bitmaps[generation][i]);
+                //printf("%p %lx %lx\n", pool, pool->gen_bitmaps[gen][i], pool->gen_bitmaps[generation][i]);
                 assert(!(pool->gen_bitmaps[generation][i] ^ pool->gen_bitmaps[gen][i]));
                 pool->gen_bitmaps[generation][i] |= pool->gen_bitmaps[gen][i];
+                pool->gen_bitmaps[gen][i] = 0;
+            }
+        }
+
+        pool = GCPOOL_NEXT(pool);
+    }
+}
+
+static void
+gcpool_clear_generations(gcpoolp list, int generation)
+{
+    gcpoolp pool = GCPOOL_NEXT(list);
+    while (pool != list) {
+        for (int gen = 0; gen <= generation; gen++) {
+            for (int i = 0; i < sizeof(pool->gen_bitmaps[0]) / sizeof(pool->gen_bitmaps[0][0]); i++) {
                 pool->gen_bitmaps[gen][i] = 0;
             }
         }
@@ -451,6 +466,10 @@ __attribute__((always_inline))
 static void
 _untrack_gcallocated_inner(PyGC_Head* gc, uintptr_t unused)
 {
+    assert(gc->_gc_next != 0);
+    if (!gc_is_collecting(gc) || !(gc->_gc_next & NEXT_MASK_UNREACHABLE))
+        return;
+
     gc_list_remove(gc);
 }
 
@@ -1254,6 +1273,9 @@ static Py_ssize_t
 collect(struct _gc_runtime_state *state, int generation,
         Py_ssize_t *n_collected, Py_ssize_t *n_uncollectable, int nofail)
 {
+    // TODO: somehow it's broken unless you add this
+    generation = 2;
+
     int i;
     Py_ssize_t m = 0; /* # objects collected */
     Py_ssize_t n = 0; /* # unreachable objects that couldn't be collected */
@@ -1319,14 +1341,16 @@ collect(struct _gc_runtime_state *state, int generation,
     move_unreachable(young, generation, &unreachable);  // gc_prev is pointer again
     validate_list(young, 0);
 
+    for (allocator = allocator_list; allocator != NULL; allocator = allocator->next_allocator) {
+        gcpool_clear_generations(GCPOOL_HEAD(allocator, generation), generation);
+    }
+
     untrack_tuples(young);
     /* Move reachable objects to next generation. */
     if (generation < NUM_GENERATIONS - 1) {
         if (generation == NUM_GENERATIONS - 2) {
             state->long_lived_pending += gc_list_size(young);
         }
-        // Maybe we need to do this if it's not ok to leave garbage in the gc_next and gc_prev fields?
-        untrack_gcallocated(generation);
         gc_list_merge(young, old);
     }
     else {
@@ -1335,8 +1359,6 @@ collect(struct _gc_runtime_state *state, int generation,
         untrack_dicts(young);
         state->long_lived_pending = 0;
         state->long_lived_total = gc_list_size(young);
-        // Maybe we need to do this if it's not ok to leave garbage in the gc_next and gc_prev fields?
-        untrack_gcallocated(generation);
     }
 
     /* All objects in unreachable are trash, but objects reachable from
@@ -1439,6 +1461,9 @@ collect(struct _gc_runtime_state *state, int generation,
     if (PyDTrace_GC_DONE_ENABLED()) {
         PyDTrace_GC_DONE(n+m);
     }
+
+    // Maybe we need to do this if it's not ok to leave garbage in the gc_next and gc_prev fields?
+    untrack_gcallocated(generation);
 
     assert(!PyErr_Occurred());
     return n+m;

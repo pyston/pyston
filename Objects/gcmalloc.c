@@ -538,10 +538,11 @@ new_arena(GCAllocator* alloc)
     return arenaobj;
 }
 
+static void
 set_gen0_bitmap(gcpoolp pool, block *bp) {
     int idx = ((char*)bp - (char*)pool) / GC_BITMAP_OBJECT_SIZE;
     assert(idx >= 0);
-    assert(idx < sizeof(gen_bitmaps[0]) * 8);
+    assert(idx < sizeof(pool->gen_bitmaps[0]) * 8);
 
     long* ptr = pool->gen_bitmaps[0] + (idx / (8 * sizeof(long)));
     long mask = 1L << (idx % (8 * sizeof(long)));
@@ -635,7 +636,7 @@ gcmalloc_alloc(GCAllocator *alloc)
         }
         alloc->usable_arenas->nextarena =
             alloc->usable_arenas->prevarena = NULL;
-        assert(nfp2lasta[alloc->usable_arenas->nfreepools] == NULL);
+        assert(alloc->nfp2lasta[alloc->usable_arenas->nfreepools] == NULL);
         alloc->nfp2lasta[alloc->usable_arenas->nfreepools] = alloc->usable_arenas;
     }
     assert(alloc->usable_arenas->address != 0);
@@ -739,7 +740,7 @@ gcmalloc_alloc(GCAllocator *alloc)
     assert((block*)pool <= (block*)alloc->usable_arenas->address +
                              GC_ARENA_SIZE - GC_POOL_SIZE);
     pool->arenaindex = (uint)(alloc->usable_arenas - alloc->arenas);
-    assert(&arenas[pool->arenaindex] == alloc->usable_arenas);
+    assert(&alloc->arenas[pool->arenaindex] == alloc->usable_arenas);
     pool->szidx = DUMMY_SIZE_IDX;
     alloc->usable_arenas->pool_address += GC_POOL_SIZE;
     --alloc->usable_arenas->nfreepools;
@@ -783,6 +784,10 @@ success:
         pool->is_young = 1;
     }
 
+    //printf("alloc %p\n", FROM_GC(bp));
+
+    ((PyGC_Head*)bp)->_gc_prev = 0;
+    ((PyGC_Head*)bp)->_gc_next = 0;
     return FROM_GC(bp);
 
 failed:
@@ -795,6 +800,7 @@ failed:
 void
 gcmalloc_free(GCAllocator *alloc, void *p)
 {
+    //printf("free %p\n", p);
     p = AS_GC(p);
 
     gcpoolp pool;
