@@ -1,0 +1,4 @@
+int main() {
+  if(__builtin_available(macOS @MACOSX_DEPLOYMENT_TARGET@, *)) return 1;
+  return 0;
+}

@@ -1,0 +1,71 @@
+From eaa09b0ac70d1ebba29c4650cb5e5c14b9049499 Mon Sep 17 00:00:00 2001
+From: Nehal J Wani <nehaljw.kkd1@gmail.com>
+Date: Tue, 16 Oct 2018 21:23:44 -0500
+Subject: [PATCH 3/3] compiler-rt: Make 7.0.0 compatible with 10.9 SDK
+
+---
+ lib/xray/xray_buffer_queue.h |  7 +++++++
+ lib/xray/xray_utils.h        | 30 ++++++++++++++++++++++++++++++
+ 2 files changed, 37 insertions(+)
+
+diff --git a/lib/xray/xray_buffer_queue.h b/lib/xray/xray_buffer_queue.h
+index e76fa79..e20a69a 100644
+--- a/lib/xray/xray_buffer_queue.h
++++ b/lib/xray/xray_buffer_queue.h
+@@ -20,6 +20,13 @@
+ #include "sanitizer_common/sanitizer_mutex.h"
+ #include <cstddef>
+ 
++#include <sys/mman.h>
++/* MAP_ANONYMOUS is MAP_ANON on some systems,
++   e.g. OS X (before Sierra), OpenBSD etc */
++#if !defined(MAP_ANONYMOUS) && defined(MAP_ANON)
++#define MAP_ANONYMOUS MAP_ANON
++#endif
++
+ namespace __xray {
+ 
+ /// BufferQueue implements a circular queue of fixed sized buffers (much like a
+diff --git a/lib/xray/xray_utils.h b/lib/xray/xray_utils.h
+index eafa16e..a8dad83 100644
+--- a/lib/xray/xray_utils.h
++++ b/lib/xray/xray_utils.h
+@@ -20,6 +20,36 @@
+ #include <sys/types.h>
+ #include <utility>
+ 
++#if defined __APPLE__
++#include <time.h>
++#include <mach/clock.h>
++#include <mach/mach.h>
++int alt_clock_gettime(int clock_id, timespec *ts) {
++  clock_serv_t cclock;
++  mach_timespec_t mts;
++  host_get_clock_service(mach_host_self(), clock_id, &cclock);
++  clock_get_time(cclock, &mts);
++  mach_port_deallocate(mach_task_self(), cclock);
++  ts->tv_sec = mts.tv_sec;
++  ts->tv_nsec = mts.tv_nsec;
++  return 0;
++}
++#include <sys/mman.h>
++/* MAP_ANONYMOUS is MAP_ANON on some systems,
++   e.g. OS X (before Sierra), OpenBSD etc */
++#if !defined(MAP_ANONYMOUS) && defined(MAP_ANON)
++#define MAP_ANONYMOUS MAP_ANON
++#endif
++
++#if defined __APPLE__ && __MAC_OS_X_VERSION_MIN_REQUIRED < 101200 // less than macOS 10.12
++  #define clock_gettime alt_clock_gettime
++  #define CLOCK_REALTIME CALENDAR_CLOCK
++  #define CLOCK_MONOTONIC SYSTEM_CLOCK
++  typedef int clockid_t;
++#endif
++
++#endif
++
+ namespace __xray {
+ 
+ // Default implementation of the reporting interface for sanitizer errors.
+-- 
+2.5.4 (Apple Git-61)
