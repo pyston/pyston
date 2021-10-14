@@ -199,7 +199,7 @@ pyperf_%_$(1): %.py ./build/$(1)_env/bin/update.stamp build/system_env/bin/pytho
 # Skips bc_build, aot_gen, and $(1)_install
 # If you want to run the skipped steps, you will have to touch a file before doing a (safe) rebuild
 unsafe_$(1):
-	$(MAKE) -C build/$(1)_build
+	+$(MAKE) -C build/$(1)_build
 	/bin/cp build/$(1)_build/pyston build/$(1)_install/usr/bin/python$(PYTHON_MAJOR).$(PYTHON_MINOR)
 
 cpython_testsuite_$(1): build/$(1)_build/pyston

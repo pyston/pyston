@@ -8,8 +8,11 @@
 #include "pycore_tupleobject.h"
 #include "code.h"
 #include "structmember.h"
+#include "gcmalloc.h"
 
 PyObject* avoid_clang_bug_funcobject() { return NULL; }
+
+static void* allocator = NULL;
 
 PyObject *
 PyFunction_NewWithQualName(PyObject *code, PyObject *globals, PyObject *qualname)
@@ -22,6 +25,8 @@ PyFunction_NewWithQualName(PyObject *code, PyObject *globals, PyObject *qualname
         __name__ = PyUnicode_InternFromStringImmortal("__name__");
         if (__name__ == NULL)
             return NULL;
+
+        allocator = new_gcallocator(_PyObject_SIZE(&PyFunction_Type), &PyFunction_Type);
     }
 
     /* __module__: If module name is in globals, use it.
@@ -34,7 +39,7 @@ PyFunction_NewWithQualName(PyObject *code, PyObject *globals, PyObject *qualname
         return NULL;
     }
 
-    op = PyObject_GC_New(PyFunctionObject, &PyFunction_Type);
+    op = PyObject_GC_New_FromAllocator(PyFunctionObject, &PyFunction_Type, allocator);
     if (op == NULL) {
         Py_XDECREF(module);
         return NULL;
@@ -75,7 +80,7 @@ PyFunction_NewWithQualName(PyObject *code, PyObject *globals, PyObject *qualname
         op->func_qualname = op->func_name;
     Py_INCREF(op->func_qualname);
 
-    _PyObject_GC_TRACK(op);
+    PyObject_GC_Allocated();
     return (PyObject *)op;
 }
 
@@ -595,12 +600,14 @@ func_clear(PyFunctionObject *op)
 static void
 func_dealloc(PyFunctionObject *op)
 {
-    _PyObject_GC_UNTRACK(op);
+    if (_PyObject_GC_IS_TRACKED(op))
+        _PyObject_GC_UNTRACK(op);
+
     if (op->func_weakreflist != NULL) {
         PyObject_ClearWeakRefs((PyObject *) op);
     }
     (void)func_clear(op);
-    PyObject_GC_Del(op);
+    gcmalloc_free(allocator, op);
 }
 
 static PyObject*

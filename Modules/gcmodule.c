@@ -31,6 +31,7 @@
 #include "frameobject.h"        /* for PyFrame_ClearFreeList */
 #include "pydtrace.h"
 #include "pytime.h"             /* for _PyTime_GetMonotonicClock() */
+#include "gcmalloc.h"
 
 /*[clinic input]
 module gc
@@ -41,6 +42,12 @@ module gc
 
 #define GC_NEXT _PyGCHead_NEXT
 #define GC_PREV _PyGCHead_PREV
+
+#define GCPOOL_NEXT(g)        ((g)->nextgenpool)
+#define GCPOOL_PREV(g)        ((g)->prevgenpool)
+
+#define _PyGCPool_SET_NEXT(g, p) ((g)->nextgenpool = (p))
+#define _PyGCPool_SET_PREV(g, p) ((g)->prevgenpool = (p))
 
 // update_refs() set this bit for all objects in current generation.
 // subtract_refs() and move_unreachable() uses this to distinguish
@@ -199,6 +206,54 @@ NEXT_MASK_UNREACHABLE
     move_legacy_finalizers() will remove this flag from "unreachable" set.
 */
 
+__attribute__((always_inline)) __attribute__((flatten))
+static void
+iterate_over_list(PyGC_Head* containers, void (*func)(PyGC_Head*, uintptr_t), uintptr_t data)
+{
+    PyGC_Head *gc = GC_NEXT(containers);
+    for (; gc != containers; gc = GC_NEXT(gc)) {
+        func(gc, data);
+    }
+}
+
+__attribute__((always_inline)) __attribute__((flatten))
+static void
+iterate_over_gcallocated(int generation, void (*func)(PyGC_Head*, uintptr_t), uintptr_t data)
+{
+    for (GCAllocator *alloc = allocator_list; alloc != NULL; alloc = alloc->next_allocator) {
+#define GCPOOL_HEAD(alloc, generation)  ((gcpoolp )((uint8_t *)&(alloc->generations[generation][0]) - 4*sizeof(void *)))
+        gcpoolp list = GCPOOL_HEAD(alloc, generation);
+        for (gcpoolp pool = list->nextgenpool; pool != list; pool = pool->nextgenpool) {
+            // TODO: use tzcount to do this much faster
+            int idx = 0;
+            for (int i = 0; i < sizeof(pool->gen_bitmaps[0]) / sizeof(pool->gen_bitmaps[0][0]); i++) {
+                long bitmap = pool->gen_bitmaps[generation][i];
+                long mask = 1;
+                int nbits = sizeof(pool->gen_bitmaps[0][0]) * 8;
+
+                for (int j = 0; j < nbits; j++) {
+                    if (mask & bitmap) {
+                        char* ptr = (char*)pool + idx * GC_BITMAP_OBJECT_SIZE;
+                        func((PyGC_Head*)ptr, data);
+                    }
+
+                    mask <<= 1L;
+                    idx++;
+                }
+            }
+        }
+    }
+}
+
+__attribute__((always_inline)) __attribute__((flatten))
+static void
+iterate_over_generation(struct _gc_runtime_state *state, int generation, void (*func)(PyGC_Head*, uintptr_t), uintptr_t data)
+{
+    PyGC_Head *containers = GEN_HEAD(state, generation);
+    iterate_over_list(containers, func, data);
+    iterate_over_gcallocated(generation, func, data);
+}
+
 /*** list functions ***/
 
 static inline void
@@ -210,10 +265,23 @@ gc_list_init(PyGC_Head *list)
     list->_gc_next = (uintptr_t)list;
 }
 
+static inline void
+gcpool_list_init(gcpoolp list)
+{
+    list->prevgenpool = list;
+    list->nextgenpool = list;
+}
+
 static inline int
 gc_list_is_empty(PyGC_Head *list)
 {
     return (list->_gc_next == (uintptr_t)list);
+}
+
+static inline int
+gcpool_list_is_empty(gcpoolp list)
+{
+    return (list->nextgenpool == list);
 }
 
 /* Append `node` to `list`. */
@@ -287,6 +355,26 @@ gc_list_merge(PyGC_Head *from, PyGC_Head *to)
     gc_list_init(from);
 }
 
+static void
+gcpool_list_merge(gcpoolp from, gcpoolp to)
+{
+    assert(from != to);
+    if (!gcpool_list_is_empty(from)) {
+        gcpoolp to_tail = GCPOOL_PREV(to);
+        gcpoolp from_head = GCPOOL_NEXT(from);
+        gcpoolp from_tail = GCPOOL_PREV(from);
+        assert(from_head != from);
+        assert(from_tail != from);
+
+        _PyGCPool_SET_NEXT(to_tail, from_head);
+        _PyGCPool_SET_PREV(from_head, to_tail);
+
+        _PyGCPool_SET_NEXT(from_tail, to);
+        _PyGCPool_SET_PREV(to, from_tail);
+    }
+    gcpool_list_init(from);
+}
+
 static Py_ssize_t
 gc_list_size(PyGC_Head *list)
 {
@@ -339,36 +427,92 @@ validate_list(PyGC_Head *head, uintptr_t expected_mask)
 
 /*** end of list stuff ***/
 
+/* Merges all the gcpools in `fromlist` into `tolist`,
+ * updating all the generations to `generation`.
+ */
+static void
+gcpool_merge_generations(gcpoolp fromlist, gcpoolp tolist, int generation)
+{
+    gcpoolp pool = GCPOOL_NEXT(fromlist);
+    while (pool != fromlist) {
+        for (int gen = 0; gen < generation; gen++) {
+            for (int i = 0; i < sizeof(pool->gen_bitmaps[0]) / sizeof(pool->gen_bitmaps[0][0]); i++) {
+                //printf("%p %lx %lx\n", pool, pool->gen_bitmaps[gen][i], pool->gen_bitmaps[generation][i]);
+                assert(!(pool->gen_bitmaps[generation][i] ^ pool->gen_bitmaps[gen][i]));
+                pool->gen_bitmaps[generation][i] |= pool->gen_bitmaps[gen][i];
+                pool->gen_bitmaps[gen][i] = 0;
+            }
+        }
+
+        pool = GCPOOL_NEXT(pool);
+    }
+}
+
+static void
+gcpool_clear_generations(gcpoolp list, int generation)
+{
+    gcpoolp pool = GCPOOL_NEXT(list);
+    while (pool != list) {
+        for (int gen = 0; gen <= generation; gen++) {
+            for (int i = 0; i < sizeof(pool->gen_bitmaps[0]) / sizeof(pool->gen_bitmaps[0][0]); i++) {
+                pool->gen_bitmaps[gen][i] = 0;
+            }
+        }
+
+        pool = GCPOOL_NEXT(pool);
+    }
+}
+
+__attribute__((always_inline))
+static void
+_untrack_gcallocated_inner(PyGC_Head* gc, uintptr_t unused)
+{
+    assert(gc->_gc_next != 0);
+    if (!gc_is_collecting(gc) || !(gc->_gc_next & NEXT_MASK_UNREACHABLE))
+        return;
+
+    gc_list_remove(gc);
+}
+
+static void
+untrack_gcallocated(int generation)
+{
+    iterate_over_gcallocated(generation, _untrack_gcallocated_inner, 0);
+}
 
 /* Set all gc_refs = ob_refcnt.  After this, gc_refs is > 0 and
  * PREV_MASK_COLLECTING bit is set for all objects in containers.
  */
+__attribute__((always_inline))
 static void
-update_refs(PyGC_Head *containers)
+_update_refs_inner(PyGC_Head* gc, uintptr_t unused)
 {
-    PyGC_Head *gc = GC_NEXT(containers);
-    for (; gc != containers; gc = GC_NEXT(gc)) {
-        gc_reset_refs(gc, Py_REFCNT(FROM_GC(gc)));
-        /* Python's cyclic gc should never see an incoming refcount
-         * of 0:  if something decref'ed to 0, it should have been
-         * deallocated immediately at that time.
-         * Possible cause (if the assert triggers):  a tp_dealloc
-         * routine left a gc-aware object tracked during its teardown
-         * phase, and did something-- or allowed something to happen --
-         * that called back into Python.  gc can trigger then, and may
-         * see the still-tracked dying object.  Before this assert
-         * was added, such mistakes went on to allow gc to try to
-         * delete the object again.  In a debug build, that caused
-         * a mysterious segfault, when _Py_ForgetReference tried
-         * to remove the object from the doubly-linked list of all
-         * objects a second time.  In a release build, an actual
-         * double deallocation occurred, which leads to corruption
-         * of the allocator's internal bookkeeping pointers.  That's
-         * so serious that maybe this should be a release-build
-         * check instead of an assert?
-         */
-        _PyObject_ASSERT(FROM_GC(gc), gc_get_refs(gc) != 0);
-    }
+    gc_reset_refs(gc, Py_REFCNT(FROM_GC(gc)));
+    /* Python's cyclic gc should never see an incoming refcount
+     * of 0:  if something decref'ed to 0, it should have been
+     * deallocated immediately at that time.
+     * Possible cause (if the assert triggers):  a tp_dealloc
+     * routine left a gc-aware object tracked during its teardown
+     * phase, and did something-- or allowed something to happen --
+     * that called back into Python.  gc can trigger then, and may
+     * see the still-tracked dying object.  Before this assert
+     * was added, such mistakes went on to allow gc to try to
+     * delete the object again.  In a debug build, that caused
+     * a mysterious segfault, when _Py_ForgetReference tried
+     * to remove the object from the doubly-linked list of all
+     * objects a second time.  In a release build, an actual
+     * double deallocation occurred, which leads to corruption
+     * of the allocator's internal bookkeeping pointers.  That's
+     * so serious that maybe this should be a release-build
+     * check instead of an assert?
+     */
+    _PyObject_ASSERT(FROM_GC(gc), gc_get_refs(gc) != 0);
+}
+
+static void
+update_refs(struct _gc_runtime_state *state, int generation)
+{
+    iterate_over_generation(state, generation, _update_refs_inner, 0);
 }
 
 /* A traversal callback for subtract_refs. */
@@ -422,6 +566,31 @@ inlined_tp_traverse(PyObject* op, visitproc proc, void* c)
  * objects not in containers.  The ones with gc_refs > 0 are directly
  * reachable from outside containers, and so can't be collected.
  */
+__attribute__((always_inline))
+static void
+_subtract_refs_inner(PyGC_Head* gc, uintptr_t unused)
+{
+#if !PYSTON_SPEEDUPS
+    traverseproc traverse;
+#endif
+
+    PyObject *op = FROM_GC(gc);
+#if PYSTON_SPEEDUPS
+    inlined_tp_traverse(op, (visitproc)visit_decref, op);
+#else
+    traverse = Py_TYPE(op)->tp_traverse;
+    (void) traverse(FROM_GC(gc),
+                   (visitproc)visit_decref,
+                   op);
+#endif
+}
+
+static void
+subtract_refs_gen(struct _gc_runtime_state *state, int generation)
+{
+    iterate_over_generation(state, generation, _subtract_refs_inner, 0);
+}
+
 static void
 subtract_refs(PyGC_Head *containers)
 {
@@ -508,12 +677,72 @@ visit_reachable(PyObject *op, PyGC_Head *reachable)
  * But _gc_next in unreachable list has NEXT_MASK_UNREACHABLE flag.
  * So we can not gc_list_* functions for unreachable until we remove the flag.
  */
+struct move_unreachable_data {
+    PyGC_Head *young;
+    PyGC_Head *unreachable;
+};
+
 static void
-move_unreachable(PyGC_Head *young, PyGC_Head *unreachable)
+_move_unreachable_allocator(PyGC_Head *gc, struct move_unreachable_data* data)
+{
+    if (gc_get_refs(gc)) {
+        /* gc is definitely reachable from outside the
+         * original 'young'.  Mark it as such, and traverse
+         * its pointers to find any other objects that may
+         * be directly reachable from it.  Note that the
+         * call to tp_traverse may append objects to young,
+         * so we have to wait until it returns to determine
+         * the next object to visit.
+         */
+        PyObject *op = FROM_GC(gc);
+#if !PYSTON_SPEEDUPS
+        traverseproc traverse = Py_TYPE(op)->tp_traverse;
+#endif
+        _PyObject_ASSERT_WITH_MSG(op, gc_get_refs(gc) > 0,
+                                  "refcount is too small");
+        // NOTE: visit_reachable may change gc->_gc_next when
+        // young->_gc_prev == gc.  Don't do gc = GC_NEXT(gc) before!
+#if PYSTON_SPEEDUPS
+        inlined_tp_traverse(op, (visitproc)visit_reachable, (void *)data->young);
+#else
+        (void) traverse(op,
+                (visitproc)visit_reachable,
+                (void *)data->young);
+#endif
+        gc_list_append(gc, data->young);
+    }
+    else {
+        /* This *may* be unreachable.  To make progress,
+         * assume it is.  gc isn't directly reachable from
+         * any object we've already traversed, but may be
+         * reachable from an object we haven't gotten to yet.
+         * visit_reachable will eventually move gc back into
+         * young if that's so, and we'll see it again.
+         */
+
+        // We can't use gc_list_append() here because we use
+        // NEXT_MASK_UNREACHABLE here.
+        PyGC_Head *last = GC_PREV(data->unreachable);
+        // NOTE: Since all objects in unreachable set has
+        // NEXT_MASK_UNREACHABLE flag, we set it unconditionally.
+        // But this may set the flat to unreachable too.
+        // move_legacy_finalizers() should care about it.
+        last->_gc_next = (NEXT_MASK_UNREACHABLE | (uintptr_t)gc);
+        _PyGCHead_SET_PREV(gc, last);
+        gc->_gc_next = (NEXT_MASK_UNREACHABLE | (uintptr_t)data->unreachable);
+        data->unreachable->_gc_prev = (uintptr_t)gc;
+    }
+}
+
+static void
+move_unreachable(PyGC_Head *young, int generation, PyGC_Head *unreachable)
 {
     // previous elem in the young list, used for restore gc_prev.
     PyGC_Head *prev = young;
     PyGC_Head *gc = GC_NEXT(young);
+
+    struct move_unreachable_data data = {young, unreachable};
+    iterate_over_gcallocated(generation, _move_unreachable_allocator, &data);
 
     /* Invariants:  all objects "to the left" of us in young are reachable
      * (directly or indirectly) from outside the young list as it was at entry.
@@ -1045,6 +1274,9 @@ static Py_ssize_t
 collect(struct _gc_runtime_state *state, int generation,
         Py_ssize_t *n_collected, Py_ssize_t *n_uncollectable, int nofail)
 {
+    // TODO: somehow it's broken unless you add this
+    generation = 2;
+
     int i;
     Py_ssize_t m = 0; /* # objects collected */
     Py_ssize_t n = 0; /* # unreachable objects that couldn't be collected */
@@ -1054,6 +1286,7 @@ collect(struct _gc_runtime_state *state, int generation,
     PyGC_Head finalizers;  /* objects with, & reachable from, __del__ */
     PyGC_Head *gc;
     _PyTime_t t1 = 0;   /* initialize to prevent a compiler warning */
+    GCAllocator* allocator;
 
     if (state->debug & DEBUG_STATS) {
         PySys_WriteStderr("gc: collecting generation %d...\n", generation);
@@ -1075,6 +1308,13 @@ collect(struct _gc_runtime_state *state, int generation,
         gc_list_merge(GEN_HEAD(state, i), GEN_HEAD(state, generation));
     }
 
+    for (allocator = allocator_list; allocator != NULL; allocator = allocator->next_allocator) {
+        for (i = 0; i < generation; i++) {
+            gcpool_merge_generations(GCPOOL_HEAD(allocator, i), GCPOOL_HEAD(allocator, generation), generation);
+            gcpool_list_merge(GCPOOL_HEAD(allocator, i), GCPOOL_HEAD(allocator, generation));
+        }
+    }
+
     /* handy references */
     young = GEN_HEAD(state, generation);
     if (generation < NUM_GENERATIONS-1)
@@ -1089,8 +1329,8 @@ collect(struct _gc_runtime_state *state, int generation,
      * refcount greater than 0 when all the references within the
      * set are taken into account).
      */
-    update_refs(young);  // gc_prev is used for gc_refs
-    subtract_refs(young);
+    update_refs(state, generation);  // gc_prev is used for gc_refs
+    subtract_refs_gen(state, generation);
 
     /* Leave everything reachable from outside young in young, and move
      * everything else (in young) to unreachable.
@@ -1099,12 +1339,16 @@ collect(struct _gc_runtime_state *state, int generation,
      * so it's more efficient to move the unreachable things.
      */
     gc_list_init(&unreachable);
-    move_unreachable(young, &unreachable);  // gc_prev is pointer again
+    move_unreachable(young, generation, &unreachable);  // gc_prev is pointer again
     validate_list(young, 0);
+
+    for (allocator = allocator_list; allocator != NULL; allocator = allocator->next_allocator) {
+        gcpool_clear_generations(GCPOOL_HEAD(allocator, generation), generation);
+    }
 
     untrack_tuples(young);
     /* Move reachable objects to next generation. */
-    if (young != old) {
+    if (generation < NUM_GENERATIONS - 1) {
         if (generation == NUM_GENERATIONS - 2) {
             state->long_lived_pending += gc_list_size(young);
         }
@@ -1218,6 +1462,9 @@ collect(struct _gc_runtime_state *state, int generation,
     if (PyDTrace_GC_DONE_ENABLED()) {
         PyDTrace_GC_DONE(n+m);
     }
+
+    // Maybe we need to do this if it's not ok to leave garbage in the gc_next and gc_prev fields?
+    untrack_gcallocated(generation);
 
     assert(!PyErr_Occurred());
     return n+m;
@@ -1998,10 +2245,25 @@ PyObject_GC_UnTrack(void *op_raw)
     }
 }
 
+void
+PyObject_GC_Allocated()
+{
+    struct _gc_runtime_state *state = &_PyRuntime.gc;
+    state->generations[0].count++; /* number of allocated GC objects */
+    if (state->generations[0].count > state->generations[0].threshold &&
+        state->enabled &&
+        state->generations[0].threshold &&
+        !state->collecting &&
+        !PyErr_Occurred()) {
+        state->collecting = 1;
+        collect_generations(state);
+        state->collecting = 0;
+    }
+}
+
 PyObject *
 _PyObject_GC_Alloc(int use_calloc, size_t basicsize)
 {
-    struct _gc_runtime_state *state = &_PyRuntime.gc;
     PyObject *op;
     PyGC_Head *g;
     size_t size;
@@ -2017,16 +2279,7 @@ _PyObject_GC_Alloc(int use_calloc, size_t basicsize)
     assert(((uintptr_t)g & 3) == 0);  // g must be aligned 4bytes boundary
     g->_gc_next = 0;
     g->_gc_prev = 0;
-    state->generations[0].count++; /* number of allocated GC objects */
-    if (state->generations[0].count > state->generations[0].threshold &&
-        state->enabled &&
-        state->generations[0].threshold &&
-        !state->collecting &&
-        !PyErr_Occurred()) {
-        state->collecting = 1;
-        collect_generations(state);
-        state->collecting = 0;
-    }
+    PyObject_GC_Allocated();
     op = FROM_GC(g);
     return op;
 }
@@ -2047,6 +2300,15 @@ PyObject *
 _PyObject_GC_New(PyTypeObject *tp)
 {
     PyObject *op = _PyObject_GC_Malloc(_PyObject_SIZE(tp));
+    if (op != NULL)
+        op = PyObject_INIT(op, tp);
+    return op;
+}
+
+PyObject *
+_PyObject_GC_New_FromAllocator(PyTypeObject *tp, void *allocator)
+{
+    PyObject *op = gcmalloc_alloc(allocator);
     if (op != NULL)
         op = PyObject_INIT(op, tp);
     return op;

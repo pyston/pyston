@@ -238,7 +238,16 @@ PyAPI_FUNC(PyVarObject *) _PyObject_GC_Resize(PyVarObject *, Py_ssize_t);
 
 
 PyAPI_FUNC(PyObject *) _PyObject_GC_New(PyTypeObject *);
+PyAPI_FUNC(PyObject *) _PyObject_GC_New_FromAllocator(PyTypeObject *, void *);
 PyAPI_FUNC(PyVarObject *) _PyObject_GC_NewVar(PyTypeObject *, Py_ssize_t);
+// Call this to notify the GC that a new object has been allocated,
+// potentially triggering a collection.
+// _PyObject_GC_New{,Var} call this for you, but
+// the _FromAllocator variant does not. This is because the gcallocator
+// immediately adds the object to the gc heap, and the object may
+// not be ready to be inspected yet, so you should call this only when
+// you would have called GC_TRACK
+PyAPI_FUNC(void) PyObject_GC_Allocated(void);
 
 /* Tell the GC to track this object.
  *
@@ -257,6 +266,8 @@ PyAPI_FUNC(void) PyObject_GC_Del(void *);
 #define PyObject_GC_NewVar(type, typeobj, n) \
                 ( (type *) _PyObject_GC_NewVar((typeobj), (n)) )
 
+#define PyObject_GC_New_FromAllocator(type, typeobj, allocator) \
+                ( (type *) _PyObject_GC_New_FromAllocator(typeobj, allocator) )
 
 /* Utility macro to help write tp_traverse functions.
  * To use this macro, the tp_traverse function must name its arguments

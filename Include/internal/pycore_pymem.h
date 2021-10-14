@@ -211,6 +211,130 @@ PyAPI_FUNC(int) _PyMem_GetAllocatorName(
    PYMEM_ALLOCATOR_NOT_SET does nothing. */
 PyAPI_FUNC(int) _PyMem_SetupAllocators(PyMemAllocatorName allocator);
 
+/*
+ * The system's VMM page size can be obtained on most unices with a
+ * getpagesize() call or deduced from various header files. To make
+ * things simpler, we assume that it is 4K, which is OK for most systems.
+ * It is probably better if this is the native page size, but it doesn't
+ * have to be.  In theory, if SYSTEM_PAGE_SIZE is larger than the native page
+ * size, then `POOL_ADDR(p)->arenaindex' could rarely cause a segmentation
+ * violation fault.  4K is apparently OK for all the platforms that python
+ * currently targets.
+ */
+#define SYSTEM_PAGE_SIZE        (4 * 1024)
+#define SYSTEM_PAGE_SIZE_MASK   (SYSTEM_PAGE_SIZE - 1)
+
+/*
+ * The allocator sub-allocates <Big> blocks of memory (called arenas) aligned
+ * on a page boundary. This is a reserved virtual address space for the
+ * current process (obtained through a malloc()/mmap() call). In no way this
+ * means that the memory arenas will be used entirely. A malloc(<Big>) is
+ * usually an address range reservation for <Big> bytes, unless all pages within
+ * this space are referenced subsequently. So malloc'ing big blocks and not
+ * using them does not mean "wasting memory". It's an addressable range
+ * wastage...
+ *
+ * Arenas are allocated with mmap() on systems supporting anonymous memory
+ * mappings to reduce heap fragmentation.
+ */
+#define GC_ARENA_SIZE              (256 << 10)     /* 256KB */
+
+/*
+ * Size of the pools used for small blocks. Should be a power of 2,
+ * between 1K and SYSTEM_PAGE_SIZE, that is: 1k, 2k, 4k.
+ */
+#define GC_POOL_SIZE               SYSTEM_PAGE_SIZE        /* must be 2^N */
+#define GC_POOL_SIZE_MASK          SYSTEM_PAGE_SIZE_MASK
+
+#define MAX_GC_POOLS_IN_ARENA  (GC_ARENA_SIZE / GC_POOL_SIZE)
+#if MAX_GC_POOLS_IN_ARENA * GC_POOL_SIZE != GC_ARENA_SIZE
+#   error "arena size not an exact multiple of pool size"
+#endif
+
+// How many bytes of memory are assigned to a single bitmap location
+#define GC_BITMAP_OBJECT_SIZE 16
+
+/* Pool for small blocks. */
+struct gc_pool_header {
+    union { void *_padding;
+            uint count; } ref;          /* number of allocated blocks    */
+    void *freeblock;                   /* pool's free list head         */
+    struct gc_pool_header *nextusedpool;       /* next pool of this size class  */
+    struct gc_pool_header *prevusedpool;       /* previous pool       ""        */
+    struct gc_pool_header *nextgenpool;        /* next pool in this generation  */
+    struct gc_pool_header *prevgenpool;        /* previous pool       ""        */
+    char is_young;              /* 1 if this pool is linked into the youngest generation, 0 if not */
+    uint arenaindex;                    /* index into arenas of base adr */
+    // This is now either DUMMY (uninitialized) or 0:
+    uint szidx;                         /* block size class index        */
+    uint nextoffset;                    /* bytes to virgin block         */
+    uint maxnextoffset;                 /* largest valid nextoffset      */
+
+    // Bitmap of if block belongs to generation N
+    // To keep things simple, the mapping from block to bit in this bitmap
+    // is just offset_of_block / GC_BITMAP_OBJECT_SIZE
+    // ie it does not depend on the size of the object allocated, and
+    // it does not skip the gc_pool_header block.
+    // This makes the bitmaps somewhat larger with the benefit of simplicity
+    // and runtime speed.
+    //
+    // Each GC_BITMAP_OBJECT_SIZE-sized block of memory (16 bytes) requires
+    // three bits, resulting in a 2% overhead for maintaining these bitmaps.
+    // This could be reduced by increasing GC_BITMAP_OBJECT_SIZE to 32, or
+    // changing the above design decision, or storing the generation number
+    // as a two-bit integer instead of three bit flags.
+    long gen_bitmaps[NUM_GENERATIONS][GC_POOL_SIZE / GC_BITMAP_OBJECT_SIZE / (8 * sizeof(long))];
+};
+
+typedef struct gc_pool_header *gcpoolp;
+
+typedef struct _allocator {
+    size_t nbytes;
+
+    // A doubly-linked list of pools connected by their {next,prev}usedpool members
+    gcpoolp usedpools[2];
+
+    // Three doubly-linked lists of pools connected by their {next,prev}genpool members
+    gcpoolp generations[NUM_GENERATIONS][2];
+
+    /* Array of objects used to track chunks of memory (arenas). */
+    struct arena_object* arenas;
+    /* Number of slots currently allocated in the `arenas` vector. */
+    uint maxarenas;
+
+    /* The head of the singly-linked, NULL-terminated list of available
+     * arena_objects.
+     */
+    struct arena_object* unused_arena_objects;
+
+    /* The head of the doubly-linked, NULL-terminated at each end, list of
+     * arena_objects associated with arenas that have pools available.
+     */
+    struct arena_object* usable_arenas;
+
+    /* nfp2lasta[nfp] is the last arena in usable_arenas with nfp free pools */
+    struct arena_object* nfp2lasta[MAX_GC_POOLS_IN_ARENA + 1];
+
+    /* Number of arenas allocated that haven't been free()'d. */
+    size_t narenas_currently_allocated;
+
+    /* Total number of times malloc() called to allocate an arena. */
+    size_t ntimes_arena_allocated;
+    /* High water mark (max value ever seen) for narenas_currently_allocated. */
+    size_t narenas_highwater;
+
+    Py_ssize_t _Py_AllocatedBlocks;
+
+    struct _allocator *next_allocator;
+
+} GCAllocator;
+
+#define GCPOOL_HEAD(alloc, generation)  ((gcpoolp )((uint8_t *)&(alloc->generations[generation][0]) - 4*sizeof(void *)))
+
+// Singly-linked list of allocated GCAllocators, linked via
+// the next_allocator field
+extern GCAllocator* allocator_list;
+
 #ifdef __cplusplus
 }
 #endif
