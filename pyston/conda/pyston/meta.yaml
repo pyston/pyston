@@ -37,6 +37,8 @@ outputs:
       build:
         - {{ compiler('c') }}
         - {{ compiler('cxx') }}
+        - {{ cdt('xorg-x11-proto-devel') }}  # [linux]
+        - {{ cdt('libx11-devel') }}  # [linux]
         - python
         - make
         - cmake
@@ -51,16 +53,24 @@ outputs:
         - luajit
         - bolt==2.3.1 *_pyston
 
-        - zlib
-        - bzip2
-        - openssl
-        - xz
-        - readline
-        - ncurses
-        - libffi
-
         # nitrous needs 'nm'
         - binutils 
+
+      host:
+        - bzip2
+        - sqlite
+        - xz
+        - zlib
+        - openssl
+        - readline  # [not win]
+        - tk
+        - ncurses  # [unix]
+        - libffi
+          # The conda-forge recipe has this dependency but it seems to not exist on conda-forge:
+        # - libuuid  # [linux]
+          # The conda-forge recipe has these dependencies but I think they only exist on conda-forge:
+        # - ld_impl_{{ target_platform }} >=2.36.1  # [linux]
+        # - libnsl  # [linux]
 
         # pillow dependencies
         - freetype
@@ -68,15 +78,8 @@ outputs:
         - libtiff
         - libwebp
 
-
       run:
-        - zlib
-        - bzip2
-        - openssl
-        - xz
-        - readline
-        - ncurses
-        - libffi
+        - tzdata
       
       run_constrained:
         python {{ python_version }} *_{{ pyston_version2.replace('.', '') }}_pyston
