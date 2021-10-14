@@ -21,6 +21,8 @@ CPPFLAGS="-isystem ${PREFIX}/include"
 # without this line we can't find zlib and co..
 CPPFLAGS=${CPPFLAGS}" -I${PREFIX}/include"
 
+rm -rf build
+
 make -j`nproc` pyston3
 
 OUTDIR=$SRC_DIR/build/opt_install
