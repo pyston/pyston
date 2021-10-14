@@ -4,6 +4,15 @@ set -eux
 PYSTON_PKG_VER="3.8.5 *_23_pyston"
 OUTPUT_DIR=${PWD}/release/conda_pkgs
 
+# We mount the entire pyston directory, including the build/ directory,
+# but the host-built files won't work in the container since they contain
+# paths on the host system
+if [ -d ${PWD}/build ]
+then
+    echo "Please move the build/ directory before running this script"
+    exit 1
+fi
+
 if [ -d $OUTPUT_DIR ]
 then
     echo "Directory $OUTPUT_DIR already exists";
