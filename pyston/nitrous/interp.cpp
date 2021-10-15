@@ -421,6 +421,9 @@ public:
         if (function_name == "builtin_isinstance" || function_name == "builtin_getattr" || function_name == "builtin_len")
             return false;
 
+        if (function_name == "_PyEval_EvalCodeWithName")
+            return false;
+
         return true;
     }
 };
