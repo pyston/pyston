@@ -2465,6 +2465,7 @@ dict_fromkeys_impl(PyTypeObject *type, PyObject *iterable, PyObject *value)
     return _PyDict_FromKeys((PyObject *)type, iterable, value);
 }
 
+_Py_NONSTATIC_IDENTIFIER(keys);
 /* static */ int
 dict_update_common(PyObject *self, PyObject *args, PyObject *kwds,
                    const char *methname)
@@ -2476,7 +2477,7 @@ dict_update_common(PyObject *self, PyObject *args, PyObject *kwds,
         result = -1;
     }
     else if (arg != NULL) {
-        _Py_IDENTIFIER(keys);
+        // _Py_IDENTIFIER(keys);
         PyObject *func;
 #if PYSTON_SPEEDUPS
         PyTypeObject* tp = Py_TYPE(arg);

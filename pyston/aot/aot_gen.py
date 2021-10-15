@@ -554,16 +554,17 @@ def loadCases():
              "Function": _function_cases,
 
              # Types
-             # "Long": [(int, (1,), (1.5,), ("42", ))],
+             "Long": [(int, (1,), (1.5,), ("42", ))],
              "Float": [(float, (1,), (1.5,), ("42.5", ))],
              "Unicode": [(str, (1,), (1.5,), ("42.5", ))],
              "Range": [(range, (5,), (100,))],
              "Bool": [(bool, (1,), (False,))],
              "Type": [(type, (1,))],
              "Object": [(object, ())],
-             "Tuple": [(tuple, ([1,2,3], ), ((1,2,3), ))],
-             "List": [(list, ([1,2,3], ), ((1,2,3), ))],
-             "Set": [(set, ([1,2,3], ), ((1,2,3), ))],
+             "Tuple": [(tuple, (), ([1,2,3], ), ((1,2,3), ))],
+             "List": [(list, (), ([1,2,3], ), ((1,2,3), ))],
+             "Set": [(set, (), ([1,2,3], ), ((1,2,3), ))],
+             "Dict": [(dict, (), ({"a": 1}, ), ([(c, ord(c)) for c in "abc"],) )],
 
              # TODO: e.g.:
              # super, staticmethod, classmethod, property

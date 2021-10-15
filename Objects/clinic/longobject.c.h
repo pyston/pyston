@@ -5,12 +5,14 @@ preserve
 static PyObject *
 long_new_impl(PyTypeObject *type, PyObject *x, PyObject *obase);
 
+static const char * const long_new_keywords[] = {"", "base", NULL};
+_PyArg_Parser long_new_parser = {NULL, long_new_keywords, "int", 0};
 static PyObject *
 long_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 {
     PyObject *return_value = NULL;
-    static const char * const _keywords[] = {"", "base", NULL};
-    static _PyArg_Parser _parser = {NULL, _keywords, "int", 0};
+    // static const char * const _keywords[] = {"", "base", NULL};
+    // static _PyArg_Parser _parser = {NULL, _keywords, "int", 0};
     PyObject *argsbuf[2];
     PyObject * const *fastargs;
     Py_ssize_t nargs = PyTuple_GET_SIZE(args);
@@ -18,7 +20,7 @@ long_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
     PyObject *x = NULL;
     PyObject *obase = NULL;
 
-    fastargs = _PyArg_UnpackKeywords(_PyTuple_CAST(args)->ob_item, nargs, kwargs, NULL, &_parser, 0, 2, 0, argsbuf);
+    fastargs = _PyArg_UnpackKeywords(_PyTuple_CAST(args)->ob_item, nargs, kwargs, NULL, &long_new_parser, 0, 2, 0, argsbuf);
     if (!fastargs) {
         goto exit;
     }
