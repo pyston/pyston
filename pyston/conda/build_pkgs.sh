@@ -1,7 +1,7 @@
 #!/bin/bash
 set -eux
 
-PYSTON_PKG_VER="3.8.5 *_23_pyston"
+PYSTON_PKG_VER="3.8.12 *_23_pyston"
 OUTPUT_DIR=${PWD}/release/conda_pkgs
 
 if [ -d $OUTPUT_DIR ]

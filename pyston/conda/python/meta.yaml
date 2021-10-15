@@ -1,6 +1,6 @@
 {% set build_num = 0 %}
 {% set pyston_version = "2.3.1" %}
-{% set python_version = "3.8.5" %}
+{% set python_version = "3.8.12" %}
 {% set pyston_version2 = ".".join(pyston_version.split(".")[:2]) %}
 {% set python_version2 = ".".join(python_version.split(".")[:2]) %}
 
