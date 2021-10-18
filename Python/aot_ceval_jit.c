@@ -243,7 +243,6 @@ static void* __attribute__ ((const)) get_addr_of_helper_func(int opcode, int opa
         JIT_HELPER_ADDR(SETUP_WITH);
         JIT_HELPER_ADDR(WITH_CLEANUP_START);
         JIT_HELPER_ADDR(WITH_CLEANUP_FINISH);
-        JIT_HELPER_ADDR(CALL_FUNCTION_KW);
         JIT_HELPER_ADDR(MAKE_FUNCTION);
         JIT_HELPER_ADDR(FORMAT_VALUE);
 
@@ -307,6 +306,7 @@ static void* __attribute__ ((const)) get_addr_of_aot_func(int opcode, int oparg,
 
     OPCODE_PROFILE(CALL_FUNCTION, call_function_ceval_no_kw);
     OPCODE_PROFILE(CALL_METHOD, call_method_ceval_no_kw);
+    OPCODE_PROFILE(CALL_FUNCTION_KW, call_function_ceval_kw);
 
     OPCODE_PROFILE(STORE_SUBSCR, PyObject_SetItem);
     OPCODE_PROFILE(BINARY_SUBSCR, PyObject_GetItem);
@@ -2187,7 +2187,11 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             break;
 
         case CALL_FUNCTION:
+        case CALL_FUNCTION_KW:
         case CALL_METHOD:
+            if (opcode == CALL_FUNCTION_KW) {
+                deferred_vs_pop1_owned(Dst, arg4_idx);
+            }
             deferred_vs_apply(Dst);
             | mov arg1, tstate
 
@@ -2573,7 +2577,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 case UNPACK_EX:
                 case IMPORT_STAR:
                 case GET_YIELD_FROM_ITER:
-                case CALL_FUNCTION_KW:
                 // JIT_HELPER_WITH_NAME1
                 case STORE_NAME:
                 // JIT_HELPER_WITH_NAME_OPCACHE_AOT1
@@ -2667,7 +2670,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 case BUILD_MAP_UNPACK:
                 case BUILD_MAP_UNPACK_WITH_CALL:
                 case SETUP_WITH:
-                case CALL_FUNCTION_KW:
                 case CALL_FUNCTION_EX:
                 case MAKE_FUNCTION:
                 case FORMAT_VALUE:
@@ -2766,7 +2768,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 case SETUP_WITH:
                 case WITH_CLEANUP_START:
                 case LOAD_METHOD:
-                case CALL_FUNCTION_KW:
                 case CALL_FUNCTION_EX:
                 case MAKE_FUNCTION:
                 case FORMAT_VALUE:

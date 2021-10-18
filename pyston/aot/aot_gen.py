@@ -199,6 +199,8 @@ class FunctionCases(object):
         self.unspecialized_name = c_func_name
         if c_func_name.endswith("_ceval_no_kw"):
             self.specialized_base = c_func_name[:-len("_ceval_no_kw")]
+        elif c_func_name.endswith("_ceval_kw"):
+            self.specialized_base = c_func_name[:-len("_ceval_kw")] + "_kw"
         else:
             self.specialized_base = c_func_name
         self.signatures = signatures
@@ -352,17 +354,18 @@ class CallableHandler(Handler):
         super(CallableHandler, self).__init__(case)
 
         self._jit_targets = {}
+        self.has_kwnames = self.case.unspecialized_name == "call_function_ceval_kw"
+        self.kwnames = ('last_arg',) if self.has_kwnames else ()
 
     def writePretraceFunctions(self, f):
         for signature, name in self.case.getSignatures():
-            print(
-                f"PyObject* {name}(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);", file=f)
+            print(f"{self._get_func_sig(name)};", file=f)
 
         for signature, name in self.case.getSignatures():
             arg_names = ["f"] + [f"stack[-oparg+{i}]" for i in range(signature.nargs-1)]
             nargs = signature.nargs
-            print(
-                f"PyObject* {name}(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg)", "{", file=f)
+            pass_args = ", ".join(self._args_names())
+            print(f"{self._get_func_sig(name)}", "{", file=f)
             print(f"  if (unlikely(oparg != {nargs-1}))", "{" , file=f)
             if name.startswith("call_method"):
                 # CALL_METHOD can call the function with a different number of args
@@ -371,7 +374,7 @@ class CallableHandler(Handler):
                 # we don't use getGuardFailFuncName() here because if the number of args is different
                 # it's likely faster to just go to the untraced case.
                 print(f"    SET_JIT_AOT_FUNC({self.case.unspecialized_name});", file=f)
-                print(f"    PyObject* ret = {self.case.unspecialized_name}(tstate, stack, oparg);", file=f)
+                print(f"    PyObject* ret = {self.case.unspecialized_name}({pass_args});", file=f)
                 # this makes sure the compiler is not merging the calls into a single one
                 print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
                 print(f"    return ret;", file=f)
@@ -385,7 +388,7 @@ class CallableHandler(Handler):
             print(f"  PyObject* f = stack[-oparg - 1];", file=f)
             print(f"  if (unlikely(!({signature.getGuard(arg_names)})))", "{", file=f)
             print(f"    SET_JIT_AOT_FUNC({guard_fail_fn_name});", file=f)
-            print(f"    PyObject* ret = {guard_fail_fn_name}(tstate, stack, oparg);", file=f)
+            print(f"    PyObject* ret = {guard_fail_fn_name}({pass_args});", file=f)
             # this makes sure the compiler is not merging the calls into a single one
             print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
             print(f"    return ret;", file=f)
@@ -396,11 +399,11 @@ class CallableHandler(Handler):
 
             for line in signature.getSpecialTracingCode(arg_names):
                 print(f"  {line}", file=f)
-            print(f"  return {self.case.unspecialized_name}(tstate, stack, oparg);", file=f)
+            print(f"  return {self.case.unspecialized_name}({pass_args});", file=f)
             print("}", file=f)
 
     def createJitTarget(self, target_func, ntraces):
-        return createJitTarget(target_func, 3, ntraces)
+        return createJitTarget(target_func, 4 if self.kwnames else 3, ntraces)
 
     def call(self, target_func, args):
         # TODO: this shouldn't trace, but we don't yet have a call_helper equivalent that doesn't trace
@@ -409,43 +412,55 @@ class CallableHandler(Handler):
         if key not in self._jit_targets:
             self._jit_targets[key] = self.createJitTarget(target_func, 0xDEAD)
 
-        return call_helper(self._jit_targets[key], *args)
+        return call_helper(self._jit_targets[key], *args, kwnames = self.kwnames)
 
     def write_profile_func(self, traced, header_f, profile_f):
         func = self.case.unspecialized_name
         profile_func = self.case.specialized_base + 'Profile'
-        print(f"PyObject* {func}(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);", file=header_f)
+        print(f"{self._get_func_sig(func)};", file=header_f)
 
         for signature, name in self.case.getSignatures():
-            print(
-                f"PyObject* {name}(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);", file=header_f)
-            print(
-                f"PyObject* {name}(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);", file=profile_f)
+            print(f"{self._get_func_sig(name)};", file=header_f)
+            print(f"{self._get_func_sig(name)};", file=profile_f)
 
-        print(
-            f"PyObject* {func}Profile(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);", file=header_f)
-        print(
-            f"PyObject* {func}Profile(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg)", "{", file=profile_f)
+        print(f"{self._get_func_sig(f'{func}Profile')};", file=header_f)
+        print(f"{self._get_func_sig(f'{func}Profile')}", "{", file=profile_f)
         print("PyObject* f = *(stack - oparg - 1);", file=profile_f)
 
+        pass_args = ", ".join(self._args_names())
         for signature, name in traced:
             arg_names = ["f"] + [f"stack[-oparg+{i}]" for i in range(signature.nargs-1)]
             guard = signature.getGuard(arg_names)
             nargs = signature.nargs
             print(f"  if (oparg == {nargs-1} && {guard})", "{", file=profile_f)
             print(f"    SET_JIT_AOT_FUNC({name});", file=profile_f)
-            print(f"    return {name}(tstate, stack, oparg);", file=profile_f)
+            print(f"    return {name}({pass_args});", file=profile_f)
             print("}", file=profile_f)
         print(
             rf'  DBG("Missing {func} %s\n", f->ob_type == &PyType_Type ? ((PyTypeObject*)f)->tp_name : f->ob_type->tp_name);', file=profile_f)
         print(f"  SET_JIT_AOT_FUNC({func});", file=profile_f)
-        print(f"  return {func}(tstate, stack, oparg);", file=profile_f)
+        print(f"  return {func}({pass_args});", file=profile_f)
         print("}", file=profile_f)
 
+    def _args_names(self):
+        return [name for (_, name) in self._args()]
+
+    def _args(self):
+        args = [("PyThreadState *", "tstate"),
+                ("PyObject **", "stack"),
+                ("Py_ssize_t", "oparg"),
+        ]
+        if self.has_kwnames:
+            args.append(("PyObject*", "kwnames"))
+        return args
+
+    def _get_func_sig(self, name):
+        param = ", ".join([f"{type} {o}" for (type, o) in self._args()])
+        return f"PyObject* {name}({param})"
 
     def trace(self, jit_target, args, signature):
         self.setTracingOverwrites(signature)
-        return call_helper(jit_target, *args)
+        return call_helper(jit_target, *args, kwnames = self.kwnames)
 
 # These lambdas have to be defined at the global level.
 # If they are defined inside a function (with the rest of the data), they
@@ -453,21 +468,21 @@ class CallableHandler(Handler):
 # than top-level functions.
 def foo0():
     return 42
-def foo1(x):
+def foo1(last_arg):
     return 42
-def foo2(x, y):
+def foo2(y, last_arg):
     return 42
-def foo3(x, y, z):
+def foo3(y, z, last_arg):
     return 42
-def foo4(x, y, z, w):
+def foo4(y, z, w, last_arg):
     return 42
-def foo5(x, y, z, w, v):
+def foo5(y, z, w, v, last_arg):
     return 42
-def foo6(x, y, z, w, v, u):
+def foo6(y, z, w, v, u, last_arg):
     return 42
-def foo7(x, y, z, w, v, u, a):
+def foo7(y, z, w, v, u, a, last_arg):
     return 42
-def foo8(x, y, z, w, v, u, a, b):
+def foo8(y, z, w, v, u, a, b, last_arg):
     return 42
 _function_cases = []
 for i in range(0, 9):
@@ -554,16 +569,17 @@ def loadCases():
              "Function": _function_cases,
 
              # Types
-             # "Long": [(int, (1,), (1.5,), ("42", ))],
+             "Long": [(int, (1,), (1.5,), ("42", ))],
              "Float": [(float, (1,), (1.5,), ("42.5", ))],
              "Unicode": [(str, (1,), (1.5,), ("42.5", ))],
              "Range": [(range, (5,), (100,))],
              "Bool": [(bool, (1,), (False,))],
              "Type": [(type, (1,))],
              "Object": [(object, ())],
-             "Tuple": [(tuple, ([1,2,3], ), ((1,2,3), ))],
-             "List": [(list, ([1,2,3], ), ((1,2,3), ))],
-             "Set": [(set, ([1,2,3], ), ((1,2,3), ))],
+             "Tuple": [(tuple, (), ([1,2,3], ), ((1,2,3), ))],
+             "List": [(list, (), ([1,2,3], ), ((1,2,3), ))],
+             "Set": [(set, (), ([1,2,3], ), ((1,2,3), ))],
+             "Dict": [(dict, (), ({"a": 1}, ), ([(c, ord(c)) for c in "abc"],) )],
 
              # TODO: e.g.:
              # super, staticmethod, classmethod, property
@@ -688,6 +704,35 @@ def loadCases():
     cases.append(CallableHandler(FunctionCases("call_function_ceval_no_kw", call_signatures)))
     cases.append(CallableHandler(FunctionCases("call_method_ceval_no_kw", call_signatures)))
 
+    #### call_function_kw
+    call_signatures = []
+    callables = {
+        "Function": _function_cases[1:],
+    }
+    for name, l in callables.items():
+        signatures = {}
+        for example in l:
+            func = example[0]
+            for args in example[1:]:
+                classes = []
+                if isinstance(func, type):
+                    classes.append(ObjectClass(name, IdentityGuard(f"(PyObject*)&{getCTypeName(name)}"), [func]))
+                else:
+                    classes.append(ObjectClass(name, TypeGuard(f"&{getCTypeName(name)}"), [func]))
+
+                for arg in args:
+                    classes.append(ObjectClass("", Unspecialized, [arg]))
+
+                signatures.setdefault(len(args), []).append(Signature(classes))
+
+        for nargs, sigs in signatures.items():
+            if len(sigs) == 1:
+                call_signatures.append(sigs[0])
+            else:
+                call_signatures.append(CompoundSignature(sigs))
+    cases.append(CallableHandler(FunctionCases("call_function_ceval_kw", call_signatures)))
+
+
     def makeSignatures(*args_classes):
         return [Signature(classes) for classes in itertools.product(*args_classes)]
     placeholder_class = ObjectClass("", Unspecialized, [(42, "test"), 0])
@@ -801,12 +846,14 @@ def loadLibs():
     for arg_num in range(10):
         c = aot_pre_trace_so[f"call_helper{arg_num}"]
         c.argtypes = [ctypes.c_void_p, ctypes.py_object] + \
-            ([ctypes.py_object] * arg_num)
+            ([ctypes.py_object] * arg_num) + \
+            [ctypes.py_object] # kwnames
         c.restype = ctypes.py_object
         call_helpers.append(c)
 
-    def call_helper_wrapper(target, func, *args):
-        return call_helpers[len(args)](target, ctypes.py_object(func), *map(makeCType, args))
+    def call_helper_wrapper(target, func, *args, kwnames):
+        return call_helpers[len(args)](target, ctypes.py_object(func), *map(makeCType, args),
+                                       ctypes.py_object(kwnames) if kwnames else ctypes.py_object())
     global call_helper
     call_helper = call_helper_wrapper
 
@@ -929,6 +976,7 @@ def print_helper_funcs(f):
 
     for func in ("call_function_ceval_no_kw", "call_method_ceval_no_kw"):
         print(f"PyObject* {func}(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);", file=f)
+    print(f"PyObject* call_function_ceval_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg, PyObject* kwnames);", file=f)
 
     print("/* this directly modifies the destination of the jit generated call instruction */\\", file=f)
     print("#define SET_JIT_AOT_FUNC(dst_addr) do { \\", file=f)
@@ -961,7 +1009,8 @@ def create_pre_traced_funcs(output_file):
 
         for num_args in range(10):
             args = ["JitTarget* target", "PyObject *func"] + \
-                [f'PyObject *o{i}' for i in range(num_args)]
+                [f'PyObject *o{i}' for i in range(num_args)] + \
+                ['PyObject* kwnames']
             print(
                 f"PyObject* call_helper{num_args}(", ", ".join(args), "){", file=f)
             print("  _PyRuntimeState * const runtime = &_PyRuntime;", file=f)
@@ -974,7 +1023,7 @@ def create_pre_traced_funcs(output_file):
                 f'  for (int i=0;i<({num_args}+1); ++i) Py_INCREF(array[i]);', file=f)
             print(f"  PyObject** sp = &array[{num_args+1}];", file=f)
             print(
-                f'  return runJitTarget4(target, tstate, sp, {num_args} /* oparg */, 0);', file=f)
+                f'  return runJitTarget5(target, tstate, sp, {num_args} /* oparg */, kwnames, 0);', file=f)
             print('}', file=f)
 
         print(f"#include <interp.h>", file=f)

@@ -1623,24 +1623,6 @@ JIT_HELPER_WITH_NAME_OPCACHE_AOT(LOAD_METHOD_CACHED) {
     DISPATCH();
 }
 
-JIT_HELPER_WITH_OPARG1(CALL_FUNCTION_KW, names_) {
-    PyObject **sp, *res/*, *names_*/;
-
-    //names_ = POP();
-    assert(PyTuple_CheckExact(names_) && PyTuple_GET_SIZE(names_) <= oparg);
-    sp = stack_pointer;
-    res = call_function_ceval(tstate, &sp, oparg, names_);
-    stack_pointer = sp;
-    //PUSH(res);
-    Py_DECREF(names_);
-
-    //if (res == NULL) {
-    //    goto_error;
-    //}
-    //DISPATCH();
-    return res;
-}
-
 JIT_HELPER_WITH_OPARG3(CALL_FUNCTION_EX_internal, kwargs, callargs, func) {
     PyObject /**func, *callargs, *kwargs = NULL,*/ *result;
     if (oparg & 0x01) {

@@ -421,6 +421,9 @@ public:
         if (function_name == "builtin_isinstance" || function_name == "builtin_getattr" || function_name == "builtin_len")
             return false;
 
+        if (function_name == "_PyEval_EvalCodeWithName")
+            return false;
+
         return true;
     }
 };
@@ -733,6 +736,7 @@ public:
         unsigned arg_bytes = 0;
         SmallVector<ffi_type *, 8> arg_types(args.size());
         for (int i = 0; i < caller.getNumArgOperands(); ++i) {
+            RELEASE_ASSERT(!caller.isByValArgument(i), "not supported");
             Type* arg_type = caller.getArgOperand(i)->getType();
             arg_types[i] = ffiTypeFor(arg_type);
             arg_bytes += data_layout->getTypeStoreSize(arg_type);

@@ -1386,7 +1386,7 @@ PyNumber_AsSsize_t(PyObject *item, PyObject *err)
     return result;
 }
 
-
+_Py_NONSTATIC_IDENTIFIER(__trunc__);
 PyObject *
 PyNumber_Long(PyObject *o)
 {
@@ -1394,7 +1394,7 @@ PyNumber_Long(PyObject *o)
     PyNumberMethods *m;
     PyObject *trunc_func;
     Py_buffer view;
-    _Py_IDENTIFIER(__trunc__);
+    // _Py_IDENTIFIER(__trunc__);
 
     if (o == NULL) {
         return null_error();
