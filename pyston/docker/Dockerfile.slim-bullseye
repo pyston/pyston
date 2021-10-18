@@ -1,4 +1,4 @@
-FROM buildpack-deps:20.04
+FROM debian:bullseye-slim
 
 ENV PYSTON_VERSION='2.3.1'
 ENV UBUNTU_VERSION='20.04'
@@ -9,7 +9,11 @@ ENV LANG C.UTF-8
 
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends wget; \
+    apt-get install -y --no-install-recommends \
+            ca-certificates \
+            netbase \
+            wget \
+        ; \
     wget https://github.com/pyston/pyston/releases/download/pyston_${PYSTON_VERSION}/pyston_${PYSTON_VERSION}_${UBUNTU_VERSION}.deb; \
     apt-get install -y ./pyston_${PYSTON_VERSION}_${UBUNTU_VERSION}.deb; \
     rm pyston_${PYSTON_VERSION}_${UBUNTU_VERSION}.deb; \
