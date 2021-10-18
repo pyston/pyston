@@ -20,7 +20,35 @@ We plan on explaining our techniques in more detail in future blog posts, but th
 - General CPython optimizations
 - Build process improvements
 
-## Dependencies
+## Docker images
+
+We have some experimental docker images on DockerHub with Pyston pre-installed, you can quickly try out Pyston by doing
+
+```
+docker run -it pyston/pyston
+```
+
+You could also attempt to use this as your base image, and `python` will be provided by Pyston.
+
+The default image contains quite a few libraries for compiling extension modules, and if you'd like a smaller image we also have a `pyston/slim` version that you can use.
+
+These have not been heavily tested, so if you run into any issues please report them to our tracker.
+
+## Checking for Pyston at runtime
+
+Our current recommended way to see if your Python code is running on Pyston is to do `hasattr(sys, "pyston_version_info")`.
+
+## Installing packages
+
+Pyston is *API compatible* but not *ABI compatible* with CPython. This means that C extensions will work, but they need to be recompiled.
+
+Typically with Python one will download and install pre-compiled packages, but with Pyston there are currently not pre-compiled packages available (we're working on that) so the compilation step will run when you install them. This means that you may run into problems installing packages on Pyston when they work on CPython: the same issues you would have trying to recompile these packages for CPython.
+
+Many packages have build-time dependencies that you will need to install to get them to work. For example to `pip install cryptography` you need a Rust compiler, such as by doing `sudo apt-get install rustc`.
+
+# Building Pyston
+
+## Build dependencies
 
 First do
 
@@ -90,7 +118,3 @@ NOTE: our release build process requires hardware with LBR (last branch record) 
    Inside this directory are also different "portable dir" releases made from the different distibution deb packages.
    Decide on which portable dir to use - the oldest version will run with most dists but will also bundle the oldes libs.
 4. execute `$ make tune; pyston/tools/bench_release.sh` to generate benchmark results.
-
-## Checking for Pyston at runtime
-
-Our current recommended way to see if your Python code is running on Pyston is to do `hasattr(sys, "pyston_version_info")`.
