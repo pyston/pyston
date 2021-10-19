@@ -9,8 +9,6 @@ docker build -t pyston/pyston:latest -t pyston/pyston:${BUILD_NAME} -f ${DIR}/Do
 docker push pyston/pyston:latest
 docker push pyston/pyston:${BUILD_NAME}
 
-docker build -t pyston/pyston:slim-bullseye -t pyston/pyston:slim -t pyston/pyston:${BUILD_NAME}-slim-bullseye -t pyston/pyston:${BUILD_NAME}-slim -f ${DIR}/Dockerfile.slim-bullseye ${DIR}
-docker push pyston/pyston:slim
-docker push pyston/pyston:slim-bullseye
-docker push pyston/pyston:${BUILD_NAME}-slim-bullseye
-docker push pyston/pyston:${BUILD_NAME}-slim
+docker build -t pyston/slim:latest -t pyston/slim:${BUILD_NAME} -f ${DIR}/Dockerfile.slim-bullseye ${DIR}
+docker push pyston/slim:latest
+docker push pyston/slim:${BUILD_NAME}
