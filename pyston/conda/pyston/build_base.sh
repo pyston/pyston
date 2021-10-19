@@ -23,16 +23,24 @@ CPPFLAGS=${CPPFLAGS}" -I${PREFIX}/include"
 
 rm -rf build
 
-RELEASE_PREFIX=${PREFIX} make -j`nproc` release
+if [ "${PYSTON_UNOPT_BUILD}" = "1" ]; then
+    make -j`nproc` unopt
+    make -j`nproc` cpython_testsuite
+    OUTDIR=${SRC_DIR}/build/unopt_install/usr
+    PYSTON=${OUTDIR}/bin/python3
+else
+    RELEASE_PREFIX=${PREFIX} make -j`nproc` release
+    RELEASE_PREFIX=${PREFIX} make -j`nproc` cpython_testsuite_release
+    OUTDIR=${SRC_DIR}/build/release_install${PREFIX}
+    PYSTON=${OUTDIR}/bin/python3.bolt
+fi
 
-OUTDIR=$SRC_DIR/build/release_install
-
-cp $OUTDIR${PREFIX}/bin/python3.bolt ${PREFIX}/bin/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}
+cp $PYSTON ${PREFIX}/bin/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}
 ln -s ${PREFIX}/bin/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2} ${PREFIX}/bin/pyston
 ln -s ${PREFIX}/bin/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2} ${PREFIX}/bin/pyston3
 
-cp -r $OUTDIR${PREFIX}/include/* ${PREFIX}/include/
-cp -r $OUTDIR${PREFIX}/lib/* ${PREFIX}/lib/
+cp -r ${OUTDIR}/include/* ${PREFIX}/include/
+cp -r ${OUTDIR}/lib/* ${PREFIX}/lib/
 
 # remove pip
 rm -r ${PREFIX}/lib/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}/site-packages/pip*
