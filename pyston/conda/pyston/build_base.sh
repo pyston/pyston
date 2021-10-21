@@ -23,16 +23,17 @@ CPPFLAGS=${CPPFLAGS}" -I${PREFIX}/include"
 
 rm -rf build
 
-make -j`nproc` pyston3
+RELEASE_PREFIX=${PREFIX} make -j`nproc` releaseunopt
 
-OUTDIR=$SRC_DIR/build/opt_install
+OUTDIR=$SRC_DIR/build/releaseunopt_install
 
-cp $OUTDIR/usr/bin/python3.bolt ${PREFIX}/bin/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}
+# TODO: switch this back to python3.bolt once we switch it to the release build
+cp $OUTDIR${PREFIX}/bin/python3 ${PREFIX}/bin/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}
 ln -s ${PREFIX}/bin/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2} ${PREFIX}/bin/pyston
 ln -s ${PREFIX}/bin/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2} ${PREFIX}/bin/pyston3
 
-cp -r $OUTDIR/usr/include/* ${PREFIX}/include/
-cp -r $OUTDIR/usr/lib/* ${PREFIX}/lib/
+cp -r $OUTDIR${PREFIX}/include/* ${PREFIX}/include/
+cp -r $OUTDIR${PREFIX}/lib/* ${PREFIX}/lib/
 
 # remove pip
 rm -r ${PREFIX}/lib/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}/site-packages/pip*

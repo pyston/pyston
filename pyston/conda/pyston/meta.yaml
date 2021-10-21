@@ -1,4 +1,4 @@
-{% set build_num = 0 %}
+{% set build_num = 1 %}
 {% set llvm_version = "10.0.1" %}
 {% set pyston_version = "2.3.1" %}
 {% set python_version = "3.8.12" %}
@@ -28,6 +28,8 @@ build:
     # this directory is already created by our build requirement on 'python' so will not get bundled automatically
     # but we want the pyston package to create it too so force package our README.txt.
     - lib/python{{ python_version2 }}/site-packages/README.txt
+
+  detect_binary_files_with_prefix: true
 
 outputs:
   - name: pyston{{ pyston_version2 }}
