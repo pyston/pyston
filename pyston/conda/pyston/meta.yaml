@@ -1,4 +1,4 @@
-{% set build_num = 0 %}
+{% set build_num = 1 %}
 {% set llvm_version = "10.0.1" %}
 {% set pyston_version = "2.3.1" %}
 {% set python_version = "3.8.12" %}
@@ -29,6 +29,8 @@ build:
     # but we want the pyston package to create it too so force package our README.txt.
     - lib/python{{ python_version2 }}/site-packages/README.txt
 
+  detect_binary_files_with_prefix: true
+
 outputs:
   - name: pyston{{ pyston_version2 }}
     script: build_base.sh
@@ -37,6 +39,8 @@ outputs:
       build:
         - {{ compiler('c') }}
         - {{ compiler('cxx') }}
+        - {{ cdt('xorg-x11-proto-devel') }}  # [linux]
+        - {{ cdt('libx11-devel') }}  # [linux]
         - python
         - make
         - cmake
@@ -51,16 +55,24 @@ outputs:
         - luajit
         - bolt==2.3.1 *_pyston
 
-        - zlib
-        - bzip2
-        - openssl
-        - xz
-        - readline
-        - ncurses
-        - libffi
-
         # nitrous needs 'nm'
         - binutils 
+
+      host:
+        - bzip2
+        - sqlite
+        - xz
+        - zlib
+        - openssl
+        - readline  # [not win]
+        - tk
+        - ncurses  # [unix]
+        - libffi
+          # The conda-forge recipe has this dependency but it seems to not exist on conda-forge:
+        # - libuuid  # [linux]
+          # The conda-forge recipe has these dependencies but I think they only exist on conda-forge:
+        # - ld_impl_{{ target_platform }} >=2.36.1  # [linux]
+        # - libnsl  # [linux]
 
         # pillow dependencies
         - freetype
@@ -68,15 +80,8 @@ outputs:
         - libtiff
         - libwebp
 
-
       run:
-        - zlib
-        - bzip2
-        - openssl
-        - xz
-        - readline
-        - ncurses
-        - libffi
+        - tzdata
       
       run_constrained:
         python {{ python_version }} *_{{ pyston_version2.replace('.', '') }}_pyston
