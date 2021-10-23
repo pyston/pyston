@@ -367,22 +367,18 @@ class CallableHandler(Handler):
             pass_args = ", ".join(self._args_names())
             print(f"{self._get_func_sig(name)}", "{", file=f)
             print(f"  if (unlikely(oparg != {nargs-1}))", "{" , file=f)
-            if name.startswith("call_method"):
-                # CALL_METHOD can call the function with a different number of args
-                # depending if LOAD_METHOD returned true or false which means we need
-                # to add this additional guard.
-                # we don't use getGuardFailFuncName() here because if the number of args is different
-                # it's likely faster to just go to the untraced case.
-                print(f"    SET_JIT_AOT_FUNC({self.case.unspecialized_name});", file=f)
-                print(f"    PyObject* ret = {self.case.unspecialized_name}({pass_args});", file=f)
-                # this makes sure the compiler is not merging the calls into a single one
-                print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
-                print(f"    return ret;", file=f)
-            elif name.startswith("call_function"):
-                # CALL_FUNCTION always passes the same number of arguments
-                print(f"    __builtin_unreachable();", file=f)
-            else:
-                assert 0, name
+            
+            # CALL_METHOD can call the function with a different number of args
+            # depending if LOAD_METHOD returned true or false which means we need
+            # to add this additional guard.
+            # we don't use getGuardFailFuncName() here because if the number of args is different
+            # it's likely faster to just go to the untraced case.
+            print(f"    SET_JIT_AOT_FUNC({self.case.unspecialized_name});", file=f)
+            print(f"    PyObject* ret = {self.case.unspecialized_name}({pass_args});", file=f)
+            # this makes sure the compiler is not merging the calls into a single one
+            print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
+            print(f"    return ret;", file=f)
+
             print("  }", file=f)
             guard_fail_fn_name = self.getGuardFailFuncName(signature)
             print(f"  PyObject* f = stack[-oparg - 1];", file=f)
@@ -702,7 +698,6 @@ def loadCases():
         call_signatures.append(Signature([ctor_class] + [ObjectClass("", Unspecialized, [None])] * nargs))
 
     cases.append(CallableHandler(FunctionCases("call_function_ceval_no_kw", call_signatures)))
-    cases.append(CallableHandler(FunctionCases("call_method_ceval_no_kw", call_signatures)))
 
     #### call_function_kw
     call_signatures = []
@@ -974,8 +969,7 @@ def print_helper_funcs(f):
     for cmp in cmps:
         print(f"PyObject* cmp_outcome{cmp}(PyObject *v, PyObject *w);", file=f)
 
-    for func in ("call_function_ceval_no_kw", "call_method_ceval_no_kw"):
-        print(f"PyObject* {func}(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);", file=f)
+    print(f"PyObject* call_function_ceval_no_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);", file=f)
     print(f"PyObject* call_function_ceval_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg, PyObject* kwnames);", file=f)
 
     print("/* this directly modifies the destination of the jit generated call instruction */\\", file=f)

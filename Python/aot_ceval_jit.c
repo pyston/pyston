@@ -305,7 +305,7 @@ static void* __attribute__ ((const)) get_addr_of_aot_func(int opcode, int oparg,
     OPCODE_PROFILE(INPLACE_POWER, PyNumber_InPlacePowerNone);
 
     OPCODE_PROFILE(CALL_FUNCTION, call_function_ceval_no_kw);
-    OPCODE_PROFILE(CALL_METHOD, call_method_ceval_no_kw);
+    OPCODE_PROFILE(CALL_METHOD, call_function_ceval_no_kw);
     OPCODE_PROFILE(CALL_FUNCTION_KW, call_function_ceval_kw);
 
     OPCODE_PROFILE(STORE_SUBSCR, PyObject_SetItem);
