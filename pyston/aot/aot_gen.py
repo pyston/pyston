@@ -480,10 +480,29 @@ def foo7(y, z, w, v, u, a, last_arg):
     return 42
 def foo8(y, z, w, v, u, a, b, last_arg):
     return 42
+class Foo:
+    def foo1(self):
+        return 42
+    def foo2(self, last_arg):
+        return 42
+    def foo3(self, z, last_arg):
+        return 42
+    def foo4(self, z, w, last_arg):
+        return 42
+    def foo5(self, z, w, v, last_arg):
+        return 42
+    def foo6(self, z, w, v, u, last_arg):
+        return 42
+    def foo7(self, z, w, v, u, a, last_arg):
+        return 42
+    def foo8(self, z, w, v, u, a, b, last_arg):
+        return 42
 _function_cases = []
 for i in range(0, 9):
     _function_cases.append((globals()[f"foo{i}"], tuple(range(i))))
-
+_method_cases = []
+for i in range(1, 9):
+    _method_cases.append((getattr(Foo(), f"foo{i}"), tuple(range(i-1))))
 for i in range(0, 10):
     exec(f"""
 class ExampleClass{i}:
@@ -561,7 +580,7 @@ def loadCases():
                                (isinstance, (5, int), (42, str)), # two arg
                                (getattr, (5, "does not exist", 42))],  # three arg
              "MethodDescr": [(str.join, (" ", ("a", "b", "c"))), (str.upper, ("hello world",))],
-             # "Method": [("aaa".lower, ())], #[].append),
+             "Method": _method_cases,
              "Function": _function_cases,
 
              # Types
@@ -703,6 +722,7 @@ def loadCases():
     call_signatures = []
     callables = {
         "Function": _function_cases[1:],
+        "Method": _method_cases[1:],
     }
     for name, l in callables.items():
         signatures = {}
