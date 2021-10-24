@@ -367,7 +367,7 @@ class CallableHandler(Handler):
             pass_args = ", ".join(self._args_names())
             print(f"{self._get_func_sig(name)}", "{", file=f)
             print(f"  if (unlikely(oparg != {nargs-1}))", "{" , file=f)
-            
+
             # CALL_METHOD can call the function with a different number of args
             # depending if LOAD_METHOD returned true or false which means we need
             # to add this additional guard.
@@ -419,25 +419,38 @@ class CallableHandler(Handler):
             print(f"{self._get_func_sig(name)};", file=header_f)
             print(f"{self._get_func_sig(name)};", file=profile_f)
 
-        print(f"{self._get_func_sig(f'{func}Profile')};", file=header_f)
-        print(f"{self._get_func_sig(f'{func}Profile')}", "{", file=profile_f)
-        print("PyObject* f = *(stack - oparg - 1);", file=profile_f)
+        # we generate two profile functions: one which calls into our callsite JIT and one without.
+        # this way the callsite jit generated code can use the NoCallsiteJitProfile as fallback.
+        for callsite_jit in (True, False):
+            pass_args = ", ".join(self._args_names())
+            profile_fn_name =  f'{func}Profile' if callsite_jit else f'{func}NoCallsiteJitProfile'
+            print(f"{self._get_func_sig(f'{profile_fn_name}')};", file=header_f)
+            print(f"{self._get_func_sig(f'{profile_fn_name}')}", "{", file=profile_f)
+            print("PyObject* f = *(stack - oparg - 1);", file=profile_f)
 
-        pass_args = ", ".join(self._args_names())
-        for signature, name in traced:
-            arg_names = ["f"] + [f"stack[-oparg+{i}]" for i in range(signature.nargs-1)]
-            guard = signature.getGuard(arg_names)
-            nargs = signature.nargs
-            print(f"  if (oparg == {nargs-1} && {guard})", "{", file=profile_f)
-            print(f"    SET_JIT_AOT_FUNC({name});", file=profile_f)
-            print(f"    return {name}({pass_args});", file=profile_f)
+            if callsite_jit:
+                print(f"  if (PyFunction_Check(f) || PyMethod_Check(f))", "{", file=profile_f)
+                kwnames_arg = "" if self.has_kwnames else ", NULL"
+                print(f"    {self._get_func_sig('(*jit)')} = ({self._get_func_sig('(*)')})jit_call({pass_args}{kwnames_arg});", file=profile_f)
+                print(f"    if (jit != NULL)", "{", file=profile_f)
+                print(f"      SET_JIT_AOT_FUNC(jit);", file=profile_f)
+                print(f"      return jit({pass_args});", file=profile_f)
+                print(f"    ", "}", file=profile_f)
+                print(f"  ", "}", file=profile_f)
+
+            for signature, name in traced:
+                arg_names = ["f"] + [f"stack[-oparg+{i}]" for i in range(signature.nargs-1)]
+                guard = signature.getGuard(arg_names)
+                nargs = signature.nargs
+                print(f"  if (oparg == {nargs-1} && {guard})", "{", file=profile_f)
+                print(f"    SET_JIT_AOT_FUNC({name});", file=profile_f)
+                print(f"    return {name}({pass_args});", file=profile_f)
+                print("}", file=profile_f)
+            print(
+                rf'  DBG("Missing {func} %s\n", f->ob_type == &PyType_Type ? ((PyTypeObject*)f)->tp_name : f->ob_type->tp_name);', file=profile_f)
+            print(f"  SET_JIT_AOT_FUNC({func});", file=profile_f)
+            print(f"  return {func}({pass_args});", file=profile_f)
             print("}", file=profile_f)
-        print(
-            rf'  DBG("Missing {func} %s\n", f->ob_type == &PyType_Type ? ((PyTypeObject*)f)->tp_name : f->ob_type->tp_name);', file=profile_f)
-        print(f"  SET_JIT_AOT_FUNC({func});", file=profile_f)
-        print(f"  return {func}({pass_args});", file=profile_f)
-        print("}", file=profile_f)
-
     def _args_names(self):
         return [name for (_, name) in self._args()]
 
@@ -991,6 +1004,9 @@ def print_helper_funcs(f):
 
     print(f"PyObject* call_function_ceval_no_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);", file=f)
     print(f"PyObject* call_function_ceval_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg, PyObject* kwnames);", file=f)
+
+
+    print(f"PyObject* jit_call(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg, PyObject* kwnames);", file=f)
 
     print("/* this directly modifies the destination of the jit generated call instruction */\\", file=f)
     print("#define SET_JIT_AOT_FUNC(dst_addr) do { \\", file=f)

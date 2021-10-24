@@ -4597,12 +4597,10 @@ exit_yielding:
 
 // Entry point when executing a python function.
 // We check if we can use a JIT compiled version or have to use the Interpreter
-PyObject* _Py_HOT_FUNCTION
-_PyEval_EvalFrame_AOT(PyFrameObject *f, int throwflag)
+static PyObject* _Py_HOT_FUNCTION
+_PyEval_EvalFrame_AOT_Internal(PyFrameObject *f, int throwflag, int use_tracing, PyThreadState * const tstate)
 {
     PyObject* retval = NULL;
-    _PyRuntimeState * const runtime = &_PyRuntime;
-    PyThreadState * const tstate = _PyRuntimeState_GetThreadState(runtime);
 
     /* push frame */
     if (Py_EnterRecursiveCall(""))
@@ -4610,7 +4608,7 @@ _PyEval_EvalFrame_AOT(PyFrameObject *f, int throwflag)
 
     tstate->frame = f;
 
-    if (tstate->use_tracing) {
+    if (use_tracing) {
         if (tstate->c_tracefunc != NULL) {
             /* tstate->c_tracefunc, if defined, is a
                function that will be called on *every* entry
@@ -4676,6 +4674,33 @@ exit_eval_frame:
     tstate->frame = f->f_back;
 
     return _Py_CheckFunctionResult(NULL, retval, "PyEval_EvalFrameEx");
+}
+
+PyObject* _Py_HOT_FUNCTION
+_PyEval_EvalFrame_AOT(PyFrameObject *f, int throwflag) {
+    _PyRuntimeState * const runtime = &_PyRuntime;
+    PyThreadState * const tstate = _PyRuntimeState_GetThreadState(runtime);
+    return _PyEval_EvalFrame_AOT_Internal(f, throwflag, tstate->use_tracing, tstate);
+}
+
+void _Py_HOT_FUNCTION frame_dealloc_notrashcan(PyFrameObject *f);
+PyObject* _Py_HOT_FUNCTION
+_PyEval_EvalFrame_AOT_FromCallsiteJit(PyFrameObject *f, PyThreadState* tstate) {
+    // the JIT deopts if tracing is enabled so we can't get here when it's enabled
+    const int use_tracing = 0;
+    const int throwflag = 0;
+    PyObject* result = _PyEval_EvalFrame_AOT_Internal(f, throwflag, use_tracing, tstate);
+
+    if (Py_REFCNT(f) > 1) {
+        Py_DECREF(f);
+        _PyObject_GC_TRACK(f);
+    }
+    else {
+        Py_REFCNT(f) = 0;
+        assert(Py_TYPE(f) == &PyFrame_Type);
+        frame_dealloc_notrashcan(f);
+    }
+    return result;
 }
 
 static void
