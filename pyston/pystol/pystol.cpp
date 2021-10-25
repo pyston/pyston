@@ -117,6 +117,7 @@ static Knowledge* getTypeFact(Value* v, FactSet& facts) {
 
 extern "C" {
 PyObject* _PyEval_EvalFrame_AOT(PyFrameObject*, int);
+PyObject *method_vectorcall(PyObject *method, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 }
 
 bool PystolFactDeriver::deriveFacts(Value* v, FactSet& facts, LLVMEvaluator& eval) {
@@ -156,6 +157,18 @@ bool PystolFactDeriver::deriveFacts(Value* v, FactSet& facts, LLVMEvaluator& eva
                         changed = true;
                         if (nitrous_verbosity >= NITROUS_VERBOSITY_IR)
                             outs() << "Know that " << *v << " is a Function object, so the vectorcall offset has value " << *k.known_value << '\n';
+                    }
+                } else if (type == &PyMethod_Type) {
+                    // methods have fixed "vectorcall" members
+                    Knowledge& k = facts[LOCFOR(PyMethodObject, vectorcall)];
+                    if (!k.known_value || k.known_at) {
+                        // Hack, we just need a pointer type
+                        Type* t = v->getType()->getPointerTo();
+                        k.known_value = eval.GVToConst(GenericValue((void*)method_vectorcall), t);
+                        k.known_at = NULL;
+                        changed = true;
+                        if (nitrous_verbosity >= NITROUS_VERBOSITY_IR)
+                            outs() << "Know that " << *v << " is a Method object, so the vectorcall offset has value " << *k.known_value << '\n';
                     }
                 }
             }

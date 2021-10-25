@@ -5058,10 +5058,6 @@ call_function_ceval_no_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t op
     return call_function_ceval(tstate, &stack, oparg, NULL /*kwnames*/);
 }
 PyObject * _Py_HOT_FUNCTION
-call_method_ceval_no_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg) {
-    return call_function_ceval(tstate, &stack, oparg, NULL /*kwnames*/);
-}
-PyObject * _Py_HOT_FUNCTION
 call_function_ceval_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg, PyObject *kwnames) {
     if (kwnames == NULL)
         __builtin_unreachable();

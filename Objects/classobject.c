@@ -43,7 +43,7 @@ PyMethod_Self(PyObject *im)
 }
 
 
-static PyObject *
+/*static*/ PyObject *
 method_vectorcall(PyObject *method, PyObject *const *args,
                   size_t nargsf, PyObject *kwnames)
 {
