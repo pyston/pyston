@@ -1,4 +1,4 @@
-{% set build_num = 1 %}
+{% set build_num = 2 %}
 {% set llvm_version = "10.0.1" %}
 {% set pyston_version = "2.3.1" %}
 {% set python_version = "3.8.12" %}
@@ -53,10 +53,10 @@ outputs:
         - libtool
         - sqlite
         - luajit
-        - bolt==2.3.1 *_pyston
+        - bolt==2021.10.27 *_pyston
 
         # nitrous needs 'nm'
-        - binutils 
+        - binutils
 
       host:
         - bzip2
@@ -82,7 +82,7 @@ outputs:
 
       run:
         - tzdata
-      
+
       run_constrained:
         python {{ python_version }} *_{{ pyston_version2.replace('.', '') }}_pyston
 
