@@ -6,6 +6,10 @@ urllib3==1.25.9
 certifi==2020.6.20
 idna==2.9
 
+# fasteners
+six==1.15.0
+fasteners==0.16.3
+
 # djangocms requirements
 Django==3.0.7
 asgiref==3.2.10
