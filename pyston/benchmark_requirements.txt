@@ -41,3 +41,6 @@ pycparser==2.20
 
 # thrift requirements
 thrift==0.13.0
+
+# fasteners
+fasteners==0.16.3

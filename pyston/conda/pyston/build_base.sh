@@ -4,8 +4,8 @@ set -eux
 # pyston should not compile llvm and bolt but instead use the conda packages
 export PYSTON_USE_SYS_BINS=1
 
-# the conda compiler is named 'x86_64-conda-linux-gnu-cc' but cpython compares 
-# the name to *gcc*, *clang* in the configure file - so we have to use the real name. 
+# the conda compiler is named 'x86_64-conda-linux-gnu-cc' but cpython compares
+# the name to *gcc*, *clang* in the configure file - so we have to use the real name.
 # Code mostly copied from the cpython recipe.
 AR=$(basename "${AR}")
 CC=$(basename "${GCC}")
@@ -23,12 +23,11 @@ CPPFLAGS=${CPPFLAGS}" -I${PREFIX}/include"
 
 rm -rf build
 
-RELEASE_PREFIX=${PREFIX} make -j`nproc` releaseunopt
+RELEASE_PREFIX=${PREFIX} make -j`nproc` release
 
-OUTDIR=$SRC_DIR/build/releaseunopt_install
+OUTDIR=$SRC_DIR/build/release_install
 
-# TODO: switch this back to python3.bolt once we switch it to the release build
-cp $OUTDIR${PREFIX}/bin/python3 ${PREFIX}/bin/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}
+cp $OUTDIR${PREFIX}/bin/python3.bolt ${PREFIX}/bin/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}
 ln -s ${PREFIX}/bin/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2} ${PREFIX}/bin/pyston
 ln -s ${PREFIX}/bin/python${PYTHON_VERSION2}-pyston${PYSTON_VERSION2} ${PREFIX}/bin/pyston3
 

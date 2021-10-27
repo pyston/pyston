@@ -1,3 +1,4 @@
+import fasteners
 import os
 import subprocess
 import sys
@@ -14,5 +15,7 @@ def run(bench, *args, retries=3):
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
 
-    run("macrobenchmarks/benchmarks/djangocms.py", "800") # approx 21s
-    run("macrobenchmarks/benchmarks/flaskblogging.py", "1800") # approx 10s
+    lock = fasteners.InterProcessLock("/tmp/pyston_pgo.lock")
+    with lock:
+        run("macrobenchmarks/benchmarks/djangocms.py", "800") # approx 21s
+        run("macrobenchmarks/benchmarks/flaskblogging.py", "1800") # approx 10s
