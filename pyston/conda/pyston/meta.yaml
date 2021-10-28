@@ -4,6 +4,7 @@
 {% set python_version = "3.8.12" %}
 {% set pyston_version2 = ".".join(pyston_version.split(".")[:2]) %}
 {% set python_version2 = ".".join(python_version.split(".")[:2]) %}
+{% set unopt_build = environ.get('PYSTON_UNOPT_BUILD', '0') | int %}
 
 package:
   name: pyston{{ pyston_version2 }}
@@ -15,6 +16,8 @@ source:
 
 build:
   number: {{ build_num }}
+  string: {{ build_num }}_unopt_{{ pyston_version2.replace('.', '') }}_pyston # [unopt]
+  string: {{ build_num }}_{{ pyston_version2.replace('.', '') }}_pyston # [not unopt]
 
   # don't compile python code for now
   skip_compile_pyc:
@@ -23,6 +26,7 @@ build:
   script_env:
     - PYSTON_VERSION2={{ pyston_version2 }}
     - PYTHON_VERSION2={{ python_version2 }}
+    - PYSTON_UNOPT_BUILD={{ unopt_build }}
 
   always_include_files:
     # this directory is already created by our build requirement on 'python' so will not get bundled automatically

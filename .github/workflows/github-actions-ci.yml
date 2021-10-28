@@ -1,0 +1,36 @@
+name: GitHub Actions CI
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        include:
+          - build: unopt
+            PYSTON_UNOPT_BUILD: 1
+          - build: opt
+            PYSTON_UNOPT_BUILD: 0
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+      - name: Add conda to system path
+        run: |
+          # $CONDA is an environment variable pointing to the root of the miniconda directory
+          echo $CONDA/bin >> $GITHUB_PATH
+      - name: checkout submodules
+        run: |
+          git submodule update --init pyston/LuaJIT pyston/macrobenchmarks
+      - name: remove system includes
+        run: |
+          sudo mv -f /usr/include /usr/_include
+      - name: fix ACL to make cpython tests pass
+        run: |
+          sudo setfacl -Rb /home/ /usr/share/miniconda/
+      - name: build and test pyston
+        env:
+          PYSTON_UNOPT_BUILD: ${{ matrix.PYSTON_UNOPT_BUILD }}
+        run: |
+          conda install conda-build -y
+          conda build pyston/conda/pyston -c pyston/label/dev
