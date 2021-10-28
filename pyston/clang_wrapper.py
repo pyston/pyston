@@ -35,6 +35,14 @@ def main():
     else:
         raise Exception("couldn't determine output file")
 
+    # if we build a conda package make sure that we have not accidently included a system header
+    if os.environ.get("CONDA_BUILD"):
+        for arg in args:
+            if arg.startswith("-I"):
+                arg = arg[2:]
+            if arg.startswith("/usr/include") or arg.startswith("/usr/local/include"):
+                raise Exception("compiler uses system include " + arg)
+
     os.makedirs(os.path.dirname(bc_output), exist_ok=True)
 
     # print >>sys.stderr, normal_output, bc_output

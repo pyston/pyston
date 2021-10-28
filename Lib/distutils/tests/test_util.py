@@ -63,6 +63,8 @@ class UtilTestCase(support.EnvironGuard, unittest.TestCase):
     def _get_uname(self):
         return self._uname
 
+    # Pyston change:
+    @unittest.skipIf("_PYTHON_HOST_PLATFORM" in os.environ, 'get_platform() is overwritten by this variable')
     def test_get_platform(self):
 
         # windows XP, 32bits
