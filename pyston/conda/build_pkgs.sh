@@ -11,18 +11,18 @@ then
 fi
 mkdir -p ${OUTPUT_DIR}
 
-docker run -iv${PWD}:/pyston_dir:ro -v${OUTPUT_DIR}:/conda_pkgs continuumio/miniconda3 sh -s <<EOF
+docker run -iv${PWD}:/pyston_dir:ro -v${OUTPUT_DIR}:/conda_pkgs --env PYSTON_UNOPT_BUILD continuumio/miniconda3 sh -s <<EOF
 set -eux
 conda install conda-build -y
-conda build pyston_dir/pyston/conda/compiler-rt
-conda build pyston_dir/pyston/conda/bolt
-conda build pyston_dir/pyston/conda/pyston
+conda build pyston_dir/pyston/conda/compiler-rt -c pyston/label/dev --skip-existing
+conda build pyston_dir/pyston/conda/bolt -c pyston/label/dev --skip-existing
+conda build pyston_dir/pyston/conda/pyston -c pyston/label/dev
 conda build pyston_dir/pyston/conda/python_abi
 conda build pyston_dir/pyston/conda/python
 
 conda install patch -y # required to apply the patches in some recipes
 
-# This are the arch dependent pip dependencies. 
+# This are the arch dependent pip dependencies.
 # We set CONDA_ADD_PIP_AS_PYTHON_DEPENDENCY=0 to prevent the implicit dependency on pip when specifying python.
 for pkg in certifi setuptools
 do
