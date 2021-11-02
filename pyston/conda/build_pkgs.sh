@@ -13,6 +13,12 @@ mkdir -p ${OUTPUT_DIR}
 
 docker run -iv${PWD}:/pyston_dir:ro -v${OUTPUT_DIR}:/conda_pkgs --env PYSTON_UNOPT_BUILD continuumio/miniconda3 sh -s <<EOF
 set -eux
+
+apt-get update
+
+# some cpython tests require /etc/protocols
+apt-get install -y netbase
+
 conda install conda-build -y
 conda build pyston_dir/pyston/conda/compiler-rt -c pyston/label/dev --skip-existing
 conda build pyston_dir/pyston/conda/bolt -c pyston/label/dev --skip-existing
