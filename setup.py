@@ -556,6 +556,11 @@ class PyBuildExt(build_ext):
 
         if not find_executable('dpkg-architecture'):
             return
+
+        # Pyston change: don't call dpkg-architecture it will add system includes
+        if os.environ.get('CONDA_BUILD'):
+            return
+
         opt = ''
         if CROSS_COMPILING:
             opt = '-t' + sysconfig.get_config_var('HOST_GNU_TYPE')
