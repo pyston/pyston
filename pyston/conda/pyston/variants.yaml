@@ -1,0 +1,55 @@
+bzip2:
+- '1'
+c_compiler:
+- gcc
+c_compiler_version:
+- '9'
+cxx_compiler:
+- gxx
+cxx_compiler_version:
+- '9'
+libffi:
+- '3.4'
+libuuid:
+- '2'
+ncurses:
+- '6.2'
+openssl:
+- 1.1.1
+pin_run_as_build:
+  bzip2:
+    max_pin: x
+  libffi:
+    max_pin: x.x
+  libuuid:
+    max_pin: x
+  ncurses:
+    max_pin: x.x
+  python:
+    min_pin: x.x
+    max_pin: x.x
+  readline:
+    max_pin: x
+  sqlite:
+    max_pin: x
+  tk:
+    max_pin: x.x
+  xz:
+    max_pin: x.x
+  zlib:
+    max_pin: x.x
+readline:
+- '8'
+sqlite:
+- '3'
+target_platform:
+- linux-64
+tk:
+- '8.6'
+xz:
+- '5.2'
+zip_keys:
+- - c_compiler_version
+  - cxx_compiler_version
+zlib:
+- '1.2'

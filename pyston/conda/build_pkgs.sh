@@ -20,13 +20,13 @@ apt-get update
 apt-get install -y netbase
 
 conda install conda-build -y
-conda build pyston_dir/pyston/conda/compiler-rt -c pyston/label/dev --skip-existing
-conda build pyston_dir/pyston/conda/bolt -c pyston/label/dev --skip-existing
-conda build pyston_dir/pyston/conda/pyston -c pyston/label/dev
-conda build pyston_dir/pyston/conda/python_abi
-conda build pyston_dir/pyston/conda/python
+conda build pyston_dir/pyston/conda/compiler-rt -c pyston/label/dev --skip-existing -c conda-forge --override-channels
+conda build pyston_dir/pyston/conda/bolt -c pyston/label/dev --skip-existing -c conda-forge --override-channels
+conda build pyston_dir/pyston/conda/pyston -c pyston/label/dev -c conda-forge --override-channels -m pyston_dir/pyston/conda/pyston/variants.yaml
+conda build pyston_dir/pyston/conda/python_abi -c conda-forge --override-channels
+conda build pyston_dir/pyston/conda/python -c conda-forge --override-channels
 
-conda install patch -y # required to apply the patches in some recipes
+conda install patch -y -c conda-forge --override-channels # required to apply the patches in some recipes
 
 # This are the arch dependent pip dependencies.
 # We set CONDA_ADD_PIP_AS_PYTHON_DEPENDENCY=0 to prevent the implicit dependency on pip when specifying python.
