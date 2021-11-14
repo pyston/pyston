@@ -419,6 +419,8 @@ frame_settrace(PyFrameObject *f, PyObject* v, void *closure)
 /* max value for numfree */
 #define PyFrame_MAXFREELIST 200
 
+#include "../Python/nan_boxing.h"
+
 /* static */ void _Py_HOT_FUNCTION
 frame_dealloc_notrashcan(PyFrameObject *f)
 {
@@ -431,14 +433,23 @@ frame_dealloc_notrashcan(PyFrameObject *f)
     //Py_TRASHCAN_SAFE_BEGIN(f)
     /* Kill all local variables */
     valuestack = f->f_valuestack;
-    for (p = f->f_localsplus; p < valuestack; p++)
-        Py_CLEAR(*p);
+    for (p = f->f_localsplus; p < valuestack; p++) {
+        if (tagIsPtr(*p)) {
+            Py_CLEAR(*p);
+        } else {
+            *p = NULL;
+        }
+    }
 
     /* Free stack */
     if (f->f_stacktop != NULL) {
         PyObject** stacktop = f->f_stacktop;
-        for (p = valuestack; p < stacktop; p++)
-            Py_XDECREF(*p);
+        for (p = valuestack; p < stacktop; p++) {
+            if (tagIsPtr(*p)) {
+                Py_XDECREF(*p);
+            }
+        }
+
     }
 
     Py_XDECREF(f->f_back);
@@ -474,14 +485,22 @@ frame_dealloc(PyFrameObject *f)
     Py_TRASHCAN_BEGIN(f, frame_dealloc);
     /* Kill all local variables */
     valuestack = f->f_valuestack;
-    for (p = f->f_localsplus; p < valuestack; p++)
-        Py_CLEAR(*p);
+    for (p = f->f_localsplus; p < valuestack; p++) {
+        if (tagIsPtr(*p)) {
+            Py_CLEAR(*p);
+        } else {
+            *p = NULL;
+        }
+    }
 
     /* Free stack */
     if (f->f_stacktop != NULL) {
         PyObject** stacktop = f->f_stacktop;
-        for (p = valuestack; p < stacktop; p++)
-            Py_XDECREF(*p);
+        for (p = valuestack; p < stacktop; p++) {
+            if (tagIsPtr(*p)) {
+                Py_XDECREF(*p);
+            }
+        }
     }
 
     Py_XDECREF(f->f_back);
@@ -521,13 +540,17 @@ frame_traverse(PyFrameObject *f, visitproc visit, void *arg)
     /* locals */
     slots = f->f_code->co_nlocals + PyTuple_GET_SIZE(f->f_code->co_cellvars) + PyTuple_GET_SIZE(f->f_code->co_freevars);
     fastlocals = f->f_localsplus;
-    for (i = slots; --i >= 0; ++fastlocals)
-        Py_VISIT(*fastlocals);
+    for (i = slots; --i >= 0; ++fastlocals) {
+        if (tagIsPtr(*fastlocals))
+            Py_VISIT(*fastlocals);
+    }
 
     /* stack */
     if (f->f_stacktop != NULL) {
-        for (p = f->f_valuestack; p < f->f_stacktop; p++)
-            Py_VISIT(*p);
+        for (p = f->f_valuestack; p < f->f_stacktop; p++) {
+            if (tagIsPtr(*fastlocals))
+                Py_VISIT(*p);
+        }
     }
     return 0;
 }

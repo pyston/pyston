@@ -350,6 +350,7 @@ PYTHON_OBJS=	\
 		Python/import.o \
 		Python/importdl.o \
 		Python/initconfig.o \
+		Python/nan_boxing.o \
 		Python/marshal.o \
 		Python/modsupport.o \
 		Python/mysnprintf.o \
