@@ -17,7 +17,7 @@ set -eux
 apt-get update
 
 # some cpython tests require /etc/protocols
-apt-get install -y netbase
+apt-get install -y netbase curl
 
 conda install conda-build -y
 conda build pyston_dir/pyston/conda/compiler-rt -c pyston/label/dev --skip-existing -c conda-forge --override-channels
@@ -30,7 +30,7 @@ conda install patch -y -c conda-forge --override-channels # required to apply th
 
 # This are the arch dependent pip dependencies.
 # We set CONDA_ADD_PIP_AS_PYTHON_DEPENDENCY=0 to prevent the implicit dependency on pip when specifying python.
-for pkg in certifi setuptools
+for pkg in certifi setuptools uwsgi
 do
     git clone https://github.com/AnacondaRecipes/\${pkg}-feedstock.git
     CONDA_ADD_PIP_AS_PYTHON_DEPENDENCY=0 conda build \${pkg}-feedstock/recipe --python="${PYSTON_PKG_VER}" --override-channels -c conda-forge --use-local

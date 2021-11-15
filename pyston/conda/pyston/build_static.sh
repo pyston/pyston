@@ -9,3 +9,7 @@ else
 fi
 
 cp $(find build/${BUILDNAME}_install/ -name $NAME | grep -v config) ${PREFIX}/lib/
+
+# Size reductions:
+chmod +w ${PREFIX}/lib/${NAME}
+${STRIP} -S ${PREFIX}/lib/${NAME}
