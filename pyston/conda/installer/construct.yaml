@@ -1,0 +1,26 @@
+# generate installer via:
+# conda install constructor -c conda-forge --override-channels
+# constructor --output-dir release/conda_pkgs pyston/conda/installer
+
+name: PystonConda
+version: 0.1
+
+channels:
+  - undingen/label/dev
+  - kmod/label/dev
+  - conda-forge
+
+write_condarc: True
+
+license_file: LICENSE.txt
+
+specs:
+  - python 3.8.* *_pyston
+
+  # I think this is technically not required (pypy installer does not do it)
+  # but I think it may prevent someone accidently installing cpython because
+  # the pyston package has a hard dependency on 'python 3.8.* *_pyston'
+  - pyston
+
+  - conda
+  - pip
