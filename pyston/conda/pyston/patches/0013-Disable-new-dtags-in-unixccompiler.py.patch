@@ -1,0 +1,67 @@
+From e536f3463a15fb2991008476088f2886f114f58b Mon Sep 17 00:00:00 2001
+From: Ray Donnelly <mingw.android@gmail.com>
+Date: Sun, 29 Apr 2018 16:10:42 +0100
+Subject: [PATCH 13/22] Disable new-dtags in unixccompiler.py
+
+They prevent isolation from system libraries and the HPC 'modules' system
+by giving precedence to LD_LIBRARY_PATH. We never want our libraries to
+be interposed by other libraries.
+
+The ELF spec. has comprehensive rpath support and new-dtags causes far
+more harm than good (for Anaconda Distribution at least). This may be a
+bit controversial I am convinced this is the right thing to do.
+
+Exclude this check from Windows though really we shouldn't have to as
+GNULD should be getting determined in a different way than from using
+sysconfig (which relates to the compiler used to build the interpreter
+itself, MSVC).
+---
+ Lib/distutils/tests/test_unixccompiler.py | 4 ++--
+ Lib/distutils/unixccompiler.py            | 6 +++---
+ 2 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/Lib/distutils/tests/test_unixccompiler.py b/Lib/distutils/tests/test_unixccompiler.py
+index eef702c..2d8d61d 100644
+--- a/Lib/distutils/tests/test_unixccompiler.py
++++ b/Lib/distutils/tests/test_unixccompiler.py
+@@ -59,7 +59,7 @@ class UnixCCompilerTestCase(unittest.TestCase):
+             elif v == 'GNULD':
+                 return 'yes'
+         sysconfig.get_config_var = gcv
+-        self.assertEqual(self.cc.rpath_foo(), '-Wl,--enable-new-dtags,-R/foo')
++        self.assertEqual(self.cc.rpath_foo(), '-Wl,-R/foo')
+ 
+         # GCC non-GNULD
+         sys.platform = 'bar'
+@@ -69,7 +69,7 @@ class UnixCCompilerTestCase(unittest.TestCase):
+             elif v == 'GNULD':
+                 return 'no'
+         sysconfig.get_config_var = gcv
+-        self.assertEqual(self.cc.rpath_foo(), '-Wl,-R/foo')
++        self.assertEqual(self.cc.rpath_foo(), '-Wl,--disable-new-dtags,-R/foo')
+ 
+         # GCC GNULD with fully qualified configuration prefix
+         # see #7617
+diff --git a/Lib/distutils/unixccompiler.py b/Lib/distutils/unixccompiler.py
+index 84a4217..12a9f77 100644
+--- a/Lib/distutils/unixccompiler.py
++++ b/Lib/distutils/unixccompiler.py
+@@ -248,12 +248,12 @@ class UnixCCompiler(CCompiler):
+                 # use it anyway.  Since distutils has always passed in
+                 # -Wl whenever gcc was used in the past it is probably
+                 # safest to keep doing so.
+-                if sysconfig.get_config_var("GNULD") == "yes":
++                if sysconfig.get_config_var("GNULD") == "yes" or sys.platform == 'win32':
+                     # GNU ld needs an extra option to get a RUNPATH
+                     # instead of just an RPATH.
+-                    return "-Wl,--enable-new-dtags,-R" + dir
+-                else:
+                     return "-Wl,-R" + dir
++                else:
++                    return "-Wl,--disable-new-dtags,-R" + dir
+             else:
+                 # No idea how --enable-new-dtags would be passed on to
+                 # ld if this system was using GNU ld.  Don't know if a
+-- 
+2.20.1
+

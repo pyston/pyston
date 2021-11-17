@@ -1,0 +1,76 @@
+--- a/configure	2020-08-14 02:59:05.841967550 +0000
++++ b/configure	2020-08-14 03:02:01.839782466 +0000
+@@ -3312,6 +3312,8 @@
+ { $as_echo "$as_me:${as_lineno-$LINENO}: result: \"$MACHDEP\"" >&5
+ $as_echo "\"$MACHDEP\"" >&6; }
+ 
++if test -z "${_PYTHON_HOST_PLATFORM}"
++then
+ if test "$cross_compiling" = yes; then
+ 	case "$host" in
+ 	*-*-linux*)
+@@ -3336,6 +3338,7 @@
+ 	esac
+ 	_PYTHON_HOST_PLATFORM="$MACHDEP${_host_cpu:+-$_host_cpu}"
+ fi
++fi
+ 
+ # Some systems cannot stand _XOPEN_SOURCE being defined at all; they
+ # disable features if it is defined, without any means to access these
+@@ -6172,7 +6175,7 @@
+ if test "$cross_compiling" = yes; then
+     case "$READELF" in
+ 	readelf|:)
+-	as_fn_error $? "readelf for the host is required for cross builds" "$LINENO" 5
++	#as_fn_error $? "readelf for the host is required for cross builds" "$LINENO" 5
+ 	;;
+     esac
+ fi
+@@ -9244,7 +9247,7 @@
+   conftest.$ac_objext conftest.beam conftest.$ac_ext
+ fi
+ 
+-
++    if test -z "${MACOSX_DEFAULT_ARCH}"; then
+     if test "${ac_osx_32bit}" = "yes"; then
+     	case `/usr/bin/arch` in
+     	i386)
+@@ -9271,6 +9274,7 @@
+     	esac
+ 
+     fi
++    fi
+ 
+     LIBTOOL_CRUFT=$LIBTOOL_CRUFT" -lSystem -lSystemStubs -arch_only ${MACOSX_DEFAULT_ARCH}"
+     LIBTOOL_CRUFT=$LIBTOOL_CRUFT' -install_name $(PYTHONFRAMEWORKINSTALLDIR)/Versions/$(VERSION)/$(PYTHONFRAMEWORK)'
+diff --git a/Lib/platform.py b/Lib/platform.py
+index 994d892c5e..11d0b50921 100755
+--- a/Lib/platform.py
++++ b/Lib/platform.py
+@@ -406,7 +406,12 @@ def win32_ver(release='', version='', csd='', ptype=''):
+ def _mac_ver_xml():
+     fn = '/System/Library/CoreServices/SystemVersion.plist'
+     if not os.path.exists(fn):
+-        return None
++        if 'SDKROOT' in os.environ:
++            fn = os.environ['SDKROOT'] + fn
++            if not os.path.exists(fn):
++                return None
++        else:
++            return None
+ 
+     try:
+         import plistlib
+diff --git a/setup.py b/setup.py
+index 59d412da8f..85e1d5dd1a 100644
+--- a/setup.py
++++ b/setup.py
+@@ -42,7 +42,7 @@ CROSS_COMPILING = ("_PYTHON_HOST_PLATFORM" in os.environ)
+ HOST_PLATFORM = get_platform()
+ MS_WINDOWS = (HOST_PLATFORM == 'win32')
+ CYGWIN = (HOST_PLATFORM == 'cygwin')
+-MACOS = (HOST_PLATFORM == 'darwin')
++MACOS = (HOST_PLATFORM.startswith('darwin'))
+ AIX = (HOST_PLATFORM.startswith('aix'))
+ VXWORKS = ('vxworks' in HOST_PLATFORM)
+ 

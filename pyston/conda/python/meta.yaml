@@ -1,4 +1,4 @@
-{% set build_num = 0 %}
+{% set build_num = 2 %}
 {% set pyston_version = "2.3.1" %}
 {% set python_version = "3.8.12" %}
 {% set pyston_version2 = ".".join(pyston_version.split(".")[:2]) %}
@@ -23,12 +23,12 @@ outputs:
         - PYSTON_VERSION2={{ pyston_version2 }}
         - PYTHON_VERSION2={{ python_version2 }}
 
-    run_exports:
-      weak:
-        - pyston{{ pyston_version2 }} >={{ pyston_version }}
-        - python_abi {{ python_version2 }} *_{{ pyston_version2.replace('.', '') }}_pyston
-      noarch:
-        - {{ pin_subpackage("python", max_pin="x.x", min_pin="x.x") }}
+      run_exports:
+        weak:
+          - pyston{{ pyston_version2 }} >={{ pyston_version }}
+          - python_abi {{ python_version2 }} *_{{ pyston_version2.replace('.', '') }}_pyston
+        noarch:
+          - {{ pin_subpackage("python", max_pin="x.x", min_pin="x.x") }}
 
     requirements:
       build:

@@ -28,12 +28,11 @@ conda build pyston_dir/pyston/conda/python -c conda-forge --override-channels
 
 conda install patch -y -c conda-forge --override-channels # required to apply the patches in some recipes
 
-# This are the arch dependent pip dependencies.
-# We set CONDA_ADD_PIP_AS_PYTHON_DEPENDENCY=0 to prevent the implicit dependency on pip when specifying python.
-for pkg in certifi setuptools uwsgi
+# This are the arch dependent pip dependencies. 
+for pkg in certifi setuptools
 do
-    git clone https://github.com/AnacondaRecipes/\${pkg}-feedstock.git
-    CONDA_ADD_PIP_AS_PYTHON_DEPENDENCY=0 conda build \${pkg}-feedstock/recipe --python="${PYSTON_PKG_VER}" --override-channels -c conda-forge --use-local
+    git clone https://github.com/conda-forge/\${pkg}-feedstock.git
+    CONDA_ADD_PIP_AS_PYTHON_DEPENDENCY=0 conda build \${pkg}-feedstock/recipe --python="${PYSTON_PKG_VER}" --override-channels -c /conda_pkgs -c conda-forge --use-local
 done
 
 # build numpy 1.20.3 using openblas
@@ -44,8 +43,8 @@ conda build numpy-feedstock/ --python="${PYSTON_PKG_VER}" --override-channels -c
 
 for arch in noarch linux-64
 do
-    mkdir /conda_pkgs/\${arch}
-    cp /opt/conda/conda-bld/\${arch}/*.tar.bz2 /conda_pkgs/\${arch}
+    mkdir -p /conda_pkgs/\${arch}
+    cp /opt/conda/conda-bld/\${arch}/*.tar.bz2 /conda_pkgs/\${arch} || true
 done
 chown -R $(id -u):$(id -g) /conda_pkgs/
 

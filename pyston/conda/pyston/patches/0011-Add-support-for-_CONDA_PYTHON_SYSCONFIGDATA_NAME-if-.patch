@@ -1,0 +1,83 @@
+From 0b62d9fafca2656ab4914720d2b44da1b617ed6c Mon Sep 17 00:00:00 2001
+From: Ray Donnelly <mingw.android@gmail.com>
+Date: Sun, 3 Dec 2017 17:31:27 +0000
+Subject: [PATCH 11/22] Add support for _CONDA_PYTHON_SYSCONFIGDATA_NAME if
+ _PYTHON_SYSCONFIGDATA_NAME is not set and ignore
+ {_CONDA,}_PYTHON_SYSCONFIGDATA_NAME if it does not exist
+
+This is important when bootstrapping a Miniconda (however if you are using
+a Python that pre-dates this change then you will need to apply this patch
+manually).
+---
+ Lib/distutils/sysconfig.py | 12 +++++++-----
+ Lib/sysconfig.py           | 24 ++++++++++++++++--------
+ 2 files changed, 23 insertions(+), 13 deletions(-)
+
+diff --git a/Lib/distutils/sysconfig.py b/Lib/distutils/sysconfig.py
+index b51629e..849f98f 100644
+--- a/Lib/distutils/sysconfig.py
++++ b/Lib/distutils/sysconfig.py
+@@ -433,11 +433,13 @@ def _init_posix():
+     """Initialize the module as appropriate for POSIX systems."""
+     # _sysconfigdata is generated at build time, see the sysconfig module
+     name = os.environ.get('_PYTHON_SYSCONFIGDATA_NAME',
+-        '_sysconfigdata_{abi}_{platform}_{multiarch}'.format(
+-        abi=sys.abiflags,
+-        platform=sys.platform,
+-        multiarch=getattr(sys.implementation, '_multiarch', ''),
+-    ))
++        os.environ.get('_CONDA_PYTHON_SYSCONFIGDATA_NAME',
++            '_sysconfigdata_{abi}_{platform}_{multiarch}'.format(
++            abi=sys.abiflags,
++            platform=sys.platform,
++            multiarch=getattr(sys.implementation, '_multiarch', ''))
++        )
++    )
+     _temp = __import__(name, globals(), locals(), ['build_time_vars'], 0)
+     build_time_vars = _temp.build_time_vars
+     global _config_vars
+diff --git a/Lib/sysconfig.py b/Lib/sysconfig.py
+index b9e2faf..1812a10 100644
+--- a/Lib/sysconfig.py
++++ b/Lib/sysconfig.py
+@@ -343,13 +343,21 @@ def get_makefile_filename():
+     return os.path.join(get_path('stdlib'), config_dir_name, 'Makefile')
+ 
+ 
+-def _get_sysconfigdata_name():
+-    return os.environ.get('_PYTHON_SYSCONFIGDATA_NAME',
+-        '_sysconfigdata_{abi}_{platform}_{multiarch}'.format(
+-        abi=sys.abiflags,
+-        platform=sys.platform,
+-        multiarch=getattr(sys.implementation, '_multiarch', ''),
+-    ))
++def _get_sysconfigdata_name(check_exists=False):
++    for envvar in ('_PYTHON_SYSCONFIGDATA_NAME', '_CONDA_PYTHON_SYSCONFIGDATA_NAME'):
++        res = os.environ.get(envvar, None)
++        if res and check_exists:
++            try:
++                import importlib.util
++                loader = importlib.util.find_spec(res)
++            except:
++                res = None
++        if res:
++            return res
++    return '_sysconfigdata_{abi}_{platform}_{multiarch}'.format(
++            abi=sys.abiflags,
++            platform=sys.platform,
++            multiarch=getattr(sys.implementation, '_multiarch', ''))
+ 
+ 
+ def _generate_posix_vars():
+@@ -418,7 +426,7 @@ def _generate_posix_vars():
+ def _init_posix(vars):
+     """Initialize the module as appropriate for POSIX systems."""
+     # _sysconfigdata is generated at build time, see _generate_posix_vars()
+-    name = _get_sysconfigdata_name()
++    name = _get_sysconfigdata_name(True)
+     _temp = __import__(name, globals(), locals(), ['build_time_vars'], 0)
+     build_time_vars = _temp.build_time_vars
+     vars.update(build_time_vars)
+-- 
+2.20.1
+
