@@ -38,7 +38,7 @@ PyAPI_FUNC(PyObject*) _PyTraceMalloc_GetTraceback(
 
 #else
 
-static inline int _tracemalloc_success() {
+static inline int _tracemalloc_success(void) {
     return -2;
 }
 
