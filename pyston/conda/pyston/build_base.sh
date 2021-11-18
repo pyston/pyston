@@ -11,7 +11,12 @@ rm -rf build
 CFLAGS=$(echo "${CFLAGS}" | sed "s/-fno-plt//g")
 
 _OPTIMIZED=yes
+VERFULL=${PKG_VERSION}
 VER=${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}
+VERNODOTS=${VER//./}
+TCLTK_VER=${tk}
+
+ABIFLAGS=
 VERABI=${VER}
 
 #########################################################################################
@@ -218,6 +223,44 @@ if [[ ${HOST} =~ .*linux.* ]]; then
   echo "Files in this folder are to enhance backwards compatibility of anaconda software with older compilers."   > ${PREFIX}/compiler_compat/README
   echo "See: https://github.com/conda/conda/issues/6030 for more information."                                   >> ${PREFIX}/compiler_compat/README
 fi
+
+
+# Copy sysconfig that gets recorded to a non-default name
+#   using the new compilers with python will require setting _PYTHON_SYSCONFIGDATA_NAME
+#   to the name of this file (minus the .py extension)
+pushd "${PREFIX}"/lib/python${VER}
+  # On Python 3.5 _sysconfigdata.py was getting copied in here and compiled for some reason.
+  # This breaks our attempt to find the right one as recorded_name.
+  find lib-dynload -name "_sysconfigdata*.py*" -exec rm {} \;
+  recorded_name=$(find . -name "_sysconfigdata*.py")
+  our_compilers_name=_sysconfigdata_$(echo ${HOST} | sed -e 's/[.-]/_/g').py
+  # So we can see if anything has significantly diverged by looking in a built package.
+  cp ${recorded_name} ${recorded_name}.orig
+  mv ${recorded_name} ${our_compilers_name}
+  PY_ARCH=$(echo ${HOST} | cut -d- -f1)
+
+  # Copy all "${RECIPE_DIR}"/sysconfigdata/*.py. This is to support cross-compilation. They will be
+  # from the previous build unfortunately so care must be taken at version bumps and flag changes.
+  SRC_SYSCONFIGS=$(find "${RECIPE_DIR}"/sysconfigdata -name '*sysconfigdata*.py')
+  for SRC_SYSCONFIG in ${SRC_SYSCONFIGS}; do
+    DST_SYSCONFIG=$(basename ${SRC_SYSCONFIG})
+    cat ${SRC_SYSCONFIG} | sed -e "s|@SGI_ABI@||g" \
+                               -e "s|@ABIFLAGS@|${ABIFLAGS}|g" \
+                               -e "s|@ARCH@|${PY_ARCH}|g" \
+                               -e "s|@PYVERNODOTS@|${VERNODOTS}|g" \
+                               -e "s|@PYVER@|${VER}|g" \
+                               -e "s|@PYVERFULL@|${VERFULL}|g" \
+                               -e "s|@MACOSX_DEPLOYMENT_TARGET@|${MACOSX_DEPLOYMENT_TARGET:-10.9}|g" \
+                               -e "s|@TCLTK_VER@|${TCLTK_VER}|g" > ${DST_SYSCONFIG}
+  done
+  if [[ ${HOST} =~ .*darwin.* ]]; then
+    mv _sysconfigdata_osx.py ${recorded_name}
+    rm _sysconfigdata_linux.py
+  else
+    mv _sysconfigdata_linux.py ${recorded_name}
+    rm _sysconfigdata_osx.py || true
+  fi
+popd
 
 # There are some strange distutils files around. Delete them
 rm -rf ${PREFIX}/lib/python${VER}/distutils/command/*.exe
