@@ -39,7 +39,11 @@ def main():
         if ("mpi4py" in cwd or "h5py" in cwd or "netcdf4" in cwd) and ("openmpi" in c or "nompi" in c):
             continue
 
-        if "cuda_compiler_version" in c:
+        # Not sure about this, but only build the cpu version of arrow-cpp
+        if "arrow-cpp" in cwd:
+            if "None" not in c:
+                continue
+        elif "cuda_compiler_version" in c or "cuda" in cwd:
             assert "11.3" not in c
             if "11.2" not in c:
                 continue

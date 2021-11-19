@@ -53,6 +53,35 @@ if [ "$PACKAGE" == "grpcio" ]; then
     git checkout 12950c9a~
 fi
 
+if [ "$PACKAGE" == "ipykernel" ]; then
+    git reset --hard
+    git checkout master
+    # 6.4.1:
+    # git checkout 1d5ace3~
+    # Last commit before adding ipyparallel dependency:
+    # git checkout 0ccbe8c7~
+fi
+
+if [ "$PACKAGE" == "setuptools" ]; then
+    # 57.4.0:
+    git checkout ada7ddd4~
+fi
+
+if [ "$PACKAGE" == "pyyaml" ]; then
+    # 5.4.1, <5.5 needed by awscli:
+    git checkout 6c0a96ca~
+fi
+
+if [ "$PACKAGE" == "docutils" ]; then
+    # 0.15.2, <0.16 needed by awscli:
+    git checkout 7c612eec~
+fi
+
+if [ "$PACKAGE" == "astroid" ]; then
+    # 2.6.6, <2.7 needed by pylint 2.9.6 needed by spyder
+    git checkout e739513c~
+fi
+
 # We need a new version of the build scripts that take extra options
 if ! grep -q EXTRA_CB_OPTIONS .scripts/build_steps.sh; then
     conda-smithy rerender
@@ -106,7 +135,8 @@ fi
 
 if [ "$PACKAGE" == "ipython" ]; then
     # ipython has a circular dependency via ipykernel
-    sed -i "/ipykernel/d" recipe/meta.yaml
+    # sed -i "/ipykernel/d" recipe/meta.yaml
+    true;
 fi
 
 if [ "$PACKAGE" == "gobject-introspection" ]; then
@@ -122,8 +152,47 @@ if [ "$PACKAGE" == "ipykernel" ]; then
     # ipykernel depends on ipyparallel for testing, but
     # ipyparallel depends on ipykernel
     sed -i "/- ipyparallel/d" recipe/meta.yaml
+
     # We have to remove some of the tests that would call into it:
-    sed -i 's/pytest_args += \[$/pytest_args += \["--ignore=" + os.path.dirname(loader.path) + "\/test_pickleutil.py",/' recipe/run_test.py
+    # master:
+    # sed -i 's/pytest_args += \[$/pytest_args += \["--ignore=" + os.path.dirname(loader.path) + "\/test_pickleutil.py",/' recipe/run_test.py
+    sed -i "/test_pickleutil.py/d" recipe/run_test.py
+    sed -i 's/print("Final pytest args:", pytest_args)/pytest_args += \["--ignore=" + os.path.dirname(loader.path) + "\/test_pickleutil.py"\]\nprint("Final pytest args:", pytest_args)/' recipe/run_test.py
+
+    # It's missing this dependency:
+    # sed -i "/ipython_genutils/d" recipe/meta.yaml
+    # sed -i "s/  host:/  host:\n    - ipython_genutils/" recipe/meta.yaml
+    # sed -i "s/  run:/  run:\n    - ipython_genutils/" recipe/meta.yaml
+    # sed -i "/debugpy/d" recipe/meta.yaml
+    # sed -i "s/  host:/  host:\n    - debugpy >=1,<2.0/" recipe/meta.yaml
+    # sed -i "s/  run:/  run:\n    - debugpy >=1,<2.0/" recipe/meta.yaml
+fi
+
+if [ "$PACKAGE" == "nose" ]; then
+    # Nose uses the setuptools "use_2to3" flag, which was removed in setuptools 58.0.0:
+    sed -i "/- setuptools/d" recipe/meta.yaml
+    sed -i 's/  host:/  host:\n    - setuptools <58/' recipe/meta.yaml
+fi
+
+if [ "$PACKAGE" == "jinja2-time" ]; then
+    # This old package doesn't work with newer versions of arrow:
+    sed -i 's/- arrow$/- arrow <0.14.5/' recipe/meta.yaml
+fi
+
+if [ "$PACKAGE" == "binaryornot" ]; then
+    # This old package doesn't work with newer versions of hypothesis:
+    sed -i 's/- hypothesis$/- hypothesis <4.0/' recipe/meta.yaml
+    # Though this doesn't work because apparently earlier versions of hypothesis are py27 only?
+    # Though we don't actually need to build this feedstock because it became noarch
+fi
+
+if [ "$PACKAGE" == "numba" ]; then
+    # We have to disable some tests. They have some tracemalloc tests, and a test
+    # that checks that shared libraries have "cpython" in the name.
+    # They use unittest and I couldn't figure out how to disable them via the test runner
+    cp $THISDIR/patches/numba.patch recipe/pyston.patch
+    sed -i "/patch/d" recipe/meta.yaml
+    sed -i "s/  sha256: {{ sha256 }}/  sha256: {{ sha256 }}\n  patches:\n    - pyston.patch/" recipe/meta.yaml
 fi
 
 # conda-forge-ci-setup automatically sets add_pip_as_python_dependency=false

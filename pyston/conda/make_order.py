@@ -112,6 +112,7 @@ _feedstock_overrides = {
     "cvxpy-base": "cvxpy",
     "cf-units": "cf_units",
     "gmock": "gtest",
+    "importlib-metadata": "importlib_metadata",
 }
 
 def getFeedstockName(pkg):
@@ -145,6 +146,11 @@ def getBuildRequirements(pkg):
     if pkg == "ipykernel":
         if "ipyparallel" in r:
             r.remove("ipyparallel")
+
+    # This is spurious:
+    if pkg == "jupyter_core":
+        if "jupyter" in r:
+            r.remove("jupyter")
 
     # These "downstream"s are picked up as a dependency; remove it
     if getFeedstockName(pkg) == "gobject-introspection":
@@ -188,7 +194,7 @@ def getDependencies(pkg):
     for pattern in ("lib", "gcc", "gxx", "mkl", "glib", "gfortran", "dal(|-devel)$", "r-", "go-"):
         if re.match(pattern, pkg):
             return ()
-    if getFeedstockName(pkg) in ("ninja", "krb5", "conda-build", "llvmdev", "hcc", "clangdev", "conda", "binutils", "cairo", "jack", "gstreamer", "cyrus-sasl", "hdf5", "openjdk", "bazel", "qt", "atk", "fftw", "yasm", "fribidi", "brunsli", "harfbuzz", "mpir", "gdk-pixbuf", "pango", "gtk2", "graphviz"):
+    if getFeedstockName(pkg) in ("ninja", "krb5", "conda-build", "llvmdev", "hcc", "clangdev", "conda", "binutils", "cairo", "jack", "gstreamer", "cyrus-sasl", "hdf5", "openjdk", "bazel", "qt", "atk", "fftw", "yasm", "fribidi", "brunsli", "harfbuzz", "mpir", "gdk-pixbuf", "pango", "gtk2", "graphviz", "cudatoolkit"):
         return ()
 
     # This is a Python 2 library.
@@ -259,15 +265,15 @@ def dependsOnPython(pkg):
         _depends_on_python[pkg] = _dependsOnPython(pkg)
     return _depends_on_python[pkg]
 
-def versionIsLater(v1, v2):
+def versionIsAtLeast(v1, v2):
     def tryInt(s):
         try:
             return int(s)
         except ValueError:
-            return 0
+            return -1
     t1 = tuple(map(tryInt, v1.split('.')))
     t2 = tuple(map(tryInt, v2.split('.')))
-    return t1 > t2
+    return t1 >= t2
 
 def getFeedstockOrder(targets):
     global packages_by_name, noarch_packages
@@ -297,7 +303,7 @@ def getFeedstockOrder(targets):
                 continue
 
             binary_package = packages_by_name.get(v['name'], None)
-            if binary_package and versionIsLater(v['version'], binary_package['version']) > 0:
+            if not binary_package or versionIsAtLeast(v['version'], binary_package['version']):
                 packages_by_name[v['name']] = v
                 noarch_packages.add(v['name'])
 
