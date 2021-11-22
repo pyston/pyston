@@ -14,15 +14,8 @@ MAKE_CONFIG_PY=$(realpath $(dirname $0)/make_config.py)
 
 if [ ! -d ${PACKAGE}-feedstock ]; then
     git clone https://github.com/conda-forge/${PACKAGE}-feedstock.git
-# else
-    # pushd ${PACKAGE}-feedstock
-    # git reset --hard
-    # git checkout master
-    # git pull
-    # popd
 fi
 
-# CONDA_ADD_PIP_AS_PYTHON_DEPENDENCY=0 conda build ${PACKAGE}-feedstock/recipe --python="${PYSTON_PKG_VER}" --override-channels -c conda-forge --use-local -c /conda_pkgs
 cd ${PACKAGE}-feedstock
 
 if [ "${PACKAGE}" == "numpy" ]; then
@@ -77,11 +70,6 @@ if [ "$PACKAGE" == "numpy" ]; then
 fi
 
 if [ "$PACKAGE" == "implicit" ]; then
-    # Not 100% sure but I think this line is over-indented in the meta.yaml
-    # file and that causes issues. Not sure why it causes issues for us but not
-    # CPython
-    # sed -i 's/      script:/    script:/' recipe/meta.yaml
-
     # The build step here implicitly does a `pip install numpy scipy`.
     # For CPython this will download a pre-built wheel from pypi, but
     # for Pyston it will try to recompile both of these packages.
@@ -117,9 +105,7 @@ if [ "$PACKAGE" == "python-libarchive-c" ]; then
 fi
 
 if [ "$PACKAGE" == "ipython" ]; then
-    # ipython has a circular reference, that they break using this flag which
-    # it looks like they set while they were bootstrapping a new platform+implementation pair
-    # sed -i 's/{% set migrating = True %}\s*#.*/{% set migrating = True %}/' recipe/meta.yaml
+    # ipython has a circular dependency via ipykernel
     sed -i "/ipykernel/d" recipe/meta.yaml
 fi
 
@@ -128,7 +114,7 @@ if [ "$PACKAGE" == "gobject-introspection" ]; then
     # after this package is built.
     # Installing this dependent package will fail because we haven't built it yet;
     # conda is supposed to be able to recognize this and skip the tests, but it
-    # fails out with an error
+    # it doesn't and instead fails.
     sed -i "/pygobject/d" recipe/meta.yaml
 fi
 

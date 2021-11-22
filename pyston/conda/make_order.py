@@ -158,10 +158,6 @@ def getBuildRequirements(pkg):
     if pkg == "numba" and "cudatoolkit" in r:
         r.remove("cudatoolkit")
 
-    # Hack: the users of this script should be able to deal with these transitive dependencies
-    if pkg == "scikit-image":
-        r.append("imagecodecs")
-
     if pkg in r:
         r.remove(pkg)
 
