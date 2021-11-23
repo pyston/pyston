@@ -20,16 +20,20 @@ source:
 {% endif %}
     - patches/0003-Darwin-Add-arch-x86_64-to-UnicCCompiler-ld_args.patch
     - patches/0004-Win32-Change-FD_SETSIZE-from-512-to-2048.patch
-    - patches/0005-Win32-distutils-Add-support-to-cygwinccompiler-for-V.patch
+    # This is probably right but breaks a test which should be updated:
+    # - patches/0005-Win32-distutils-Add-support-to-cygwinccompiler-for-V.patch
     - patches/0006-Do-not-pass-g-to-GCC-when-not-Py_DEBUG.patch
     - patches/0007-Support-cross-compiling-byte-code.patch
     - patches/0008-Win32-Fixes-for-Windows-GCC-interop-needed-by-RPy2-a.patch
-    - patches/0009-Darwin-Look-in-sysroot-usr-lib-include-if-sysroot-is.patch
+    # Pyston: not sure why this one doesn't work for us / how it works for them:
+    # - patches/0009-Darwin-Look-in-sysroot-usr-lib-include-if-sysroot-is.patch
     - patches/0010-runtime_library_dir_option-Use-1st-word-of-CC-as-com.patch
     - patches/0011-Win32-Do-not-download-externals.patch
-    - patches/0012-Add-support-for-_CONDA_PYTHON_SYSCONFIGDATA_NAME-if-.patch
+    # Our build system needs to know the sysconfigdata.py filename:
+    # - patches/0012-Add-support-for-_CONDA_PYTHON_SYSCONFIGDATA_NAME-if-.patch
     - patches/0013-Fix-find_library-so-that-it-looks-in-sys.prefix-lib-.patch
-    - patches/0014-Disable-new-dtags-in-unixccompiler.py.patch
+    # Pyston: not sure how this one works for them, it's missing an update to the next test:
+    # - patches/0014-Disable-new-dtags-in-unixccompiler.py.patch
     - patches/0015-Fix-cross-compilation-on-Debian-based-distros.patch
     - patches/0016-Disable-registry-lookup-unless-CONDA_PY_ALLOW_REG_PA.patch
     - patches/0017-Unvendor-openssl.patch
@@ -37,7 +41,8 @@ source:
     # https://bugs.python.org/issue35644
     - patches/0019-venv-Revert-a-change-from-https-github.com-python-cp.patch
     - patches/0020-Win-Add-back-the-DLLSuffix-used-to-find-the-openssl-.patch
-    - patches/0021-Use-ranlib-from-env-if-env-variable-is-set.patch
+    # Pyston: not sure why this one doesn't work for us / how it works for them:
+    # - patches/0021-Use-ranlib-from-env-if-env-variable-is-set.patch
     # Python 3.8 is pretty broken without this.
     - patches/0022-Add-CondaEcosystemModifyDllSearchPath.patch
     - patches/0023-Revert-part-of-https-bugs.python.org-issue33895-http.patch
