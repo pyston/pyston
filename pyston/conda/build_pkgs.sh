@@ -17,29 +17,21 @@ set -eux
 apt-get update
 
 # some cpython tests require /etc/protocols
-apt-get install -y netbase curl
+apt-get install -y netbase curl patch
 
-conda install conda-build -y
+conda install conda-build -y -c conda-forge --override-channels
 conda build pyston_dir/pyston/conda/compiler-rt -c pyston/label/dev --skip-existing -c conda-forge --override-channels
 conda build pyston_dir/pyston/conda/bolt -c pyston/label/dev --skip-existing -c conda-forge --override-channels
 conda build pyston_dir/pyston/conda/pyston -c pyston/label/dev -c conda-forge --override-channels -m pyston_dir/pyston/conda/pyston/variants.yaml
 conda build pyston_dir/pyston/conda/python_abi -c conda-forge --override-channels
 conda build pyston_dir/pyston/conda/python -c conda-forge --override-channels
 
-conda install patch -y -c conda-forge --override-channels # required to apply the patches in some recipes
-
-# This are the arch dependent pip dependencies. 
+# This are the arch dependent pip dependencies.
 for pkg in certifi setuptools
 do
     git clone https://github.com/conda-forge/\${pkg}-feedstock.git
     CONDA_ADD_PIP_AS_PYTHON_DEPENDENCY=0 conda build \${pkg}-feedstock/recipe --python="${PYSTON_PKG_VER}" --override-channels -c conda-forge --use-local
 done
-
-# build numpy 1.20.3 using openblas
-git clone https://github.com/AnacondaRecipes/numpy-feedstock.git -b pbs_1.20.3_20210520T162213
-# 'test_for_reference_leak' fails for pyston - disable it
-sed -i 's/_not_a_real_test/test_for_reference_leak/g' numpy-feedstock/recipe/meta.yaml
-conda build numpy-feedstock/ --python="${PYSTON_PKG_VER}" --override-channels -c conda-forge --use-local --extra-deps pyston --variants="{blas_impl: openblas, openblas: 0.3.3, c_compiler_version: 7.5.0, cxx_compiler_version: 7.5.0}"
 
 for arch in noarch linux-64
 do
