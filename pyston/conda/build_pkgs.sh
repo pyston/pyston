@@ -19,7 +19,7 @@ apt-get update
 # some cpython tests require /etc/protocols
 apt-get install -y netbase curl patch
 
-conda install conda-build -y -c conda-forge --override-channels
+conda install conda-build -y
 conda build pyston_dir/pyston/conda/compiler-rt -c pyston/label/dev --skip-existing -c conda-forge --override-channels
 conda build pyston_dir/pyston/conda/bolt -c pyston/label/dev --skip-existing -c conda-forge --override-channels
 conda build pyston_dir/pyston/conda/pyston -c pyston/label/dev -c conda-forge --override-channels -m pyston_dir/pyston/conda/pyston/variants.yaml
