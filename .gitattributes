@@ -38,6 +38,11 @@ Lib/test/test_importlib/data01/* -text
 *.proj text eol=crlf
 PCbuild/readme.txt text eol=crlf
 PC/readme.txt text eol=crlf
+# Pyston:
+pyston/conda/pyston/patches/0010-Win32-Do-not-download-externals.patch binary
+pyston/conda/pyston/patches/0016-Unvendor-openssl.patch binary
+pyston/conda/pyston/patches/0017-Unvendor-sqlite3.patch binary
+pyston/conda/pyston/patches/0019-Win-Add-back-the-DLLSuffix-used-to-find-the-openssl-.patch binary
 
 # Generated files
 # https://github.com/github/linguist#generated-code
