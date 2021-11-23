@@ -1,20 +1,32 @@
 import os
 import sys
 
+def replace_section(lines, name, new_str):
+    for i in range(len(lines)):
+        if lines[i] != name + ":":
+            continue
+
+        removed = []
+        while i + 1 < len(lines) and lines[i + 1].startswith("- "):
+            removed.append(lines[i + 1])
+            del lines[i + 1]
+        lines.insert(i + 1, new_str)
+        return removed
+
+    return False
+
 def rewrite_config(config_str):
     lines = config_str.split('\n')
 
-    for i in range(len(lines)):
-        if lines[i] == "python:":
-            lines[i + 1] = "- 3.8.* *_pyston"
-            break
-    else:
-        raise Exception("didn't find 'python' line")
+    removed = replace_section(lines, "python", "- 3.8.* *_pyston")
+    assert removed, "Didn't find 'python' line, this might not be a python extension"
+    assert "- 3.8.* *_cpython" in removed, ("This might not be the right config? Found:", removed)
 
-    for i in range(len(lines)):
-        if lines[i] == "python_impl:":
-            lines[i + 1] = "- pyston"
-            break
+    replace_section(lines, "python_impl", "- pyston")
+
+    removed = replace_section(lines, "numpy", "- '1.18'")
+    if removed:
+        assert any("1.18" in s for s in removed), removed
 
     return '\n'.join(lines)
 
