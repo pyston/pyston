@@ -1,7 +1,7 @@
-From 82cbac6e16381c7c0f6f096f5be97e361d262402 Mon Sep 17 00:00:00 2001
+From 8d19b97f0f2f9a68916e718d51658eac353fa001 Mon Sep 17 00:00:00 2001
 From: Ray Donnelly <mingw.android@gmail.com>
 Date: Tue, 15 Aug 2017 22:34:16 +0100
-Subject: [PATCH 01/22] Add Anaconda Distribution version logic
+Subject: [PATCH 02/26] Add Anaconda Distribution version logic
 
 ---
  Include/pylifecycle.h |  1 +
@@ -11,7 +11,7 @@ Subject: [PATCH 01/22] Add Anaconda Distribution version logic
  4 files changed, 50 insertions(+), 1 deletion(-)
 
 diff --git a/Include/pylifecycle.h b/Include/pylifecycle.h
-index c5368b3..06cb88e 100644
+index c5368b3c5e..06cb88ee9c 100644
 --- a/Include/pylifecycle.h
 +++ b/Include/pylifecycle.h
 @@ -52,6 +52,7 @@ int _Py_CheckPython3(void);
@@ -23,10 +23,10 @@ index c5368b3..06cb88e 100644
  PyAPI_FUNC(const char *) Py_GetPlatform(void);
  PyAPI_FUNC(const char *) Py_GetCopyright(void);
 diff --git a/Lib/platform.py b/Lib/platform.py
-index 994d892..2df9c1e 100755
+index b7e7bc439e..1ac887f7c7 100755
 --- a/Lib/platform.py
 +++ b/Lib/platform.py
-@@ -943,6 +943,7 @@ def processor():
+@@ -944,6 +944,7 @@ def processor():
  
  _sys_version_parser = re.compile(
      r'([\w.+]+)\s*'  # "version<space>"
@@ -35,7 +35,7 @@ index 994d892..2df9c1e 100755
      r'(?:,\s*([\w ]*)'  # ", builddate"
      r'(?:,\s*([\w :]*))?)?\)\s*'  # ", buildtime)<space>"
 diff --git a/Modules/main.c b/Modules/main.c
-index 70be4cf..5150587 100644
+index ea6250e28c..2ed76c347d 100644
 --- a/Modules/main.c
 +++ b/Modules/main.c
 @@ -204,7 +204,7 @@ pymain_header(const PyConfig *config)
@@ -48,7 +48,7 @@ index 70be4cf..5150587 100644
          fprintf(stderr, "%s\n", COPYRIGHT);
      }
 diff --git a/Python/getversion.c b/Python/getversion.c
-index c32b6f9..b5dfffb 100644
+index c32b6f9d60..b5dfffb606 100644
 --- a/Python/getversion.c
 +++ b/Python/getversion.c
 @@ -2,9 +2,56 @@
@@ -109,5 +109,5 @@ index c32b6f9..b5dfffb 100644
  Py_GetVersion(void)
  {
 -- 
-2.20.1
+2.33.0
 

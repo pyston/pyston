@@ -1,7 +1,7 @@
-From 45076be3111fa0c00b8e868bdb7a4224edf8c6b0 Mon Sep 17 00:00:00 2001
+From b4c226f468686abbba1f558e73282750d4b08be5 Mon Sep 17 00:00:00 2001
 From: Ray Donnelly <mingw.android@gmail.com>
 Date: Tue, 24 Dec 2019 18:37:17 +0100
-Subject: [PATCH 22/22] Add CondaEcosystemModifyDllSearchPath()
+Subject: [PATCH 22/26] Add CondaEcosystemModifyDllSearchPath()
 
 This changes the DLL search order so that C:\Windows\System32 does not
 get searched in before entries in PATH.
@@ -15,7 +15,7 @@ Updated a bit to include other directories.
  2 files changed, 389 insertions(+), 2 deletions(-)
 
 diff --git a/Modules/main.c b/Modules/main.c
-index 5150587..6e75e54 100644
+index 2ed76c347d..177c6c4242 100644
 --- a/Modules/main.c
 +++ b/Modules/main.c
 @@ -20,6 +20,10 @@
@@ -38,7 +38,7 @@ index 5150587..6e75e54 100644
  /* --- pymain_init() ---------------------------------------------- */
  
  static PyStatus
-@@ -699,10 +705,388 @@ Py_RunMain(void)
+@@ -703,10 +709,388 @@ Py_RunMain(void)
      return exitcode;
  }
  
@@ -428,7 +428,7 @@ index 5150587..6e75e54 100644
      if (_PyStatus_IS_EXIT(status)) {
          pymain_free();
 diff --git a/Python/dynload_win.c b/Python/dynload_win.c
-index 4896c6d..cf5cb5c 100644
+index 4896c6dc8c..cf5cb5cf78 100644
 --- a/Python/dynload_win.c
 +++ b/Python/dynload_win.c
 @@ -199,10 +199,13 @@ dl_funcptr _PyImport_FindSharedFuncptrWindows(const char *prefix,
@@ -448,5 +448,5 @@ index 4896c6d..cf5cb5c 100644
  #if HAVE_SXS
          _Py_DeactivateActCtx(cookie);
 -- 
-2.20.1
+2.33.0
 

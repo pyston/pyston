@@ -1,7 +1,7 @@
-From cc6f65d61a003a856b17f89bb414d14036dfbc39 Mon Sep 17 00:00:00 2001
+From 5e0fe7a5544022bb9c9924285af5bae802627567 Mon Sep 17 00:00:00 2001
 From: Ray Donnelly <mingw.android@gmail.com>
 Date: Tue, 5 Dec 2017 22:47:59 +0000
-Subject: [PATCH 07/25] Fix find_library so that it looks in sys.prefix/lib
+Subject: [PATCH 13/26] Fix find_library so that it looks in sys.prefix/lib
  first
 
 ---
@@ -25,10 +25,10 @@ index 1c3f8fd38b..82a4b4fd58 100644
          yield os.path.join(executable_path, name[len('@executable_path/'):])
  
 diff --git a/Lib/ctypes/util.py b/Lib/ctypes/util.py
-index 0c2510e161..72b46cc481 100644
+index 0c2510e161..3a3edb37cf 100644
 --- a/Lib/ctypes/util.py
 +++ b/Lib/ctypes/util.py
-@@ -70,7 +70,8 @@ def find_library(name):
+@@ -70,7 +70,8 @@ if os.name == "nt":
  elif os.name == "posix" and sys.platform == "darwin":
      from ctypes.macholib.dyld import dyld_find as _dyld_find
      def find_library(name):
@@ -38,7 +38,7 @@ index 0c2510e161..72b46cc481 100644
                      '%s.dylib' % name,
                      '%s.framework/%s' % (name, name)]
          for name in possible:
-@@ -324,10 +325,30 @@ def _findLib_ld(name):
+@@ -324,10 +325,30 @@ elif os.name == "posix":
                  pass  # result will be None
              return result
  
@@ -61,16 +61,16 @@ index 0c2510e161..72b46cc481 100644
 +            so_name = _get_soname(_findLib_prefix(name)) or name
 +            if so_name != name:
 +                return _findLib_prefix(so_name) or \
-+                       _findLib_prefix(name) or \
-+                       _findSoname_ldconfig(name) or \
-+                       _get_soname(_findLib_gcc(name)) or _get_soname(_findLib_ld(name))
-+            else:
-+                 return _findLib_prefix(name) or \
++                        _findLib_prefix(name) or \
 +                        _findSoname_ldconfig(name) or \
-+                        _get_soname(_findLib_gcc(name)) or _get_soname(_findLib_ld(name))
++                        _get_soname(_findLib_gcc(name) or _findLib_ld(name))
++            else:
++                return _findLib_prefix(name) or \
++                        _findSoname_ldconfig(name) or \
++                        _get_soname(_findLib_gcc(name) or _findLib_ld(name))
  
  ################################################################
  # test code
 -- 
-2.30.2
+2.33.0
 
