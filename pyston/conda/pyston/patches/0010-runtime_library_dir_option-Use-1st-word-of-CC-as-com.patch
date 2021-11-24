@@ -1,0 +1,29 @@
+From f996499ff928e8aee563ad0fc6c44fd49a44bcca Mon Sep 17 00:00:00 2001
+From: Ray Donnelly <mingw.android@gmail.com>
+Date: Thu, 5 Oct 2017 02:00:41 +0100
+Subject: [PATCH 10/26] runtime_library_dir_option: Use 1st word of CC as
+ compiler
+
+Previous, 'CC' got passed to os.path.basename, so any paths in it after
+the executable name would get returned as the executable and it would
+not get detected as gcc (or whatever it actually is).
+---
+ Lib/distutils/unixccompiler.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Lib/distutils/unixccompiler.py b/Lib/distutils/unixccompiler.py
+index 07778c3474..3f65253308 100644
+--- a/Lib/distutils/unixccompiler.py
++++ b/Lib/distutils/unixccompiler.py
+@@ -233,7 +233,7 @@ class UnixCCompiler(CCompiler):
+         # this time, there's no way to determine this information from
+         # the configuration data stored in the Python installation, so
+         # we use this hack.
+-        compiler = os.path.basename(sysconfig.get_config_var("CC"))
++        compiler = os.path.basename(sysconfig.get_config_var("CC").split()[0])
+         if sys.platform[:6] == "darwin":
+             # MacOSX's linker doesn't understand the -R flag at all
+             return "-L" + dir
+-- 
+2.33.0
+

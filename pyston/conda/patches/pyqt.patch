@@ -1,0 +1,15 @@
+--- configure_orig.py	2021-11-08 21:21:31.900492546 -0500
++++ configure.py	2021-11-08 21:22:28.140787694 -0500
+@@ -656,5 +656,4 @@
+         else:
+             abi = getattr(sys, 'abiflags', '')
+-            pylib_lib = 'python%d.%d%s' % (py_major, py_minor, abi)
+             pylib_dir = pyshlib = ''
+ 
+@@ -662,4 +661,6 @@
+             ducfg = sysconfig.get_config_vars()
+ 
++            pylib_lib = 'python%s%s' % (ducfg["VERSION"], abi)
++
+             config_args = ducfg.get('CONFIG_ARGS', '')
+ 

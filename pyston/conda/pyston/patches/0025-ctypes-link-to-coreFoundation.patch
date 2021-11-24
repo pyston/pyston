@@ -1,0 +1,26 @@
+From 6c13d27eb351ce7eb612b58505cbdcbfc17b6fcf Mon Sep 17 00:00:00 2001
+From: Isuru Fernando <isuruf@gmail.com>
+Date: Mon, 10 May 2021 20:24:59 -0500
+Subject: [PATCH 25/26] ctypes: link to coreFoundation
+
+3.8.10 uses __builtin_available and it needs CoreFoundation linked in.
+See https://github.com/llvm/llvm-project/blob/llvmorg-11.1.0/clang/lib/CodeGen/CGObjC.cpp#L3767-L3780
+---
+ setup.py | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/setup.py b/setup.py
+index 7943272438..3c8e1f997f 100644
+--- a/setup.py
++++ b/setup.py
+@@ -1976,6 +1976,7 @@ class PyBuildExt(build_ext):
+             extra_compile_args.append('-DUSING_MALLOC_CLOSURE_DOT_C=1')
+             extra_compile_args.append('-DMACOSX')
+             include_dirs.append('_ctypes/darwin')
++            extra_link_args.extend(['-framework', 'CoreFoundation'])
+ 
+         elif HOST_PLATFORM == 'sunos5':
+             # XXX This shouldn't be necessary; it appears that some
+-- 
+2.33.0
+

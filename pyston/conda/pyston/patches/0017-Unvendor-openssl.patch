@@ -1,0 +1,103 @@
+From c7b4ae0d04cb06fa150ad7a1a5e2b696feaff139 Mon Sep 17 00:00:00 2001
+From: Nehal J Wani <nehaljw.kkd1@gmail.com>
+Date: Sat, 24 Nov 2018 20:38:02 -0600
+Subject: [PATCH 17/26] Unvendor openssl
+
+---
+ PCbuild/_ssl.vcxproj         | 3 ---
+ PCbuild/_ssl.vcxproj.filters | 3 ---
+ PCbuild/openssl.props        | 2 +-
+ PCbuild/python.props         | 6 +++---
+ PCbuild/python.vcxproj       | 3 +++
+ PCbuild/pythonw.vcxproj      | 3 +++
+ 6 files changed, 10 insertions(+), 10 deletions(-)
+
+diff --git a/PCbuild/_ssl.vcxproj b/PCbuild/_ssl.vcxproj
+index 4907f49b66..b2c23d5e8c 100644
+--- a/PCbuild/_ssl.vcxproj
++++ b/PCbuild/_ssl.vcxproj
+@@ -99,9 +99,6 @@
+   </ItemDefinitionGroup>
+   <ItemGroup>
+     <ClCompile Include="..\Modules\_ssl.c" />
+-    <ClCompile Include="$(opensslIncludeDir)\applink.c">
+-      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;$(PreprocessorDefinitions)</PreprocessorDefinitions>
+-    </ClCompile>
+   </ItemGroup>
+   <ItemGroup>
+     <ResourceCompile Include="..\PC\python_nt.rc" />
+diff --git a/PCbuild/_ssl.vcxproj.filters b/PCbuild/_ssl.vcxproj.filters
+index bd46b60984..1384aeff1f 100644
+--- a/PCbuild/_ssl.vcxproj.filters
++++ b/PCbuild/_ssl.vcxproj.filters
+@@ -9,9 +9,6 @@
+     <ClCompile Include="..\Modules\_ssl.c">
+       <Filter>Source Files</Filter>
+     </ClCompile>
+-    <ClCompile Include="$(opensslIncludeDir)\applink.c">
+-      <Filter>Source Files</Filter>
+-    </ClCompile>
+   </ItemGroup>
+   <ItemGroup>
+     <ResourceCompile Include="..\PC\python_nt.rc" />
+diff --git a/PCbuild/openssl.props b/PCbuild/openssl.props
+index a7e16793c7..af1350cae7 100644
+--- a/PCbuild/openssl.props
++++ b/PCbuild/openssl.props
+@@ -5,7 +5,7 @@
+       <AdditionalIncludeDirectories>$(opensslIncludeDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+     </ClCompile>
+     <Link>
+-      <AdditionalLibraryDirectories>$(opensslOutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
++      <AdditionalLibraryDirectories>$(opensslDir)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+       <AdditionalDependencies>ws2_32.lib;libcrypto.lib;libssl.lib;%(AdditionalDependencies)</AdditionalDependencies>
+     </Link>
+   </ItemDefinitionGroup>
+diff --git a/PCbuild/python.props b/PCbuild/python.props
+index 6e03cc762d..98e985e8cf 100644
+--- a/PCbuild/python.props
++++ b/PCbuild/python.props
+@@ -62,9 +62,9 @@
+     <libffiDir>$(ExternalsDir)libffi\</libffiDir>
+     <libffiOutDir>$(ExternalsDir)libffi\$(ArchName)\</libffiOutDir>
+     <libffiIncludeDir>$(libffiOutDir)include</libffiIncludeDir>
+-    <opensslDir>$(ExternalsDir)openssl-1.1.1l\</opensslDir>
+-    <opensslOutDir>$(ExternalsDir)openssl-bin-1.1.1l\$(ArchName)\</opensslOutDir>
+-    <opensslIncludeDir>$(opensslOutDir)include</opensslIncludeDir>
++    <opensslDir>$(OPENSSL_DIR)\</opensslDir>
++    <opensslOutDir>$(opensslDir)bin</opensslOutDir>
++    <opensslIncludeDir>$(opensslDir)include</opensslIncludeDir>
+     <nasmDir>$(ExternalsDir)\nasm-2.11.06\</nasmDir>
+     <zlibDir>$(ExternalsDir)\zlib-1.2.11\</zlibDir>
+     
+diff --git a/PCbuild/python.vcxproj b/PCbuild/python.vcxproj
+index 2094420a8d..ffb2673018 100644
+--- a/PCbuild/python.vcxproj
++++ b/PCbuild/python.vcxproj
+@@ -105,6 +105,9 @@
+   </ItemGroup>
+   <ItemGroup>
+     <ClCompile Include="..\Programs\python.c" />
++    <ClCompile Include="$(opensslIncludeDir)\openssl\applink.c">
++      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;$(PreprocessorDefinitions)</PreprocessorDefinitions>
++    </ClCompile>
+   </ItemGroup>
+   <ItemGroup>
+     <ProjectReference Include="pythoncore.vcxproj">
+diff --git a/PCbuild/pythonw.vcxproj b/PCbuild/pythonw.vcxproj
+index e7216dec3a..ab572d2020 100644
+--- a/PCbuild/pythonw.vcxproj
++++ b/PCbuild/pythonw.vcxproj
+@@ -97,6 +97,9 @@
+   </ItemGroup>
+   <ItemGroup>
+     <ClCompile Include="..\PC\WinMain.c" />
++    <ClCompile Include="$(opensslIncludeDir)\openssl\applink.c">
++      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;$(PreprocessorDefinitions)</PreprocessorDefinitions>
++    </ClCompile>
+   </ItemGroup>
+   <ItemGroup>
+     <ProjectReference Include="pythoncore.vcxproj">
+-- 
+2.33.0
+

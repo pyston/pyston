@@ -1,0 +1,32 @@
+From ddfc009d8f5fbc1721659efd42f3157b8e16413c Mon Sep 17 00:00:00 2001
+From: Ray Donnelly <mingw.android@gmail.com>
+Date: Sun, 20 Aug 2017 00:22:22 +0100
+Subject: [PATCH 09/26] Darwin: Look in ${sysroot}/usr/{lib,include} if sysroot
+ is set
+
+---
+ setup.py | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/setup.py b/setup.py
+index 2d6b05682d..de91141e3f 100644
+--- a/setup.py
++++ b/setup.py
+@@ -660,7 +660,13 @@ class PyBuildExt(build_ext):
+         # lib_dirs and inc_dirs are used to search for files;
+         # if a file is found in one of those directories, it can
+         # be assumed that no additional -I,-L directives are needed.
+-        if not CROSS_COMPILING:
++        # If we are using a macosx sysroot then ensure we look in
++        # sysroot/usr/{lib,include} (irrespective of whether we consider
++        # this cross_compiling or not).
++        if macosx_sdk_root() != '/':
++            self.lib_dirs = self.compiler.library_dirs + ['/usr/lib']
++            self.inc_dirs = self.compiler.include_dirs + ['/usr/include']
++        elif not CROSS_COMPILING:
+             self.lib_dirs = self.compiler.library_dirs + system_lib_dirs
+             self.inc_dirs = self.compiler.include_dirs + system_include_dirs
+         else:
+-- 
+2.33.0
+
