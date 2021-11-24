@@ -115,7 +115,7 @@ fi
 if [ "$PACKAGE" == "pyqt" ]; then
     cp $THISDIR/patches/pyqt.patch recipe/pyston.patch
     sed -i "/pyston.patch/d" recipe/meta.yaml
-    sed -i "s/      - qt5_dll.diff/      - qt5_dll.diff\n      - pyston.patch/" recipe/meta.yaml
+    sed -i "s@      - patches/qt5_dll.diff@      - patches/qt5_dll.diff\n      - pyston.patch@" recipe/meta.yaml
 fi
 
 if [ "$PACKAGE" == "scikit-build" ]; then
