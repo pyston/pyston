@@ -195,6 +195,12 @@ if [ "$PACKAGE" == "numba" ]; then
     sed -i "s/  sha256: {{ sha256 }}/  sha256: {{ sha256 }}\n  patches:\n    - pyston.patch/" recipe/meta.yaml
 fi
 
+if [ "$PACKAGE" == "vim" ]; then
+    cp $THISDIR/patches/vim.patch recipe/pyston.patch
+    sed -i "/patch/d" recipe/meta.yaml
+    sed -i "/source:/a \  patches:\n    - pyston.patch" recipe/meta.yaml
+fi
+
 # conda-forge-ci-setup automatically sets add_pip_as_python_dependency=false
 CONDA_FORGE_DOCKER_RUN_ARGS="-e EXTRA_CB_OPTIONS" EXTRA_CB_OPTIONS="-c $CHANNEL" python3 build-locally.py $(CHANNEL=$CHANNEL python3 $MAKE_CONFIG_PY)
 

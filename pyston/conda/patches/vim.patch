@@ -1,0 +1,46 @@
+From 63d745a75b0a240f8482f6eeb58f67caf48cb049 Mon Sep 17 00:00:00 2001
+From: Marius Wachtler <undingen@gmail.com>
+Date: Fri, 19 Nov 2021 15:29:26 +0100
+Subject: [PATCH] configure: support pyston
+
+---
+ src/auto/configure | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/src/auto/configure b/src/auto/configure
+index cd5e59366..89cc98546 100755
+--- a/src/auto/configure
++++ b/src/auto/configure
+@@ -6756,7 +6756,7 @@ if ${vi_cv_path_python3_conf+:} false; then :
+ else
+ 
+        vi_cv_path_python3_conf=
+-       config_dir="config-${vi_cv_var_python3_version}${vi_cv_var_python3_abiflags}"
++       config_dir="config-${vi_cv_var_python3_version}-pyston2.3${vi_cv_var_python3_abiflags}"
+        d=`${vi_cv_path_python3} -c "import sysconfig; print(sysconfig.get_config_var('LIBPL'))" 2> /dev/null`
+        if test "x$d" = "x"; then
+          d=`${vi_cv_path_python3} -c "import distutils.sysconfig; print(distutils.sysconfig.get_config_var('LIBPL'))"`
+@@ -6801,7 +6801,7 @@ __:
+ eof
+ 	    	    eval "`cd ${PYTHON3_CONFDIR} && make -f "${tmp_mkf}" __ | sed '/ directory /d'`"
+ 	    rm -f -- "${tmp_mkf}"
+-	    vi_cv_path_python3_plibs="-L${PYTHON3_CONFDIR} -lpython${vi_cv_var_python3_version}${vi_cv_var_python3_abiflags}"
++	    vi_cv_path_python3_plibs="-L${PYTHON3_CONFDIR} -lpython${vi_cv_var_python3_version}-pyston2.3${vi_cv_var_python3_abiflags}"
+ 	    vi_cv_path_python3_plibs="${vi_cv_path_python3_plibs} ${python3_BASEMODLIBS} ${python3_LIBS} ${python3_SYSLIBS}"
+ 	    	    vi_cv_path_python3_plibs=`echo $vi_cv_path_python3_plibs | sed s/-ltermcap//`
+ 	    vi_cv_path_python3_plibs=`echo $vi_cv_path_python3_plibs | sed s/-lffi//`
+@@ -6826,9 +6826,9 @@ $as_echo "$vi_cv_dll_name_python3" >&6; }
+ 
+         PYTHON3_LIBS="${vi_cv_path_python3_plibs}"
+         if test "${vi_cv_path_python3_pfx}" = "${vi_cv_path_python3_epfx}"; then
+-          PYTHON3_CFLAGS="-I${vi_cv_path_python3_pfx}/include/python${vi_cv_var_python3_version}${vi_cv_var_python3_abiflags}"
++          PYTHON3_CFLAGS="-I${vi_cv_path_python3_pfx}/include/python${vi_cv_var_python3_version}-pyston2.3${vi_cv_var_python3_abiflags}"
+         else
+-          PYTHON3_CFLAGS="-I${vi_cv_path_python3_pfx}/include/python${vi_cv_var_python3_version}${vi_cv_var_python3_abiflags} -I${vi_cv_path_python3_epfx}/include/python${vi_cv_var_python3_version}${vi_cv_var_python3_abiflags}"
++          PYTHON3_CFLAGS="-I${vi_cv_path_python3_pfx}/include/python${vi_cv_var_python3_version}-pyston2.3${vi_cv_var_python3_abiflags} -I${vi_cv_path_python3_epfx}/include/python${vi_cv_var_python3_version}-pyston2.3${vi_cv_var_python3_abiflags}"
+         fi
+ 	if test "X$have_python3_config_dir" = "X1" -a "$enable_python3interp" = "dynamic"; then
+ 	  	  PYTHON3_CFLAGS="${PYTHON3_CFLAGS}  -DPYTHON3_HOME='L\"${vi_cv_path_python3_pfx}\"'"
+-- 
+2.25.1
+
