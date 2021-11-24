@@ -25,6 +25,7 @@ _feedstock_overrides = {
     "poppler-qt": "poppler",
     "cross-r-base": "r-base",
     "tensorflow-base": "tensorflow",
+    "tensorflow-cpu": "tensorflow",
     "tensorflow-estimator": "tensorflow",
     "libtensorflow": "tensorflow",
     "libtensorflow_cc": "tensorflow",
