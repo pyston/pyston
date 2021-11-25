@@ -1,0 +1,25 @@
+diff --git a/numba/tests/test_nrt.py b/numba/tests/test_nrt.py
+index b29f8f97c..12266abb4 100644
+--- a/numba/tests/test_nrt.py
++++ b/numba/tests/test_nrt.py
+@@ -220,6 +220,7 @@ class TestNrtMemInfo(unittest.TestCase):
+         # consumed by another thread.
+ 
+ 
++@unittest.skip("Pyston has removed tracemalloc")
+ class TestTracemalloc(unittest.TestCase):
+     """
+     Test NRT-allocated memory can be tracked by tracemalloc.
+diff --git a/numba/tests/test_pycc.py b/numba/tests/test_pycc.py
+index bf3d046ab..2e7d66164 100644
+--- a/numba/tests/test_pycc.py
++++ b/numba/tests/test_pycc.py
+@@ -210,7 +210,7 @@ class TestCC(BasePYCCTest):
+         self.assertTrue(os.path.basename(f).startswith('pycc_test_simple.'), f)
+         if sys.platform.startswith('linux'):
+             self.assertTrue(f.endswith('.so'), f)
+-            self.assertIn('.cpython', f)
++            self.assertIn('pyston', f)
+ 
+     def test_compile(self):
+         with self.check_cc_compiled(self._test_module.cc) as lib:
