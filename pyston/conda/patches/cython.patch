@@ -1,0 +1,35 @@
+From 6be740e58f85228b52744a0bc46746af6621eef4 Mon Sep 17 00:00:00 2001
+From: Marius Wachtler <undingen@gmail.com>
+Date: Thu, 25 Nov 2021 20:12:09 +0100
+Subject: [PATCH] backport memory corruption fix #4200 to v0.29 branch fixes an
+ issue which pyston triggers https://github.com/cython/cython/issues/4200
+
+---
+ Cython/Utility/ExtensionTypes.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/Cython/Utility/ExtensionTypes.c b/Cython/Utility/ExtensionTypes.c
+index 1b39c9e42..0d8c41dee 100644
+--- a/Cython/Utility/ExtensionTypes.c
++++ b/Cython/Utility/ExtensionTypes.c
+@@ -54,7 +54,7 @@ static int __Pyx_PyType_Ready(PyTypeObject *t) {
+         }
+     }
+ 
+-#if PY_VERSION_HEX >= 0x03050000
++#if PY_VERSION_HEX >= 0x03050000 && !defined(PYSTON_MAJOR_VERSION)
+     {
+         // Make sure GC does not pick up our non-heap type as heap type with this hack!
+         // For details, see https://github.com/cython/cython/issues/3603
+@@ -93,7 +93,7 @@ static int __Pyx_PyType_Ready(PyTypeObject *t) {
+ 
+     r = PyType_Ready(t);
+ 
+-#if PY_VERSION_HEX >= 0x03050000
++#if PY_VERSION_HEX >= 0x03050000 && !defined(PYSTON_MAJOR_VERSION)
+         t->tp_flags &= ~Py_TPFLAGS_HEAPTYPE;
+ 
+         if (gc_was_enabled) {
+-- 
+2.25.1
+
