@@ -6,6 +6,9 @@ import sys
 import threading
 
 from make_order import getFeedstockOrder, getFeedstockName, getFeedstockDependencies
+from pathlib import Path
+
+SRC_DIR = Path(__file__).parent.absolute()
 
 def splitIntoGroups(order, done_feedstocks, n=2):
     groups = {}
@@ -152,7 +155,7 @@ def buildAll(order, done, nparallel):
 
             print("Building", next)
 
-            p = subprocess.Popen(["bash", "pyston/conda/build_and_upload.sh", next], stdout=open("%s.log" % next, "wb"), stderr=subprocess.STDOUT)
+            p = subprocess.Popen(["bash", SRC_DIR / "build_and_upload.sh", next], stdout=open("%s.log" % next, "wb"), stderr=subprocess.STDOUT)
             code = p.wait()
 
             if code == 0:
@@ -188,7 +191,7 @@ def main():
         done_feedstocks.add(getFeedstockName(l.split()[0]))
 
     targets = []
-    for l in open("package_list.txt"):
+    for l in open(SRC_DIR / "package_list.txt"):
         targets.append(l.strip())
         if len(targets) >= 500:
             break
@@ -228,7 +231,7 @@ def main():
 
             print("Building", feedstock)
 
-            subprocess.check_call(["bash", "pyston/conda/build_and_upload.sh", feedstock])
+            subprocess.check_call(["bash", SRC_DIR / "build_and_upload.sh", feedstock])
 
     if "--parallel-build" in sys.argv:
         buildAll(order, done_feedstocks, nparallel=4)

@@ -115,7 +115,7 @@ fi
 if [ "$PACKAGE" == "pyqt" ]; then
     cp $THISDIR/patches/pyqt.patch recipe/pyston.patch
     sed -i "/pyston.patch/d" recipe/meta.yaml
-    sed -i "s/      - qt5_dll.diff/      - qt5_dll.diff\n      - pyston.patch/" recipe/meta.yaml
+    sed -i "s@      - patches/qt5_dll.diff@      - patches/qt5_dll.diff\n      - pyston.patch@" recipe/meta.yaml
 fi
 
 if [ "$PACKAGE" == "scikit-build" ]; then
@@ -193,6 +193,12 @@ if [ "$PACKAGE" == "numba" ]; then
     cp $THISDIR/patches/numba.patch recipe/pyston.patch
     sed -i "/patch/d" recipe/meta.yaml
     sed -i "s/  sha256: {{ sha256 }}/  sha256: {{ sha256 }}\n  patches:\n    - pyston.patch/" recipe/meta.yaml
+fi
+
+if [ "$PACKAGE" == "vim" ]; then
+    cp $THISDIR/patches/vim.patch recipe/pyston.patch
+    sed -i "/patch/d" recipe/meta.yaml
+    sed -i "/source:/a \  patches:\n    - pyston.patch" recipe/meta.yaml
 fi
 
 # conda-forge-ci-setup automatically sets add_pip_as_python_dependency=false
