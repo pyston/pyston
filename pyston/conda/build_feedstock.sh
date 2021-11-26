@@ -195,6 +195,15 @@ if [ "$PACKAGE" == "numba" ]; then
     sed -i "s/  sha256: {{ sha256 }}/  sha256: {{ sha256 }}\n  patches:\n    - pyston.patch/" recipe/meta.yaml
 fi
 
+if [ "$PACKAGE" == "cython" ]; then
+    git checkout 1fbf105 # 0.29.24
+    # we need to apply our memory corruption fix for cython #4200
+    cp $THISDIR/patches/cython.patch recipe/pyston.patch
+    sed -i "/pyston.patch/d" recipe/meta.yaml
+    sed -i "s/number: 1/number: 2\n  string: 2_pyston/g" recipe/meta.yaml # increment build number and add _pyston suffix so we know it's the fixed version
+    sed -i "s@    - patches/pypy37-eval.patch@    - patches/pypy37-eval.patch\n    - pyston.patch@" recipe/meta.yaml
+fi
+
 if [ "$PACKAGE" == "vim" ]; then
     cp $THISDIR/patches/vim.patch recipe/pyston.patch
     sed -i "/patch/d" recipe/meta.yaml
