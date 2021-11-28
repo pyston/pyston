@@ -234,11 +234,14 @@ def _dependsOnPython(pkg):
 
     _depends_on_python[pkg] = r
 
-    f_deps = feedstock_dependencies.setdefault(getFeedstockName(pkg), set())
+    feedstock = getFeedstockName(pkg)
+    f_deps = feedstock_dependencies.setdefault(feedstock, set())
     for d in dependencies:
         dfn = getFeedstockName(d)
         f_deps.add(dfn)
         f_deps.update(feedstock_dependencies.get(dfn, ()))
+    if feedstock in f_deps:
+        f_deps.remove(feedstock)
 
     if not r:
         return False
@@ -250,11 +253,10 @@ def _dependsOnPython(pkg):
         if verbose:
             print(pkg, "is noarch")
     else:
-        name = getFeedstockName(pkg)
-        if name not in feedstock_order:
+        if feedstock not in feedstock_order:
             if verbose:
-                print(name)
-            feedstock_order.append(name)
+                print(feedstock)
+            feedstock_order.append(feedstock)
 
     return r
 
