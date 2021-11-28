@@ -179,7 +179,7 @@ def buildAll(order, done, nparallel):
     done_ev.wait()
 
 def main():
-    channel = "kmod/label/dev"
+    channel = "pyston"
     os.environ["CHANNEL"] = channel
 
     search_output = subprocess.check_output(["conda", "search", "*", "-c", channel, "--override-channels"]).decode("ascii")
