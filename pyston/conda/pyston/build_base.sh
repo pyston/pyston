@@ -11,7 +11,12 @@ rm -rf build
 CFLAGS=$(echo "${CFLAGS}" | sed "s/-fno-plt//g")
 
 _OPTIMIZED=yes
+VERFULL=${PKG_VERSION}
 VER=${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}
+VERNODOTS=${VER//./}
+TCLTK_VER=${tk}
+
+ABIFLAGS=
 VERABI=${VER}
 
 #########################################################################################
@@ -210,6 +215,82 @@ pushd ${PREFIX}
     chmod +w ${CONFIG_LIBPYTHON}
     rm ${CONFIG_LIBPYTHON}
   fi
+popd
+
+# OLD_HOST is with CentOS version in them. When building this recipe
+# with the compilers from conda-forge OLD_HOST != HOST, but when building
+# with the compilers from defaults OLD_HOST == HOST. Both cases are handled in the
+# code below
+case "$target_platform" in
+  linux-64)
+    OLD_HOST=$(echo ${HOST} | sed -e 's/-conda-/-conda_cos6-/g')
+    ;;
+  linux-*)
+    OLD_HOST=$(echo ${HOST} | sed -e 's/-conda-/-conda_cos7-/g')
+    ;;
+  *)
+    OLD_HOST=$HOST
+    ;;
+esac
+
+# Copy sysconfig that gets recorded to a non-default name
+# using the new compilers with python will require setting _PYTHON_SYSCONFIGDATA_NAME
+# to the name of this file (minus the .py extension)
+pushd "${PREFIX}"/lib/python${VER}
+  # On Python 3.5 _sysconfigdata.py was getting copied in here and compiled for some reason.
+  # This breaks our attempt to find the right one as recorded_name.
+  find lib-dynload -name "_sysconfigdata*.py*" -exec rm {} \;
+  recorded_name=$(find . -name "_sysconfigdata*.py")
+  our_compilers_name=_sysconfigdata_$(echo ${HOST} | sed -e 's/[.-]/_/g').py
+  # So we can see if anything has significantly diverged by looking in a built package.
+  cp ${recorded_name} ${recorded_name}.orig
+  cp ${recorded_name} sysconfigfile
+  # fdebug-prefix-map for python work dir is useless for extensions
+  sed -i.bak "s@-fdebug-prefix-map=$SRC_DIR=/usr/local/src/conda/pyston${PYSTON_VERSION2}-$PKG_VERSION@@g" sysconfigfile
+  sed -i.bak "s@-fdebug-prefix-map=$PREFIX=/usr/local/src/conda-prefix@@g" sysconfigfile
+  # Append the conda-forge zoneinfo to the end
+  sed -i.bak "s@zoneinfo'@zoneinfo:$PREFIX/share/tzinfo'@g" sysconfigfile
+  # Remove osx sysroot as it depends on the build machine
+  sed -i.bak "s@-isysroot @@g" sysconfigfile
+  sed -i.bak "s@$CONDA_BUILD_SYSROOT @@g" sysconfigfile
+  # Remove unfilled config option
+  sed -i.bak "s/@SGI_ABI@//g" sysconfigfile
+  sed -i.bak "s@$BUILD_PREFIX/bin/${HOST}-llvm-ar@${HOST}-ar@g" sysconfigfile
+  # Remove GNULD=yes to make sure new-dtags are not used
+  sed -i.bak "s/'GNULD': 'yes'/'GNULD': 'no'/g" sysconfigfile
+  cp sysconfigfile ${our_compilers_name}
+
+  sed -i.bak "s@${HOST}@${OLD_HOST}@g" sysconfigfile
+  old_compiler_name=_sysconfigdata_$(echo ${OLD_HOST} | sed -e 's/[.-]/_/g').py
+  cp sysconfigfile ${old_compiler_name}
+
+  # For system gcc remove the triple
+  sed -i.bak "s@$OLD_HOST-c++@g++@g" sysconfigfile
+  sed -i.bak "s@$OLD_HOST-@@g" sysconfigfile
+  if [[ "$target_platform" == linux* ]]; then
+    # For linux, make sure the system gcc uses our linker
+    sed -i.bak "s@-pthread@-pthread -B $PREFIX/compiler_compat@g" sysconfigfile
+  fi
+  # Don't set -march and -mtune for system gcc
+  sed -i.bak "s@-march=[a-z0-9]*@@g" sysconfigfile
+  sed -i.bak "s@-mtune=[a-z0-9]*@@g" sysconfigfile
+  # Remove these flags that older compilers and linkers may not know
+  for flag in "-fstack-protector-strong" "-ffunction-sections" "-pipe" "-fno-plt" \
+            "-ftree-vectorize" "-Wl,--sort-common" "-Wl,--as-needed" "-Wl,-z,relro" \
+            "-Wl,-z,now" "-Wl,--disable-new-dtags" "-Wl,--gc-sections" "-Wl,-O2" \
+            "-fPIE" "-ftree-vectorize" "-mssse3" "-Wl,-pie" "-Wl,-dead_strip_dylibs" \
+            "-Wl,-headerpad_max_install_names"; do
+    sed -i.bak "s@$flag@@g" sysconfigfile
+  done
+  # Cleanup some extra spaces from above
+  sed -i.bak "s@' [ ]*@'@g" sysconfigfile
+  cp sysconfigfile $recorded_name
+  echo "========================sysconfig==========================="
+  cat $recorded_name
+  echo "============================================================"
+
+  rm sysconfigfile
+  rm sysconfigfile.bak
 popd
 
 if [[ ${HOST} =~ .*linux.* ]]; then
