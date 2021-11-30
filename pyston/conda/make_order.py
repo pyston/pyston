@@ -1,3 +1,4 @@
+import itertools
 import json
 import os
 import pickle
@@ -307,17 +308,15 @@ def getFeedstockOrder(targets):
         data = json.load(open(repodata_fn))
         data_noarch = json.load(open(repodata_noarch_fn))
 
-        for k, v in data["packages"].items():
-            packages_by_name[v['name']] = v
-
-        for k, v in data_noarch["packages"].items():
+        for k, v in itertools.chain(data["packages"].items(), data_noarch["packages"].items()):
             if "pypy" in k:
                 continue
 
-            binary_package = packages_by_name.get(v['name'], None)
-            if not binary_package or versionIsAtLeast(v['version'], binary_package['version']):
+            existing_package = packages_by_name.get(v['name'], None)
+            if not existing_package or versionIsAtLeast(v['version'], existing_package['version']):
                 packages_by_name[v['name']] = v
-                noarch_packages.add(v['name'])
+                if k in data_noarch["packages"]:
+                    noarch_packages.add(v['name'])
 
         pickle.dump((packages_by_name, noarch_packages), open("_repo.pkl", "wb"))
         os.rename("_repo.pkl", "repo.pkl")
