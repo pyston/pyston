@@ -190,11 +190,15 @@ def main():
             continue
         done_feedstocks.add(getFeedstockName(l.split()[0]))
 
+    topn = int(os.environ.get("TOPN", "500"))
     targets = []
     for l in open(SRC_DIR / "package_list.txt"):
         targets.append(l.strip())
-        if len(targets) >= 500:
+        if len(targets) >= topn:
             break
+    for extra in ("conda", "uwsgi"):
+        if extra not in targets:
+            targets.append(extra)
 
     order = getFeedstockOrder(targets)
 
