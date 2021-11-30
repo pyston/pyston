@@ -20,9 +20,9 @@ apt-get update
 apt-get install -y netbase curl patch
 
 conda install conda-build -y
-conda build pyston_dir/pyston/conda/compiler-rt -c pyston/label/dev --skip-existing -c conda-forge --override-channels
-conda build pyston_dir/pyston/conda/bolt -c pyston/label/dev --skip-existing -c conda-forge --override-channels
-conda build pyston_dir/pyston/conda/pyston -c pyston/label/dev -c conda-forge --override-channels -m pyston_dir/pyston/conda/pyston/variants.yaml
+conda build pyston_dir/pyston/conda/compiler-rt -c pyston --skip-existing -c conda-forge --override-channels
+conda build pyston_dir/pyston/conda/bolt -c pyston --skip-existing -c conda-forge --override-channels
+conda build pyston_dir/pyston/conda/pyston -c pyston -c conda-forge --override-channels -m pyston_dir/pyston/conda/pyston/variants.yaml
 conda build pyston_dir/pyston/conda/python_abi -c conda-forge --override-channels
 conda build pyston_dir/pyston/conda/python -c conda-forge --override-channels
 

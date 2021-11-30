@@ -97,7 +97,7 @@ PyAPI_FUNC(int) _Py_CheckRecursiveCall(const char *where);
 */
 PyAPI_DATA(int) _Py_CheckRecursionLimit;
 
-static inline void* _stack_pointer() {
+static inline void* _stack_pointer(void) {
     void* sp;
     __asm( "mov %%rsp, %0" : "=rm" ( sp ));
     return sp;

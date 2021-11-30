@@ -1,4 +1,4 @@
-{% set build_num = 5 %}
+{% set build_num = 6 %}
 {% set llvm_version = "10.0.1" %}
 {% set pyston_version = "2.3.1" %}
 {% set python_version = "3.8.12" %}
@@ -29,8 +29,7 @@ source:
     # - patches/0009-Darwin-Look-in-sysroot-usr-lib-include-if-sysroot-is.patch
     - patches/0010-runtime_library_dir_option-Use-1st-word-of-CC-as-com.patch
     - patches/0011-Win32-Do-not-download-externals.patch
-    # Our build system needs to know the sysconfigdata.py filename:
-    # - patches/0012-Add-support-for-_CONDA_PYTHON_SYSCONFIGDATA_NAME-if-.patch
+    - patches/0012-Add-support-for-_CONDA_PYTHON_SYSCONFIGDATA_NAME-if-.patch
     - patches/0013-Fix-find_library-so-that-it-looks-in-sys.prefix-lib-.patch
     # Pyston: not sure how this one works for them, it's missing an update to the next test:
     # - patches/0014-Disable-new-dtags-in-unixccompiler.py.patch
