@@ -19,23 +19,23 @@ fi
 cd ${PACKAGE}-feedstock
 
 if [ "${PACKAGE}" == "numpy" ]; then
-    # # 1.18.5:
-    # git checkout 3f4b2e94
-    # git cherry-pick 046882736
-    # git cherry-pick 6b1da6d7e
-    # git cherry-pick 4b48d8bb8
-    # git cherry-pick 672ca6f0d
-
-    # 1.19.5:
-    git checkout a8002ff4
+    # 1.18.5:
+    git checkout 3f4b2e94
+    git cherry-pick 046882736
     git cherry-pick 6b1da6d7e
     git cherry-pick 4b48d8bb8
     git cherry-pick 672ca6f0d
+
+    # # 1.19.5:
+    # git checkout a8002ff4
+    # git cherry-pick 6b1da6d7e
+    # git cherry-pick 4b48d8bb8
+    # git cherry-pick 672ca6f0d
 fi
 
 if [ "$PACKAGE" == "protobuf" ]; then
-    # 1.16:
-    git checkout 5ea5a127
+    # 1.18.1:
+    git checkout 1377a7ce~
 fi
 
 if [ "$PACKAGE" == "wrapt" ]; then
@@ -49,8 +49,10 @@ if [ "$PACKAGE" == "h5py" ]; then
 fi
 
 if [ "$PACKAGE" == "grpcio" ]; then
+    # 1.40:
+    git checkout 6294cfb
     # 1.39.0:
-    git checkout 12950c9a~
+    # git checkout 12950c9a~
 fi
 
 if [ "$PACKAGE" == "ipykernel" ]; then
@@ -82,6 +84,26 @@ if [ "$PACKAGE" == "astroid" ]; then
     git checkout e739513c~
 fi
 
+if [ "$PACKAGE" == "spyder-kernels" ]; then
+    # 2.1.3, <2.2.0 needed by spyder
+    git checkout 6ee83fd1~
+fi
+
+if [ "$PACKAGE" == "torchvision" ]; then
+    git checkout fac66e6 # 0.10.1
+    # torchvision 0.10.1 has a few test failures when run against pytorch 1.10 (all pass against 1.09)
+    # disable this tests
+    for t in test_distributed_sampler_and_uniform_clip_sampler test_random_clip_sampler \
+        test_random_clip_sampler_unequal test_uniform_clip_sampler  \
+        test_uniform_clip_sampler_insufficient_clips test_video_clips test_equalize[cpu] \
+        test_read_timestamps test_read_timestamps_from_packet test_read_timestamps_pts_unit_sec \
+        test_read_video_pts_unit_sec test_write_read_video test_write_video_with_audio test_compose; do
+        sed -i "/test_url_is_accessible\" %}/a \        {% set tests_to_skip = tests_to_skip + \" or ${t}\" %}" recipe/meta.yaml
+    done
+fi
+
+
+
 # We need a new version of the build scripts that take extra options
 if ! grep -q EXTRA_CB_OPTIONS .scripts/build_steps.sh; then
     conda-smithy rerender
@@ -89,6 +111,7 @@ fi
 if ! grep -q mambabuild .scripts/build_steps.sh; then
     conda-smithy rerender
 fi
+
 
 if [ "$PACKAGE" == "python-rapidjson" ]; then
     sed -i 's/pytest tests/pytest tests --ignore=tests\/test_memory_leaks.py --ignore=tests\/test_circular.py/g' recipe/meta.yaml
@@ -134,9 +157,9 @@ if [ "$PACKAGE" == "python-libarchive-c" ]; then
 fi
 
 if [ "$PACKAGE" == "ipython" ]; then
-    # ipython has a circular dependency via ipykernel
-    # sed -i "/ipykernel/d" recipe/meta.yaml
-    true;
+    # ipython has a circular dependency via ipykernel,
+    # but they have this flag presumably for this exact problem:
+    sed -i "s/set migrating = False/set migrating = True/" recipe/meta.yaml
 fi
 
 if [ "$PACKAGE" == "gobject-introspection" ]; then
@@ -209,6 +232,7 @@ if [ "$PACKAGE" == "vim" ]; then
     sed -i "/patch/d" recipe/meta.yaml
     sed -i "/source:/a \  patches:\n    - pyston.patch" recipe/meta.yaml
 fi
+
 
 # conda-forge-ci-setup automatically sets add_pip_as_python_dependency=false
 CONDA_FORGE_DOCKER_RUN_ARGS="-e EXTRA_CB_OPTIONS --rm" EXTRA_CB_OPTIONS="-c $CHANNEL" python3 build-locally.py $(CHANNEL=$CHANNEL python3 $MAKE_CONFIG_PY)

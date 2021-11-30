@@ -50,6 +50,10 @@ def main():
             continue
         if ("mpi4py" in cwd or "h5py" in cwd or "netcdf4" in cwd) and ("openmpi" in c or "nompi" in c):
             continue
+        if "nomkl" in c:
+            continue
+        if "pyproj" in cwd and "8.2.0" not in c:
+            continue
 
         # Not sure about this, but only build the cpu version of arrow-cpp
         if "arrow-cpp" in cwd:

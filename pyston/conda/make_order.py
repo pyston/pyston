@@ -26,6 +26,7 @@ _feedstock_overrides = {
     "cross-r-base": "r-base",
     "tensorflow-base": "tensorflow",
     "tensorflow-cpu": "tensorflow",
+    "tensorflow-gpu": "tensorflow",
     "tensorflow-estimator": "tensorflow",
     "libtensorflow": "tensorflow",
     "libtensorflow_cc": "tensorflow",
@@ -114,6 +115,14 @@ _feedstock_overrides = {
     "cf-units": "cf_units",
     "gmock": "gtest",
     "importlib-metadata": "importlib_metadata",
+    "setuptools-scm": "setuptools_scm",
+    "flit-core": "flit",
+    "fsspec": "filesystem-spec",
+    "prompt-toolkit": "prompt_toolkit",
+    "cached_property": "cached-property",
+    "bs4": "beautifulsoup4",
+    "seaborn-base": "seaborn",
+    "blackd": "black",
 }
 
 def getFeedstockName(pkg):
@@ -195,7 +204,7 @@ def getDependencies(pkg):
     for pattern in ("lib", "gcc", "gxx", "mkl", "glib", "gfortran", "dal(|-devel)$", "r-", "go-"):
         if re.match(pattern, pkg):
             return ()
-    if getFeedstockName(pkg) in ("ninja", "krb5", "conda-build", "llvmdev", "hcc", "clangdev", "conda", "binutils", "cairo", "jack", "gstreamer", "cyrus-sasl", "hdf5", "openjdk", "bazel", "qt", "atk", "fftw", "yasm", "fribidi", "brunsli", "harfbuzz", "mpir", "gdk-pixbuf", "pango", "gtk2", "graphviz", "cudatoolkit"):
+    if getFeedstockName(pkg) in ("ninja", "krb5", "conda-build", "llvmdev", "hcc", "clangdev", "conda", "binutils", "cairo", "jack", "gstreamer", "cyrus-sasl", "hdf5", "openjdk", "bazel", "qt", "atk", "fftw", "yasm", "fribidi", "brunsli", "harfbuzz", "mpir", "gdk-pixbuf", "pango", "gtk2", "graphviz", "cudatoolkit", "sysroot"):
         return ()
 
     # This is a Python 2 library.
@@ -205,8 +214,8 @@ def getDependencies(pkg):
 
     dependencies = set([d.split()[0] for d in packages_by_name[pkg]['depends']])
     if pkg not in noarch_packages and pkg not in ("python_abi", "certifi", "setuptools"):
-        if verbose:
-            print(pkg, getBuildRequirements(pkg))
+        # if verbose:
+            # print(pkg, getBuildRequirements(pkg))
         dependencies.update(getBuildRequirements(pkg))
 
     return sorted(dependencies)
@@ -246,10 +255,10 @@ def _dependsOnPython(pkg):
     if not r:
         return False
 
-    if pkg in ("glib", "python_abi", "certifi", "setuptools"):
+    if pkg in ("glib", "python_abi", "certifi"):
         return False
 
-    if pkg in noarch_packages:
+    if pkg in noarch_packages and pkg not in ("conda", "setuptools"):
         if verbose:
             print(pkg, "is noarch")
     else:
