@@ -1,0 +1,12 @@
+FROM buildpack-deps:20.04
+
+ENV PYSTON_VERSION='2.3.1'
+ENV INSTALLER_VERSION='1.0'
+
+RUN set -eux; \
+    wget https://github.com/pyston/pyston/releases/download/pyston_${PYSTON_VERSION}/PystonConda-${INSTALLER_VERSION}-Linux-x86_64.sh; \
+    bash PystonConda-${INSTALLER_VERSION}-Linux-x86_64.sh -b; \
+    rm PystonConda-${INSTALLER_VERSION}-Linux-x86_64.sh; \
+    /root/pystonconda/bin/conda init
+
+CMD ["/root/pystonconda/bin/python3"]
