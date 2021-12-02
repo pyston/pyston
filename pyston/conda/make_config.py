@@ -75,7 +75,8 @@ def main():
     config_str = open(".ci_support/" + config).read()
     new_config_str = rewrite_config(config_str)
 
-    open(".ci_support/linux-pyston.yaml", 'w').write(new_config_str)
+    with open(".ci_support/linux-pyston.yaml", 'w') as f:
+        f.write(new_config_str)
     print("linux-pyston")
 
 if __name__ == "__main__":

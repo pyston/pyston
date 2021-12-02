@@ -1,0 +1,201 @@
+import os
+import shutil
+import subprocess
+import sys
+
+def findFeedstockCommitForVersion(directory, version):
+    if version == "latest":
+        return "origin/master"
+
+    i = 0
+    while True:
+        commit = "origin/master~%d" % i
+        s = subprocess.check_output(["git", "show", "%s:recipe/meta.yaml" % commit], cwd=directory).decode("utf8")
+        print("Trying %s:" % commit, s.split('\n')[0])
+        if 'version = "%s' % version in s:
+            return commit
+        i += 1
+
+def getCherryPicks(feedstock, version):
+    if feedstock == "numpy":
+        if version.startswith("1.18"):
+            return ("046882736", "6b1da6d7e", "4b48d8bb8", "672ca6f0d")
+        if version.startswith("1.19"):
+            return ("6b1da6d7e", "4b48d8bb8", "672ca6f0d")
+        return ()
+
+    return ()
+
+def getRecipeSedCommands(feedstock, version):
+    if feedstock == "python-rapidjson":
+        return ('s/pytest tests/pytest tests --ignore=tests\/test_memory_leaks.py --ignore=tests\/test_circular.py/g',)
+
+    if feedstock == "numpy":
+        return ('s/_not_a_real_test/test_for_reference_leak or test_api_importable/g',)
+
+    if feedstock == "implicit":
+        # The build step here implicitly does a `pip install numpy scipy`.
+        # For CPython this will download a pre-built wheel from pypi, but
+        # for Pyston it will try to recompile both of these packages.
+        # But the meta.yaml doesn't include all the dependencies of
+        # building scipy, specifically a fortran compiler, so we have to add it:
+        return ("s/        - {{ compiler('cxx') }}/        - {{ compiler('cxx') }}\n        - {{ compiler('fortran') }}/",)
+
+    if feedstock == "pyqt":
+        return ("s@      - patches/qt5_dll.diff@      - patches/qt5_dll.diff\n      - pyston.patch@",)
+
+    if feedstock == "scikit-build":
+        return ("s/not test_fortran_compiler/not test_fortran_compiler and not test_get_python_version/",)
+
+    if feedstock == "conda-package-handling":
+        # Not sure why the sha mismatches, I think they must have uploaded a new version
+        return ("s/2a7cc4dc892d3581764710e869d36088291de86c7ebe0375c830a2910ef54bb6/6c01527200c9d9de18e64d2006cc97f9813707a34f3cb55bca2852ff4b06fb8d/",)
+
+    if feedstock == "python-libarchive-c":
+        # Not sure why the sha mismatches, I think they must have uploaded a new version
+        return ("s/bef034fbc403feacc4d28e71520eff6a1fcc4a677f0bec5324f68ea084c8c103/1223ef47b1547a34eeaca529ef511a8593fecaf7054cb46e62775d8ccc1a6e5c/",)
+
+    if feedstock == "ipython":
+        # ipython has a circular dependency via ipykernel,
+        # but they have this flag presumably for this exact problem:
+        return ("s/set migrating = False/set migrating = True/",)
+
+    if feedstock == "gobject-introspection":
+        # This feedstock lists a "downstream" test, which it will try to run
+        # after this package is built.
+        # Installing this dependent package will fail because we haven't built it yet;
+        # conda is supposed to be able to recognize this and skip the tests, but it
+        # it doesn't and instead fails.
+        return ("/pygobject/d",)
+
+    if feedstock == "ipykernel":
+        # ipykernel depends on ipyparallel for testing, but
+        # ipyparallel depends on ipykernel
+        return ("/- ipyparallel/d",)
+
+        # It's missing this dependency:
+        # return ("/ipython_genutils/d" recipe/meta.yaml
+        # return ("s/  host:/  host:\n    - ipython_genutils/" recipe/meta.yaml
+        # return ("s/  run:/  run:\n    - ipython_genutils/" recipe/meta.yaml
+        # return ("/debugpy/d" recipe/meta.yaml
+        # return ("s/  host:/  host:\n    - debugpy >=1,<2.0/" recipe/meta.yaml
+        # return ("s/  run:/  run:\n    - debugpy >=1,<2.0/" recipe/meta.yaml
+
+    if feedstock == "nose":
+        # Nose uses the setuptools "use_2to3" flag, which was removed in setuptools 58.0.0:
+        return ('s/  host:/  host:\n    - setuptools <58/',)
+
+    if feedstock == "jinja2-time":
+        # This old package doesn't work with newer versions of arrow:
+        return ('s/- arrow$/- arrow <0.14.5/',)
+
+    if feedstock == "binaryornot":
+        # This old package doesn't work with newer versions of hypothesis:
+        return ('s/- hypothesis$/- hypothesis <4.0/',)
+        # Though this doesn't work because apparently earlier versions of hypothesis are py27 only?
+        # Though we don't actually need to build this feedstock because it became noarch
+
+    if feedstock == "numba":
+        # We have to disable some tests. They have some tracemalloc tests, and a test
+        # that checks that shared libraries have "cpython" in the name.
+        # They use unittest and I couldn't figure out how to disable them via the test runner
+        return ("s/  sha256: {{ sha256 }}/  sha256: {{ sha256 }}\n  patches:\n    - pyston.patch/",)
+
+    if feedstock == "cython":
+        # we need to apply our memory corruption fix for cython #4200
+        return (
+                "s/number: 1/number: 2\n  string: 2_pyston/g", # increment build number and add _pyston suffix so we know it's the fixed version 
+                "s@    - patches/pypy37-eval.patch@    - patches/pypy37-eval.patch\n    - pyston.patch@",)
+
+    if feedstock == "vim":
+        return ("/source:/a \  patches:\n    - pyston.patch",)
+
+    if feedstock == "torchvision":
+        assert version == "0.10.1", "other versions unsupported currently"
+        r = []
+        # torchvision 0.10.1 has a few test failures when run against pytorch 1.10 (all pass against 1.09)
+        # disable this tests
+        for t in ("test_distributed_sampler_and_uniform_clip_sampler", "test_random_clip_sampler" \
+            "test_random_clip_sampler_unequal", "test_uniform_clip_sampler",  \
+            "test_uniform_clip_sampler_insufficient_clips", "test_video_clips", "test_equalize[cpu]", \
+            "test_read_timestamps", "test_read_timestamps_from_packet", "test_read_timestamps_pts_unit_sec", \
+            "test_read_video_pts_unit_sec", "test_write_read_video", "test_write_video_with_audio", "test_compose"):
+            r.append("/test_url_is_accessible\" %}/a \        {% set tests_to_skip = tests_to_skip + \" or ${t}\" %}")
+        return r
+
+    return ()
+
+def getSedCommands(feedstock, version):
+    recipe_cmds = getRecipeSedCommands(feedstock, version)
+    r = [("recipe/meta.yaml", cmd) for cmd in recipe_cmds]
+
+    if feedstock == "implicit":
+        # I don't understand exactly why, but it seems like you can't install
+        # both a fortran compiler and gcc 7. So update the configs to use gcc 9
+        r.append((".ci_support/*.yaml", "s/'7'/'9'/"))
+
+    if feedstock == "ipykernel":
+        # We have to remove some of the tests that would call into it:
+        # master:
+        # sed -i 's/pytest_args += \[$/pytest_args += \["--ignore=" + os.path.dirname(loader.path) + "\/test_pickleutil.py",/' recipe/run_test.py
+        r.append(("recipe/run_test.py", 's/print("Final pytest args:", pytest_args)/pytest_args += \["--ignore=" + os.path.dirname(loader.path) + "\/test_pickleutil.py"\]\nprint("Final pytest args:", pytest_args)/'))
+
+    return r
+
+def buildFeedstock(feedstock, version="latest", do_upload=False):
+    sed_commands = getSedCommands(feedstock, version)
+
+    if not os.path.exists(feedstock + "-feedstock"):
+        subprocess.check_call(["git", "clone", "https://github.com/conda-forge/%s-feedstock.git" % feedstock])
+
+    dir = "%s-feedstock" % feedstock
+
+    subprocess.check_call(["git", "reset", "--hard"], cwd=dir)
+    subprocess.check_call(["git", "clean", "-fxd"], cwd=dir)
+    subprocess.check_call(["git", "fetch"], cwd=dir)
+    subprocess.check_call(["git", "checkout", findFeedstockCommitForVersion(dir, version)], cwd=dir)
+
+    for commit in getCherryPicks(feedstock, version):
+        subprocess.check_call(["git", "cherry-pick", commit], cwd=dir)
+
+    # build_steps_script = open(os.path.join(dir, ".scripts/build_steps.sh"))
+    # if "EXTRA_CB_OPTIONS" not in build_steps_scripts or "mambabuild" not in build_steps_scripts:
+        # subprocess.check_call(["conda-smithy", "rerender"], cwd=dir)
+    subprocess.check_call(["conda-smithy", "rerender"], cwd=dir)
+
+    for file, cmd in sed_commands:
+        subprocess.check_call(["sed", "-i", cmd, file], cwd=dir)
+
+    patch_fn = os.path.join(os.path.dirname(__file__), "patches/%s.patch" % feedstock)
+    if os.path.exists(patch_fn):
+        shutil.copyfile(patch_fn, os.path.join(dir, "recipe/pyston.patch"))
+
+    env = dict(os.environ)
+    env["CHANNEL"] = "pyston"
+    config_file = subprocess.check_output(["python3", os.path.join(os.path.dirname(__file__), "make_config.py")], env=env, cwd=dir)
+    config_file = config_file.decode("utf8").strip()
+
+    env = dict(os.environ)
+    env["CONDA_FORGE_DOCKER_RUN_ARGS"] = "-e EXTRA_CB_OPTIONS --rm"
+    env["EXTRA_CB_OPTIONS"] = "-c pyston"
+    subprocess.check_call(["python3", "build-locally.py", config_file], cwd=dir, env=env)
+
+    if do_upload:
+        subprocess.check_call("anaconda upload -u pyston build_artifacts/linux-64/*.tar.bz2", cwd=dir, shell=True)
+        shutil.rmtree(os.path.join(dir, "build_artifacts"))
+
+if __name__ == "__main__":
+    subprocess.check_call(["which", "anaconda"])
+
+    feedstock = sys.argv[1]
+
+    do_upload = False
+    if "--upload" in sys.argv:
+        do_upload = True
+        sys.argv.remove("--upload")
+
+    version = "latest"
+    if len(sys.argv) >= 3:
+        version = sys.argv[2]
+
+    buildFeedstock(feedstock, version, do_upload)
