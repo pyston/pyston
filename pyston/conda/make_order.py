@@ -205,12 +205,11 @@ def getDependencies(pkg):
     for pattern in ("lib", "gcc", "gxx", "mkl", "glib", "gfortran", "dal(|-devel)$", "r-", "go-"):
         if re.match(pattern, pkg):
             return ()
-    if getFeedstockName(pkg) in ("ninja", "krb5", "conda-build", "llvmdev", "hcc", "clangdev", "conda", "binutils", "cairo", "jack", "gstreamer", "cyrus-sasl", "hdf5", "openjdk", "bazel", "qt", "atk", "fftw", "yasm", "fribidi", "brunsli", "harfbuzz", "mpir", "gdk-pixbuf", "pango", "gtk2", "graphviz", "cudatoolkit", "sysroot"):
+    if getFeedstockName(pkg) in ("ninja", "krb5", "conda-build", "llvmdev", "hcc", "clangdev", "conda", "binutils", "cairo", "jack", "gstreamer", "cyrus-sasl", "hdf5", "openjdk", "bazel", "qt", "atk", "fftw", "yasm", "fribidi", "brunsli", "harfbuzz", "mpir", "gdk-pixbuf", "pango", "gtk2", "graphviz", "cudatoolkit", "sysroot", "rust", "blis", "doxygen", "jsoncpp", "mesalib", "mongodb", "yajl"):
         return ()
 
-    # This is a Python 2 library.
-    # The simplistic yaml parsing ignores the "# [py27]" directive
-    if pkg == "futures":
+    # These are old and aren't built for modern versions of Python:
+    if pkg in ("futures", "argparse", "ordereddict"):
         return ()
 
     dependencies = set([d.split()[0] for d in packages_by_name[pkg]['depends']])
