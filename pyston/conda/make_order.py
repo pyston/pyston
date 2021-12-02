@@ -209,7 +209,11 @@ def getDependencies(pkg):
         return ()
 
     # These are old and aren't built for modern versions of Python:
-    if pkg in ("futures", "argparse", "ordereddict"):
+    if pkg in ("futures", "argparse", "ordereddict", "pickle5"):
+        return ()
+
+    # I think these are old and broken:
+    if pkg.startswith("azure-"):
         return ()
 
     dependencies = set([d.split()[0] for d in packages_by_name[pkg]['depends']])

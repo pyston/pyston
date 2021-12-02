@@ -54,6 +54,8 @@ def main():
             continue
         if "pyproj" in cwd and "8.2.0" not in c:
             continue
+        if "paraview" in cwd and "qt" not in c:
+            continue
 
         # Not sure about this, but only build the cpu version of arrow-cpp
         if "arrow-cpp" in cwd:

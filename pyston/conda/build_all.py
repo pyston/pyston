@@ -13,7 +13,7 @@ SRC_DIR = Path(__file__).parent.absolute()
 versions_to_build = {
     "numpy": "1.18.5",
     "protobuf": "1.18.1",
-    "wrapt": "1.21.1",
+    "wrapt": ("1.11.", "1.21.1"), # pynput needs wrapt 1.11.*
     "h5py": "3.1.0",
     "grpcio": "1.40",
     "setuptools": "57.4.0",
@@ -22,7 +22,8 @@ versions_to_build = {
     "astroid": "2.6.6", # <2.7 needed by pylint 2.9.6 needed by spyder
     "spyder-kernels": "2.1.3", # <2.2.0 needed by spyder
     "torchvision": "0.10.1",
-    "pandas", ("latest", "1.2.5"), # 1.2.5 needed by daal4py
+    "pandas": ("latest", "1.2.5"), # 1.2.5 needed by daal4py
+    "keyring": "21.2.1", # 21.2.* needed by poetry
 }
 
 def getVersionsToBuild(feedstock):
