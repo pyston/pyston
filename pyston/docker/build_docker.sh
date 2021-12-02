@@ -12,3 +12,7 @@ docker push pyston/pyston:${BUILD_NAME}
 docker build -t pyston/slim:latest -t pyston/slim:${BUILD_NAME} -f ${DIR}/Dockerfile.slim-bullseye ${DIR}
 docker push pyston/slim:latest
 docker push pyston/slim:${BUILD_NAME}
+
+docker build -t pyston/conda:latest -t pyston/conda:${BUILD_NAME} -f ${DIR}/Dockerfile.conda ${DIR}
+docker push pyston/conda:latest
+docker push pyston/conda:${BUILD_NAME}
