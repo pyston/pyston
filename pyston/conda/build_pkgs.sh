@@ -11,7 +11,14 @@ then
 fi
 mkdir -p ${OUTPUT_DIR}
 
-docker run -iv${PWD}:/pyston_dir:ro -v${OUTPUT_DIR}:/conda_pkgs --env PYSTON_UNOPT_BUILD continuumio/miniconda3 sh -s <<EOF
+OPTIONAL_ARGS=
+if [ "${1:-}" = "--ci-mode" ]
+then
+    # CI is setup to write core dumps into /cores also give the container a name for easy access
+    OPTIONAL_ARGS="-iv/cores:/cores --name pyston_build"
+fi
+
+docker run -iv${PWD}:/pyston_dir:ro -v${OUTPUT_DIR}:/conda_pkgs ${OPTIONAL_ARGS} --env PYSTON_UNOPT_BUILD continuumio/miniconda3 sh -s <<EOF
 set -eux
 
 apt-get update
