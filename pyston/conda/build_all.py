@@ -10,6 +10,28 @@ from pathlib import Path
 
 SRC_DIR = Path(__file__).parent.absolute()
 
+versions_to_build = {
+    "numpy": "1.18.5",
+    "protobuf": "1.18.1",
+    "wrapt": ("1.11.", "1.21.1"), # pynput needs wrapt 1.11.*
+    "h5py": "3.1.0",
+    "grpcio": "1.40",
+    "setuptools": "57.4.0",
+    "pyyaml": "5.4.1",
+    "docutils": "0.15.2",
+    "astroid": "2.6.6", # <2.7 needed by pylint 2.9.6 needed by spyder
+    "spyder-kernels": "2.1.3", # <2.2.0 needed by spyder
+    "torchvision": "0.10.1",
+    "pandas": ("latest", "1.2.5"), # 1.2.5 needed by daal4py
+    "keyring": "21.2.1", # 21.2.* needed by poetry
+}
+
+def getVersionsToBuild(feedstock):
+    r = versions_to_build.get(feedstock, "latest")
+    if isinstance(r, str):
+        return (r,)
+    return r
+
 def splitIntoGroups(order, done_feedstocks, n=2):
     groups = {}
     for feedstock in order:
@@ -149,20 +171,25 @@ def buildAll(order, done, nparallel):
 
     def run():
         while True:
-            next = q.get()
-            if next is None:
+            feedstock = q.get()
+            if feedstock is None:
                 return
 
-            print("Building", next)
+            # TODO: only build versions that weren't already uploaded
+            for version in getVersionsToBuild(feedstock):
+                print("Building", feedstock, version)
 
-            p = subprocess.Popen(["bash", SRC_DIR / "build_and_upload.sh", next], stdout=open("%s.log" % next, "wb"), stderr=subprocess.STDOUT)
-            code = p.wait()
+                p = subprocess.Popen(["python3", SRC_DIR / "build_feedstock.py", feedstock, version, "--upload"], stdout=open("%s.log" % feedstock, "wb"), stderr=subprocess.STDOUT)
+                code = p.wait()
+
+                if code != 0:
+                    break
 
             if code == 0:
-                done.add(next)
+                done.add(feedstock)
             else:
-                failed.add(next)
-            print(next, "finished with code", code)
+                failed.add(feedstock)
+            print(feedstock, "finished with code", code)
             addReady()
 
             if len(done) + len(failed) == len(order):
