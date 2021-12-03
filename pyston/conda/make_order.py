@@ -1,3 +1,4 @@
+import itertools
 import json
 import os
 import pickle
@@ -26,6 +27,7 @@ _feedstock_overrides = {
     "cross-r-base": "r-base",
     "tensorflow-base": "tensorflow",
     "tensorflow-cpu": "tensorflow",
+    "tensorflow-gpu": "tensorflow",
     "tensorflow-estimator": "tensorflow",
     "libtensorflow": "tensorflow",
     "libtensorflow_cc": "tensorflow",
@@ -114,6 +116,14 @@ _feedstock_overrides = {
     "cf-units": "cf_units",
     "gmock": "gtest",
     "importlib-metadata": "importlib_metadata",
+    "setuptools-scm": "setuptools_scm",
+    "flit-core": "flit",
+    "fsspec": "filesystem-spec",
+    "prompt-toolkit": "prompt_toolkit",
+    "cached_property": "cached-property",
+    "bs4": "beautifulsoup4",
+    "seaborn-base": "seaborn",
+    "blackd": "black",
 }
 
 def getFeedstockName(pkg):
@@ -195,18 +205,17 @@ def getDependencies(pkg):
     for pattern in ("lib", "gcc", "gxx", "mkl", "glib", "gfortran", "dal(|-devel)$", "r-", "go-"):
         if re.match(pattern, pkg):
             return ()
-    if getFeedstockName(pkg) in ("ninja", "krb5", "conda-build", "llvmdev", "hcc", "clangdev", "conda", "binutils", "cairo", "jack", "gstreamer", "cyrus-sasl", "hdf5", "openjdk", "bazel", "qt", "atk", "fftw", "yasm", "fribidi", "brunsli", "harfbuzz", "mpir", "gdk-pixbuf", "pango", "gtk2", "graphviz", "cudatoolkit"):
+    if getFeedstockName(pkg) in ("ninja", "krb5", "conda-build", "llvmdev", "hcc", "clangdev", "conda", "binutils", "cairo", "jack", "gstreamer", "cyrus-sasl", "hdf5", "openjdk", "bazel", "qt", "atk", "fftw", "yasm", "fribidi", "brunsli", "harfbuzz", "mpir", "gdk-pixbuf", "pango", "gtk2", "graphviz", "cudatoolkit", "sysroot", "rust", "blis", "doxygen", "jsoncpp", "mesalib", "mongodb", "yajl"):
         return ()
 
-    # This is a Python 2 library.
-    # The simplistic yaml parsing ignores the "# [py27]" directive
-    if pkg == "futures":
+    # These are old and aren't built for modern versions of Python:
+    if pkg in ("futures", "argparse", "ordereddict"):
         return ()
 
     dependencies = set([d.split()[0] for d in packages_by_name[pkg]['depends']])
     if pkg not in noarch_packages and pkg not in ("python_abi", "certifi", "setuptools"):
-        if verbose:
-            print(pkg, getBuildRequirements(pkg))
+        # if verbose:
+            # print(pkg, getBuildRequirements(pkg))
         dependencies.update(getBuildRequirements(pkg))
 
     return sorted(dependencies)
@@ -234,27 +243,29 @@ def _dependsOnPython(pkg):
 
     _depends_on_python[pkg] = r
 
-    f_deps = feedstock_dependencies.setdefault(getFeedstockName(pkg), set())
+    feedstock = getFeedstockName(pkg)
+    f_deps = feedstock_dependencies.setdefault(feedstock, set())
     for d in dependencies:
         dfn = getFeedstockName(d)
         f_deps.add(dfn)
         f_deps.update(feedstock_dependencies.get(dfn, ()))
+    if feedstock in f_deps:
+        f_deps.remove(feedstock)
 
     if not r:
         return False
 
-    if pkg in ("glib", "python_abi", "certifi", "setuptools"):
+    if pkg in ("glib", "python_abi", "certifi"):
         return False
 
-    if pkg in noarch_packages:
+    if pkg in noarch_packages and pkg not in ("conda", "setuptools"):
         if verbose:
             print(pkg, "is noarch")
     else:
-        name = getFeedstockName(pkg)
-        if name not in feedstock_order:
+        if feedstock not in feedstock_order:
             if verbose:
-                print(name)
-            feedstock_order.append(name)
+                print(feedstock)
+            feedstock_order.append(feedstock)
 
     return r
 
@@ -296,17 +307,15 @@ def getFeedstockOrder(targets):
         data = json.load(open(repodata_fn))
         data_noarch = json.load(open(repodata_noarch_fn))
 
-        for k, v in data["packages"].items():
-            packages_by_name[v['name']] = v
-
-        for k, v in data_noarch["packages"].items():
+        for k, v in itertools.chain(data["packages"].items(), data_noarch["packages"].items()):
             if "pypy" in k:
                 continue
 
-            binary_package = packages_by_name.get(v['name'], None)
-            if not binary_package or versionIsAtLeast(v['version'], binary_package['version']):
+            existing_package = packages_by_name.get(v['name'], None)
+            if not existing_package or versionIsAtLeast(v['version'], existing_package['version']):
                 packages_by_name[v['name']] = v
-                noarch_packages.add(v['name'])
+                if k in data_noarch["packages"]:
+                    noarch_packages.add(v['name'])
 
         pickle.dump((packages_by_name, noarch_packages), open("_repo.pkl", "wb"))
         os.rename("_repo.pkl", "repo.pkl")
