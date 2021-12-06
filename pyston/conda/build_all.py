@@ -11,11 +11,15 @@ from pathlib import Path
 SRC_DIR = Path(__file__).parent.absolute()
 
 versions_to_build = {
-    "numpy": "1.18.5",
-    "protobuf": "1.18.1",
-    "wrapt": ("1.11.", "1.21.1"), # pynput needs wrapt 1.11.*
+    "numpy": ("1.18.1", "1.18.4", "1.18.5", "1.19.0", "1.19.1", "1.19.2", "1.19.4", "1.19.5", "1.20.0", "1.20.1", "1.20.2", "1.20.3", "1.21.0", "1.21.1", "1.21.2", "1.21.3", "1.21.4"),
+    "tensorflow": ("2.4.3", "2.6.2"),
+    "pytorch-cpu": ("1.8.0", "1.9.1", "1.10.0"),
+    "pandas": ("1.3.4", "1.3.3", "1.3.2", "1.3.1", "1.3.0", "1.2.5", "1.2.4", "1.2.3", "1.2.2", "1.2.1", "1.2.0", "1.1.5"),
+
+    "protobuf": ("3.16.0", "3.18.1"),
+    "wrapt": ("1.11.2", "1.12.1"), # pynput needs wrapt 1.11.*
     "h5py": "3.1.0",
-    "grpcio": "1.40",
+    "grpcio": "1.40.0",
     "setuptools": "57.4.0",
     "pyyaml": "5.4.1",
     "docutils": "0.15.2",
@@ -24,6 +28,7 @@ versions_to_build = {
     "torchvision": "0.10.1",
     "pandas": ("latest", "1.2.5"), # 1.2.5 needed by daal4py
     "keyring": "21.2.1", # 21.2.* needed by poetry
+    "httpstan": "4.5.0", # 4.5.0 needed by pystan
 }
 
 def getVersionsToBuild(feedstock):
@@ -136,38 +141,50 @@ def splitIntoGroups(order, done_feedstocks, n=2):
         print()
 
 def buildAll(order, done, nparallel):
-    added = set(done)
+    added = set()
     done = set(done)
     failed = set()
 
+    for feedstock in order:
+        need_to_build = False
+        for version in getVersionsToBuild(feedstock):
+            if (feedstock, version) in done or (version == "latest" and feedstock in done):
+                continue
+            need_to_build = True
+            break
+        if not need_to_build:
+            added.add(feedstock)
     q = queue.Queue()
-    done_ev = threading.Event()
+    nidle = 0
+
+    l = threading.Lock()
     def addReady():
-        for f in order:
-            if f in added:
-                continue
-
-            ready = True
-            for d in getFeedstockDependencies(f):
-                if d not in order:
+        with l:
+            for f in order:
+                if f in added:
                     continue
-                if d in failed:
-                    print(f, "can't be built because", d, "failed")
-                    failed.add(f)
-                    added.add(f)
-                    ready = False
-                    break
 
-                if d not in done:
-                    ready = False
-                    break
+                ready = True
+                for d in getFeedstockDependencies(f):
+                    if d not in order:
+                        continue
+                    if d in failed:
+                        print(f, "can't be built because", d, "failed")
+                        failed.add(f)
+                        added.add(f)
+                        ready = False
+                        break
 
-            if not ready:
-                continue
+                    if d not in done:
+                        ready = False
+                        break
 
-            print(f, "is ready to build, adding to queue")
-            added.add(f)
-            q.put(f)
+                if not ready:
+                    continue
+
+                print(f, "is ready to build, adding to queue")
+                added.add(f)
+                q.put(f)
 
     def run():
         while True:
@@ -175,8 +192,12 @@ def buildAll(order, done, nparallel):
             if feedstock is None:
                 return
 
-            # TODO: only build versions that weren't already uploaded
+            built_any = False
             for version in getVersionsToBuild(feedstock):
+                if (feedstock, version) in done or (version == "latest" and feedstock in done):
+                    continue
+
+                built_any = True
                 print("Building", feedstock, version)
 
                 p = subprocess.Popen(["python3", SRC_DIR / "build_feedstock.py", feedstock, version, "--upload"], stdout=open("%s.log" % feedstock, "wb"), stderr=subprocess.STDOUT)
@@ -185,25 +206,26 @@ def buildAll(order, done, nparallel):
                 if code != 0:
                     break
 
-            if code == 0:
-                done.add(feedstock)
-            else:
-                failed.add(feedstock)
-            print(feedstock, "finished with code", code)
-            addReady()
+                done.add((feedstock, version))
 
-            if len(done) + len(failed) == len(order):
-                for i in range(nparallel):
-                    q.put(None)
-                done_ev.set()
-                return
+            if built_any:
+                if code == 0:
+                    done.add(feedstock)
+                else:
+                    failed.add(feedstock)
+                print(feedstock, "finished with code", code)
+                addReady()
+
+            q.task_done()
 
     addReady()
     for i in range(nparallel):
         t = threading.Thread(target=run)
         t.start()
 
-    done_ev.wait()
+    q.join()
+    for i in range(nparallel):
+        q.put(None)
 
 def main():
     channel = "pyston"
@@ -215,7 +237,10 @@ def main():
     for l in search_output.split('\n')[2:]:
         if not l:
             continue
-        done_feedstocks.add(getFeedstockName(l.split()[0]))
+        feedstock = getFeedstockName(l.split()[0])
+        version = l.split()[1]
+        done_feedstocks.add((feedstock, version))
+        done_feedstocks.add(feedstock)
 
     topn = int(os.environ.get("TOPN", "500"))
     targets = []
@@ -253,16 +278,6 @@ def main():
     if "--split" in sys.argv:
         splitIntoGroups(order, done_feedstocks, 2)
         sys.exit()
-
-    if "--build" in sys.argv:
-        for feedstock in order:
-            if feedstock in done_feedstocks:
-                print("Already built", feedstock)
-                continue
-
-            print("Building", feedstock)
-
-            subprocess.check_call(["bash", SRC_DIR / "build_and_upload.sh", feedstock])
 
     if "--parallel-build" in sys.argv:
         buildAll(order, done_feedstocks, nparallel=4)
