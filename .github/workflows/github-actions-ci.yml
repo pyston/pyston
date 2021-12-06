@@ -19,10 +19,36 @@ jobs:
         env:
           PYSTON_UNOPT_BUILD: ${{ matrix.PYSTON_UNOPT_BUILD }}
         run: |
-          pyston/conda/build_pkgs.sh
+          # enable core dumps
+          ulimit -c unlimited
+          sudo mkdir -p /cores
+          sudo chmod a+rwx /cores
+          echo "/cores/corefile-%e-%p-%t" | sudo tee /proc/sys/kernel/core_pattern
+
+          pyston/conda/build_pkgs.sh --ci-mode
       - name: Archive packages
         uses: actions/upload-artifact@v2
         with:
           name: packages-${{ matrix.build }}
           path: |
             release/conda_pkgs/
+
+      # core dump handling steps in case of failure
+      - name: Core dump - add conda build directory
+        if: ${{ failure() }}
+        run: |
+          # if we find a core dump copy in conda build directory as archive
+          if [ "$(ls -A /cores)" ]; then
+            docker cp pyston_build:/opt/conda/conda-bld /tmp/conda-bld
+            tar -C /tmp/ -czf /cores/conda-bld.tar.gz conda-bld/
+          fi
+          sudo chmod -R a+rwx /cores
+          sudo chown -R $USER:$USER /cores
+      - name: Core dump - upload
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v2
+        with:
+          name: core-dump-${{ matrix.build }}
+          path: /cores/
+          if-no-files-found: ignore
+
