@@ -205,7 +205,7 @@ def getDependencies(pkg):
     for pattern in ("lib", "gcc", "gxx", "mkl", "glib", "gfortran", "dal(|-devel)$", "r-", "go-"):
         if re.match(pattern, pkg):
             return ()
-    if getFeedstockName(pkg) in ("ninja", "krb5", "conda-build", "llvmdev", "hcc", "clangdev", "conda", "binutils", "cairo", "jack", "gstreamer", "cyrus-sasl", "hdf5", "openjdk", "bazel", "qt", "atk", "fftw", "yasm", "fribidi", "brunsli", "harfbuzz", "mpir", "gdk-pixbuf", "pango", "gtk2", "graphviz", "cudatoolkit", "sysroot", "rust", "blis", "doxygen", "jsoncpp", "mesalib", "mongodb", "yajl"):
+    if getFeedstockName(pkg) in ("ninja", "krb5", "llvmdev", "hcc", "clangdev", "conda", "binutils", "cairo", "jack", "gstreamer", "cyrus-sasl", "hdf5", "openjdk", "bazel", "qt", "atk", "fftw", "yasm", "fribidi", "brunsli", "harfbuzz", "mpir", "gdk-pixbuf", "pango", "gtk2", "graphviz", "cudatoolkit", "sysroot", "rust", "blis", "doxygen", "jsoncpp", "mesalib", "mongodb", "yajl"):
         return ()
 
     # These are old and aren't built for modern versions of Python:
