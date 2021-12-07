@@ -146,12 +146,9 @@ cp -r ${OUTDIR}/lib/* ${PREFIX}/lib/
 # remove pip
 rm -r ${PREFIX}/lib/python${VER}/site-packages/pip*
 
-# remove pystons site-packages directory and replace it with a symlink to cpythons default site-packages directory
-# we copy in our site-package/README.txt and package it to make sure the directory get's created.
-mkdir -p ${PREFIX}/lib/python${PYTHON_VERSION2}/site-packages || true
-cp ${PREFIX}/lib/python${VER}/site-packages/README.txt ${PREFIX}/lib/python${PYTHON_VERSION2}/site-packages
-rm -r ${PREFIX}/lib/python${VER}/site-packages
-ln -s ${PREFIX}/lib/python${PYTHON_VERSION2}/site-packages/ ${PREFIX}/lib/python${VER}/site-packages
+# Conda looks in the default location for libraries, which is something like lib/python3.8/
+# Symlink this directory to point to lib/python3.8-pyston2.3/
+ln -s ${PREFIX}/lib/python${VER}/ ${PREFIX}/lib/python${PYTHON_VERSION2}
 
 #########################################################################################
 # Following code is mostly copied from the cpython recipe with some changes
