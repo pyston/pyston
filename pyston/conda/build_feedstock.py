@@ -8,6 +8,7 @@ def findFeedstockCommitForVersion(directory, version):
         return "origin/master"
 
     i = 0
+    print("Finding the feedstock commit for version %s" % version)
     while True:
         commit = "origin/master~%d" % i
         s = subprocess.check_output(["git", "show", "%s:recipe/meta.yaml" % commit], cwd=directory).decode("utf8")
@@ -18,11 +19,7 @@ def findFeedstockCommitForVersion(directory, version):
 
 def getCherryPicks(feedstock, version):
     if feedstock == "numpy":
-        if version.startswith("1.18"):
-            return ("046882736", "6b1da6d7e", "4b48d8bb8", "672ca6f0d")
-        if version.startswith("1.19"):
-            return ("6b1da6d7e", "4b48d8bb8", "672ca6f0d")
-        return ()
+        return ("046882736", "6b1da6d7e", "4b48d8bb8", "672ca6f0d")
 
     return ()
 
@@ -156,7 +153,12 @@ def buildFeedstock(feedstock, version="latest", do_upload=False):
     subprocess.check_call(["git", "checkout", findFeedstockCommitForVersion(dir, version)], cwd=dir)
 
     for commit in getCherryPicks(feedstock, version):
-        subprocess.check_call(["git", "cherry-pick", commit], cwd=dir)
+        already_is_ancestor = (subprocess.call(["git", "merge-base", "--is-ancestor", commit, "HEAD"], cwd=dir) == 0)
+        if not already_is_ancestor:
+            print("Cherry-picking", commit)
+            subprocess.check_call(["git", "cherry-pick", commit], cwd=dir)
+        else:
+            print("Skipping cherry-pick of", commit)
 
     # build_steps_script = open(os.path.join(dir, ".scripts/build_steps.sh"))
     # if "EXTRA_CB_OPTIONS" not in build_steps_scripts or "mambabuild" not in build_steps_scripts:
