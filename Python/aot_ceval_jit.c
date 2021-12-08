@@ -75,6 +75,10 @@
 #include "setobject.h"
 #include "structmember.h"
 
+#include "../Python/nan_boxing.h"
+
+#include "aot.h"
+
 // enable runtime checks to catch jit compiler bugs
 //#define JIT_DEBUG 1
 
@@ -145,6 +149,7 @@ typedef struct Jit {
     const _Py_CODEUNIT *first_instr;
 
     char* is_jmp_target; // need to be free()d
+    int should_nan_box;
 
     // this keeps track of which fast local variable we know are set (!= 0)
     // if we don't know if they are set or if they are 0 is defined will be 0
@@ -178,7 +183,7 @@ struct PerfMapEntry {
     long func_size;
 } *perf_map_funcs;
 
-static int jit_use_aot = 1;
+static int jit_use_aot = 1, jit_use_nan_boxing = 1;
 
 static PyObject* cmp_outcomePyCmp_IS(PyObject *v, PyObject *w) {
   return cmp_outcome(NULL, PyCmp_IS, v, w);
@@ -743,6 +748,13 @@ static void emit_inc_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
 }
 
 static void emit_incref(Jit* Dst, int r_idx) {
+    if (Dst->should_nan_box) {
+        // don't incref if !tagIsPtr(r_idx)
+        | mov r10, Rq(r_idx)
+        | shr r10, 49
+        | jne >7
+    }
+
     _Static_assert(offsetof(PyObject, ob_refcnt) == 0,  "add needs to be modified");
 #ifdef Py_REF_DEBUG
     // calling code assumes that we are not modifying tmp_reg
@@ -750,6 +762,8 @@ static void emit_incref(Jit* Dst, int r_idx) {
     emit_inc_qword_ptr(Dst, &_Py_RefTotal, 0 /*=can't use tmp_reg*/);
 #endif
     | inc qword [Rq(r_idx)]
+
+    |7:
 }
 
 static void emit_if_res_0_error(Jit* Dst) {
@@ -863,6 +877,13 @@ static void emit_decref(Jit* Dst, int r_idx, int preserve_res) {
 #ifdef Py_REF_DEBUG
     emit_dec_qword_ptr(Dst, &_Py_RefTotal, 1 /* can_use_tmp_reg  */);
 #endif
+    if (Dst->should_nan_box) {
+        // don't decref if !tagIsPtr(r_idx)
+        | mov r10, Rq(r_idx)
+        | shr r10, 49
+        | jne >7
+    }
+
     | dec qword [Rq(r_idx)]
 
     // normally we emit the dealloc call into the cold section but if we are already inside it
@@ -899,6 +920,7 @@ static void emit_decref(Jit* Dst, int r_idx, int preserve_res) {
         switch_section(Dst, SECTION_CODE);
         |8:
     }
+    |7:
 }
 
 static void emit_xdecref_arg1(Jit* Dst) {
@@ -1054,6 +1076,19 @@ static void deferred_vs_emit(Jit* Dst) {
                 JIT_ASSERT(0, "entry->loc not implemented");
             }
         }
+        if (Dst->should_nan_box) {
+            // box the tagged values written to the value stack
+            // this makes CALL_FUNCTION work
+            // TODO: this is just a hack, we should instead find all callsites
+            // where nan boxed values are used and replace them with boxed values.
+            | push arg1
+            | push arg2
+            | mov arg1, vsp
+            emit_mov_imm(Dst, arg2_idx, Dst->deferred_vs_next);
+            emit_call_ext_func(Dst, (void*)tagBoxArray);
+            | pop arg2
+            | pop arg1
+        }
         emit_adjust_vs(Dst, Dst->deferred_vs_next);
     }
 }
@@ -1116,8 +1151,14 @@ static RefStatus deferred_vs_peek(Jit* Dst, int r_idx, int num) {
         DeferredValueStackEntry* entry = &Dst->deferred_vs[idx];
         if (entry->loc == CONST) {
             PyObject* obj = PyTuple_GET_ITEM(Dst->co_consts, entry->val);
-            emit_mov_imm(Dst, r_idx, (unsigned long)obj);
             ref_status = is_immortal(obj) ? IMMORTAL : BORROWED;
+            if (Dst->should_nan_box) {
+                TaggedPointer tag = tagUnbox(obj);
+                if (tag != obj) // nan boxing worked
+                    ref_status = IMMORTAL;
+                obj = tag;
+            }
+            emit_mov_imm(Dst, r_idx, (unsigned long)obj);
         } else if (entry->loc == FAST) {
             | mov Rq(r_idx), [f + get_fastlocal_offset(entry->val)]
             ref_status = BORROWED;
@@ -1847,6 +1888,11 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     dasm_growpc(Dst,  Dst->num_opcodes + 1);
 
     jit.is_jmp_target = calculate_jmp_targets(Dst);
+    jit.should_nan_box = 0;
+    // for now only use nan boxing if the func name starts with "nan_"
+    if (jit_use_nan_boxing && strncmp(PyUnicode_AsUTF8(co->co_name), "nan_", 4) == 0) {
+        jit.should_nan_box = 1;
+    }
 
     jit.known_defined = (char*)malloc(co->co_nlocals);
     const int funcs_args_are_always_defined = check_func_args_never_deleted(Dst);
@@ -2097,6 +2143,10 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         case RETURN_VALUE:
             deferred_vs_pop1_owned(Dst, res_idx);
             deferred_vs_apply(Dst);
+            if (Dst->should_nan_box) {
+                | mov arg1, res
+                emit_call_ext_func(Dst, (void*)tagBox);
+            }
             | jmp ->return
             break;
 
@@ -2133,23 +2183,49 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         case BINARY_SUBSCR:
         {
             RefStatus ref_status[2];
+            int applied = 0;
+            if ((opcode == BINARY_SUBSCR || opcode == INPLACE_ADD || opcode == INPLACE_SUBTRACT) && Dst->should_nan_box) {
+                // HACK: not implemented yet just convert them to boxed values for now
+                deferred_vs_apply(Dst);
+                applied = 1;
+            }
 
             PyObject* const_val = deferred_vs_peek_const(Dst);
             deferred_vs_pop2(Dst, arg2_idx, arg1_idx, ref_status);
             deferred_vs_convert_reg_to_stack(Dst);
 
-            void* func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
-            if (opcode == BINARY_SUBSCR && const_val && PyLong_CheckExact(const_val)) {
-                Py_ssize_t n = PyLong_AsSsize_t(const_val);
-
-                if (n == -1 && PyErr_Occurred()) {
-                    PyErr_Clear();
-                } else {
-                    func = jit_use_aot ? PyObject_GetItemLongProfile : PyObject_GetItemLong;
-                    emit_mov_imm(Dst, arg3_idx, n);
-                }
+            void* func = NULL;
+            int nan_boxing_supported = 0;
+            if (!applied && Dst->should_nan_box) {
+                nan_boxing_supported = opcode == BINARY_ADD || opcode == BINARY_MULTIPLY || opcode == BINARY_SUBTRACT || opcode == BINARY_POWER;
             }
 
+            if (nan_boxing_supported) {
+                if (opcode == BINARY_ADD)
+                    func = (void*)tagAddProfile;
+                else if (opcode == BINARY_MULTIPLY)
+                    func = (void*)tagMulProfile;
+                else if (opcode == BINARY_SUBTRACT)
+                    func = (void*)tagSubProfile;
+                else if (opcode == BINARY_POWER)
+                    func = (void*)tagPow;
+            } else {
+                if (Dst->should_nan_box && !applied) {
+                    fprintf(stderr, "unsupported unboxed operation %ld\n", opcode);
+                    abort();
+                }
+                func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
+                if (opcode == BINARY_SUBSCR && const_val && PyLong_CheckExact(const_val)) {
+                    Py_ssize_t n = PyLong_AsSsize_t(const_val);
+
+                    if (n == -1 && PyErr_Occurred()) {
+                        PyErr_Clear();
+                    } else {
+                        func = jit_use_aot ? PyObject_GetItemLongProfile : PyObject_GetItemLong;
+                        emit_mov_imm(Dst, arg3_idx, n);
+                    }
+                }
+            }
             emit_call_decref_args2(Dst, func, arg2_idx, arg1_idx, ref_status);
             emit_if_res_0_error(Dst);
             deferred_vs_push(Dst, REGISTER, res_idx);
@@ -2250,7 +2326,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         }
 
         case STORE_SUBSCR:
-            if (Dst->deferred_vs_next >= 3) {
+            if (!Dst->should_nan_box && Dst->deferred_vs_next >= 3) {
                 RefStatus ref_status[3];
                 deferred_vs_pop3(Dst, arg2_idx, arg1_idx, arg3_idx, ref_status);
                 deferred_vs_convert_reg_to_stack(Dst);
@@ -2415,7 +2491,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
         case BUILD_TUPLE:
             // empty tuple optimization
-            if (oparg == 0) {
+            if (!Dst->should_nan_box && oparg == 0) {
                 // todo: handle during bytecode generation
                 PyObject* empty_tuple = PyTuple_New(0);
                 deferred_vs_convert_reg_to_stack(Dst);
@@ -2781,6 +2857,14 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                     // res == 0 means error
                     // res == 1 means execute next opcode (=fallthrough)
                     emit_if_res_0_error(Dst);
+                    if (opcode == UNPACK_SEQUENCE && Dst->should_nan_box) {
+                        // hack: unbox UNPACK_SEQUENCE
+                        | mov tmp_preserved_reg, res
+                        | lea arg1, [vsp - (oparg  * 8)]
+                        emit_mov_imm(Dst, arg2_idx, oparg);
+                        emit_call_ext_func(Dst, (void*)tagUnboxArray);
+                        | mov res, tmp_preserved_reg
+                    }
                     break;
             }
         }
@@ -2941,6 +3025,13 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     emit_mov_imm(Dst, vs_preserved_reg_idx, 0);
     for (int i=0; i<Dst->num_deferred_stack_slots; ++i) {
         | mov qword [rsp + (NUM_MANUAL_STACK_SLOTS + i) * 8], 0
+    }
+
+    if (Dst->should_nan_box && Dst->co->co_argcount) {
+        // we need to unbox nan values to get any perf improvement
+        | lea arg1, [f + offsetof(PyFrameObject, f_localsplus)]
+        emit_mov_imm(Dst, arg2_idx, Dst->co->co_argcount);
+        emit_call_ext_func(Dst, (void*)tagUnboxArray);
     }
 
     // jumps either to first opcode implementation or resumes a generator
@@ -3106,6 +3197,11 @@ void jit_start() {
     if (val) {
         jit_use_aot = atoi(val);
     }
+
+    val = getenv("JIT_USE_NAN_BOXING");
+    if (val) {
+        jit_use_nan_boxing = atoi(val);
+    }
 }
 
 void jit_finish() {
@@ -3142,3 +3238,5 @@ void jit_finish() {
     if (perf_map_opcode_map)
         fclose(perf_map_opcode_map);
 }
+
+

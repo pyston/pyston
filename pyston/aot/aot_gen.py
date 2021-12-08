@@ -367,7 +367,6 @@ class CallableHandler(Handler):
             pass_args = ", ".join(self._args_names())
             print(f"{self._get_func_sig(name)}", "{", file=f)
             print(f"  if (unlikely(oparg != {nargs-1}))", "{" , file=f)
-            
             # CALL_METHOD can call the function with a different number of args
             # depending if LOAD_METHOD returned true or false which means we need
             # to add this additional guard.
@@ -947,6 +946,17 @@ def trace_all_funcs(only=None):
 
         print(f"//#define DBG(...) printf(__VA_ARGS__)", file=profile_f)
         print(f"#define DBG(...)", file=profile_f)
+
+
+        tag_box_array = """
+        // we declare it here because only clang knows about preserve_most
+        PyObject* tagBox(PyObject* tag);
+        __attribute__((preserve_most)) void tagBoxArray(PyObject** array, long len) {
+            for (long i = 0; i < len; i++) {
+                array[i] = tagBox(array[i]);
+            }
+        }"""
+        print(tag_box_array, file=profile_f)
 
     # list of work items we will later on trace
     async_tracing = []
