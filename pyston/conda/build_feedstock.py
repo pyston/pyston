@@ -102,9 +102,15 @@ def getRecipeSedCommands(feedstock, version):
         return ("s/  sha256: {{ sha256 }}/  sha256: {{ sha256 }}\n  patches:\n    - pyston.patch/",)
 
     if feedstock == "cython":
+        if version == "latest":
+            return ()
+        assert version.startswith("0.29."), "not sure if this version requires our patch"
+        if int(version.split(".")[2]) >= 25:
+            return () # 0.29.25 contains our fix
+
         # we need to apply our memory corruption fix for cython #4200
         return (
-                "s/number: 1/number: 2\n  string: 2_pyston/g", # increment build number and add _pyston suffix so we know it's the fixed version 
+                "s/number: 1/number: 2\n  string: 2_pyston/g", # increment build number and add _pyston suffix so we know it's the fixed version
                 "s@    - patches/pypy37-eval.patch@    - patches/pypy37-eval.patch\n    - pyston.patch@",)
 
     if feedstock == "vim":
