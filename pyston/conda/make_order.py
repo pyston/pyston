@@ -28,7 +28,7 @@ _feedstock_overrides = {
     "tensorflow-base": "tensorflow",
     "tensorflow-cpu": "tensorflow",
     "tensorflow-gpu": "tensorflow",
-    "tensorflow-estimator": "tensorflow",
+    "tensorflow-estimator": "tensorflow", # This was a separate feedstock pre-2.6.0, which I built manually
     "libtensorflow": "tensorflow",
     "libtensorflow_cc": "tensorflow",
     "llvm-openmp": "openmp",

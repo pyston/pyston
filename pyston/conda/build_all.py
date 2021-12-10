@@ -18,7 +18,7 @@ versions_to_build = {
     "pytorch-cpu": ("1.8.0", "1.9.1", "1.10.0"),
     "pandas": ("1.3.4", "1.3.3", "1.3.2", "1.3.1", "1.3.0", "1.2.5", "1.2.4", "1.2.3", "1.2.2", "1.2.1", "1.2.0", "1.1.5"),
 
-    "protobuf": ("3.16.0", "3.18.1"),
+    "protobuf": ("3.15.8", "3.16.0", "3.18.1"),
     "wrapt": ("1.11.2", "1.12.1"), # pynput needs wrapt 1.11.*
     "h5py": ("2.10.0", "3.1.0"),
     "grpcio": "1.40.0",
@@ -197,7 +197,7 @@ def buildAll(order, done, nparallel):
                 built_any = True
                 print("Building", feedstock, version)
 
-                p = subprocess.Popen(["python3", SRC_DIR / "build_feedstock.py", feedstock, version, "--upload"], stdout=open("%s.log" % feedstock, "wb"), stderr=subprocess.STDOUT)
+                p = subprocess.Popen(["python3", "-u", SRC_DIR / "build_feedstock.py", feedstock, version, "--upload"], stdout=open("%s.log" % feedstock, "wb"), stderr=subprocess.STDOUT)
                 code = p.wait()
                 # time.sleep(random.random() * 0.5 + 0.2)
                 # code = 0
