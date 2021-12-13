@@ -15,6 +15,7 @@ cmps = ["PyCmp_LT", "PyCmp_LE", "PyCmp_EQ", "PyCmp_NE",
 funcs_need_res_wrap = [
     "PyObject_DelItem",
     "PyObject_SetItem",
+    "PyObject_IsTrue",
 ]
 
 VERBOSITY = 0
@@ -367,7 +368,7 @@ class CallableHandler(Handler):
             pass_args = ", ".join(self._args_names())
             print(f"{self._get_func_sig(name)}", "{", file=f)
             print(f"  if (unlikely(oparg != {nargs-1}))", "{" , file=f)
-            
+
             # CALL_METHOD can call the function with a different number of args
             # depending if LOAD_METHOD returned true or false which means we need
             # to add this additional guard.
@@ -516,6 +517,8 @@ def loadCases():
               "PyNumber_Invert",
 
               "PyObject_GetIter",
+
+              "PyObject_IsTrue", # returns int
               ]
 
     funcs2 = ["PyNumber_Multiply",

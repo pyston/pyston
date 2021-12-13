@@ -1651,7 +1651,7 @@ none_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
     Py_RETURN_NONE;
 }
 
-static int
+/*static*/ int
 none_bool(PyObject *v)
 {
     return 0;
