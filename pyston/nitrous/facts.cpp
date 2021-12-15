@@ -449,19 +449,29 @@ private:
                         if (!p.second.known_value || p.second.known_at)
                             continue;
 
-                        if (p.first.indirections.size() != 1)
+                        auto fact_const = dyn_cast<Constant>(p.second.known_value);
+                        if (!fact_const)
                             continue;
+                        void* fact_val = GVTOP(eval.evalConstant(fact_const));
 
-                        int offset = p.first.indirections[0].offset;
-                        int size = p.first.indirections[0].size;
+                        if (p.first.indirections.size() == 0) {
+                            bool v = (op1_val == fact_val);
+                            if (nitrous_verbosity >= NITROUS_VERBOSITY_IR) {
+                                outs() << "Replacing " << I << " with " << v << " since we know that the non-constant operand has value " << fact_val << " and the constant operand has value " << op1_val << "\n";
+                            }
+                            icmp->replaceAllUsesWith(ConstantInt::get(icmp->getType(), v));
+                            num_replaced++;
+                            return true;
+                        }
 
-                        // This could be supported but the pointer loads down below
-                        // would need to be updated:
-                        if (size != sizeof(void*))
-                            continue;
+                        if (p.first.indirections.size() == 1) {
+                            int offset = p.first.indirections[0].offset;
+                            int size = p.first.indirections[0].size;
 
-                        if (auto fact_const = dyn_cast<Constant>(p.second.known_value)) {
-                            void* fact_val = GVTOP(eval.evalConstant(fact_const));
+                            // This could be supported but the pointer loads down below
+                            // would need to be updated:
+                            if (size != sizeof(void*))
+                                continue;
 
                             void** op1_ptr = (void**)((char*)op1_val + offset);
                             if (consts.isPointedToLocationConst((char*)op1_ptr, size)) {
