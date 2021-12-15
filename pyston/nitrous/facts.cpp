@@ -102,9 +102,10 @@ struct FactPass : public FunctionPass {
     static char ID;
 
     LLVMEvaluator& eval;
+    JitConsts& consts;
     int num_replaced = 0;
 
-    FactPass(LLVMEvaluator& eval) : FunctionPass(ID), eval(eval) {}
+    FactPass(LLVMEvaluator& eval, JitConsts& consts) : FunctionPass(ID), eval(eval), consts(consts) {}
     ~FactPass() {
         if (nitrous_verbosity >= NITROUS_VERBOSITY_STATS)
             outs() << "Replaced " << num_replaced << " instructions due to derived facts\n";
@@ -442,6 +443,40 @@ private:
                             return true;
                         }
                     }
+
+                    void* op1_val = GVTOP(eval.evalConstant(c1));
+                    for (auto& p : op0_facts.facts) {
+                        if (!p.second.known_value || p.second.known_at)
+                            continue;
+
+                        if (p.first.indirections.size() != 1)
+                            continue;
+
+                        int offset = p.first.indirections[0].offset;
+                        int size = p.first.indirections[0].size;
+
+                        // This could be supported but the pointer loads down below
+                        // would need to be updated:
+                        if (size != sizeof(void*))
+                            continue;
+
+                        if (auto fact_const = dyn_cast<Constant>(p.second.known_value)) {
+                            void* fact_val = GVTOP(eval.evalConstant(fact_const));
+
+                            void** op1_ptr = (void**)((char*)op1_val + offset);
+                            if (consts.isPointedToLocationConst((char*)op1_ptr, size)) {
+                                if (*op1_ptr != fact_val) {
+                                    if (nitrous_verbosity >= NITROUS_VERBOSITY_IR) {
+                                        outs() << "Replacing " << I << " with false since we know that the non-constant operand has value " << fact_val << " at offset " << offset << " but the constant has value " << *op1_ptr << " at that offset\n";
+                                    }
+
+                                    icmp->replaceAllUsesWith(ConstantInt::get(icmp->getType(), false));
+                                    num_replaced++;
+                                    return true;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -475,8 +510,8 @@ private:
 };
 char FactPass::ID = 0;
 
-FunctionPass* createFactPass(LLVMEvaluator& eval) {
-    return new FactPass(eval);
+FunctionPass* createFactPass(LLVMEvaluator& eval, JitConsts& consts) {
+    return new FactPass(eval, consts);
 }
 
 void Knowledge::dump() const {
