@@ -3,14 +3,23 @@ import shutil
 import subprocess
 import sys
 
-def findFeedstockCommitForVersion(directory, version):
+from make_order import versionIsAtLeast
+
+def getBranchToBuild(feedstock):
+    if feedstock == "openmm":
+        return "origin/rc"
+
+    return "origin/master"
+
+def findFeedstockCommitForVersion(feedstock, directory, version):
+    base = getBranchToBuild(feedstock)
     if version == "latest":
-        return "origin/master"
+        return base
 
     i = 0
     print("Finding the feedstock commit for version %s" % version)
     while True:
-        commit = "origin/master~%d" % i
+        commit = "%s~%d" % (base, i)
         s = subprocess.check_output(["git", "show", "%s:recipe/meta.yaml" % commit], cwd=directory).decode("utf8")
         print("Trying %s:" % commit, s.split('\n')[0])
         if 'version = "%s' % version in s:
@@ -126,6 +135,13 @@ def getRecipeSedCommands(feedstock, version):
             r.append("/test_url_is_accessible\" %}/a \        {% set tests_to_skip = tests_to_skip + \" or ${t}\" %}")
         return r
 
+    if feedstock == "tensorflow":
+        if versionIsAtLeast("2.4.3", version):
+            return (r"s/absl-py >=0.10.0/absl-py 0.10.0/",)
+
+    if feedstock == "boost":
+        return (r"s/patches:/patches:\n    - pyston.patch/",)
+
     return ()
 
 def getSedCommands(feedstock, version):
@@ -138,7 +154,20 @@ def getSedCommands(feedstock, version):
         # sed -i 's/pytest_args += \[$/pytest_args += \["--ignore=" + os.path.dirname(loader.path) + "\/test_pickleutil.py",/' recipe/run_test.py
         r.append(("recipe/run_test.py", r's/print("Final pytest args:", pytest_args)/pytest_args += \["--ignore=" + os.path.dirname(loader.path) + "\/test_pickleutil.py"\]\nprint("Final pytest args:", pytest_args)/'))
 
+    if feedstock == "boost":
+        # r.append(("recipe/build.sh", r"s|include/python${PY_VER}|include/python${PY_VER}-pyston2.3|g"))
+        r.append(("recipe/build.sh", r"s|${PY_VER}|${PY_VER}-pyston2.3|g"))
+
+    if feedstock == "opencv":
+        r.append(("recipe/build.sh", r"s|include/python${PY_VER}|include/python${PY_VER}-pyston2.3|g"))
+        r.append(("recipe/build.sh", r"s|lib/libpython${PY_VER}|lib/libpython${PY_VER}-pyston2.3|g"))
+
     return r
+
+def skipTests(feedstock):
+    if os.environ.get("SKIP_TESTS", ""):
+        return True
+    return False
 
 def buildFeedstock(feedstock, version="latest", do_upload=False):
     sed_commands = getSedCommands(feedstock, version)
@@ -151,7 +180,7 @@ def buildFeedstock(feedstock, version="latest", do_upload=False):
     subprocess.check_call(["git", "reset", "--hard"], cwd=dir)
     subprocess.check_call(["git", "clean", "-fxd"], cwd=dir)
     subprocess.check_call(["git", "fetch"], cwd=dir)
-    subprocess.check_call(["git", "checkout", findFeedstockCommitForVersion(dir, version)], cwd=dir)
+    subprocess.check_call(["git", "checkout", findFeedstockCommitForVersion(feedstock, dir, version)], cwd=dir)
 
     for commit in getCherryPicks(feedstock, version):
         already_is_ancestor = (subprocess.call(["git", "merge-base", "--is-ancestor", commit, "HEAD"], cwd=dir) == 0)
@@ -181,6 +210,8 @@ def buildFeedstock(feedstock, version="latest", do_upload=False):
     env = dict(os.environ)
     env["CONDA_FORGE_DOCKER_RUN_ARGS"] = "-e EXTRA_CB_OPTIONS --rm"
     env["EXTRA_CB_OPTIONS"] = "-c pyston"
+    if skipTests(feedstock):
+        env["EXTRA_CB_OPTIONS"] += " --no-test"
     subprocess.check_call(["python3", "build-locally.py", config_file], cwd=dir, env=env)
 
     if do_upload:

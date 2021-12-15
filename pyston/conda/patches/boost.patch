@@ -1,0 +1,15 @@
+--- bootstrap.sh_	2021-12-15 09:57:22.170986755 -0500
++++ bootstrap.sh	2021-12-15 09:58:07.415157493 -0500
+@@ -277,11 +277,11 @@
+ fi
+ 
+ if test "x$flag_no_python" = x; then
+     if test "x$PYTHON_VERSION" = x; then
+         $ECHO -n "Detecting Python version... "
+-        PYTHON_VERSION=`$PYTHON -c "import sys; print (\"%d.%d\" % (sys.version_info[0], sys.version_info[1]))"`
++        PYTHON_VERSION=`$PYTHON -c "import sysconfig; print (sysconfig.get_config_var('VERSION'))"`
+         echo $PYTHON_VERSION
+     fi
+ 
+     if test "x$PYTHON_ROOT" = x; then
+         $ECHO -n "Detecting Python root... "

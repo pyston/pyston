@@ -177,6 +177,10 @@ def getBuildRequirements(pkg):
     if pkg == "numba" and "cudatoolkit" in r:
         r.remove("cudatoolkit")
 
+    # This is a circular dependency but just in tests:
+    if pkg == "pocl" and "pyopencl" in r:
+        r.remove("pyopencl")
+
     if pkg in r:
         r.remove(pkg)
 
@@ -196,6 +200,8 @@ def getDependencies(pkg):
     Returns the immediate package dependencies of a given package
     """
 
+    feedstock = getFeedstockName(pkg)
+
     if pkg not in packages_by_name:
         if verbose:
             print(repr(pkg), "is not a package we know about")
@@ -207,7 +213,7 @@ def getDependencies(pkg):
     for pattern in ("lib", "gcc", "gxx", "mkl", "glib", "gfortran", "dal(|-devel)$", "r-", "go-"):
         if re.match(pattern, pkg):
             return ()
-    if getFeedstockName(pkg) in ("ninja", "krb5", "llvmdev", "hcc", "clangdev", "conda", "binutils", "cairo", "jack", "gstreamer", "cyrus-sasl", "hdf5", "openjdk", "bazel", "qt", "atk", "fftw", "yasm", "fribidi", "brunsli", "harfbuzz", "mpir", "gdk-pixbuf", "pango", "gtk2", "graphviz", "cudatoolkit", "sysroot", "rust", "blis", "doxygen", "jsoncpp", "mesalib", "mongodb", "yajl", "lz4", "blas", "nodejs", "gobject-introspection"):
+    if feedstock in ("ninja", "krb5", "llvmdev", "hcc", "clangdev", "conda", "binutils", "cairo", "jack", "gstreamer", "cyrus-sasl", "hdf5", "openjdk", "bazel", "qt", "atk", "fftw", "yasm", "fribidi", "brunsli", "harfbuzz", "mpir", "gdk-pixbuf", "pango", "gtk2", "graphviz", "cudatoolkit", "sysroot", "rust", "blis", "doxygen", "jsoncpp", "mesalib", "mongodb", "yajl", "lz4", "blas", "nodejs", "gobject-introspection"):
         return ()
 
     # These are old and aren't built for modern versions of Python:

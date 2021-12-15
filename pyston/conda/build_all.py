@@ -31,6 +31,7 @@ versions_to_build = {
     "pandas": ("latest", "1.2.5"), # 1.2.5 needed by daal4py
     "keyring": "21.2.1", # 21.2.* needed by poetry
     "httpstan": "4.5.0", # 4.5.0 needed by pystan
+    "setproctitle": ("1.1.10", "1.2.2"), # 1.1.10 needed by ray-packages
 }
 
 def getVersionsToBuild(feedstock):
