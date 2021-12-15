@@ -165,21 +165,6 @@ int loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObj
 int setupLoadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject* res, int is_load_method);
 
 
-JIT_HELPER1(UNARY_NOT, value) {
-    //PyObject *value = POP();
-    int err = PyObject_IsTrue(value);
-    Py_DECREF(value);
-    if (err == 0) {
-        Py_INCREF_IMMORTAL(Py_True);
-        return Py_True;
-    }
-    else if (err > 0) {
-        Py_INCREF_IMMORTAL(Py_False);
-        return Py_False;
-    }
-    goto_error;
-}
-
 JIT_HELPER1(PRINT_EXPR, value) {
     _Py_IDENTIFIER(displayhook);
     //PyObject *value = POP();

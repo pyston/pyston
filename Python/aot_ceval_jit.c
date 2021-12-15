@@ -180,12 +180,6 @@ struct PerfMapEntry {
 
 static int jit_use_aot = 1;
 
-static PyObject* cmp_outcomePyCmp_IS(PyObject *v, PyObject *w) {
-  return cmp_outcome(NULL, PyCmp_IS, v, w);
-}
-static PyObject* cmp_outcomePyCmp_IS_NOT(PyObject *v, PyObject *w) {
-  return cmp_outcome(NULL, PyCmp_IS_NOT, v, w);
-}
 static PyObject* cmp_outcomePyCmp_BAD(PyObject *v, PyObject *w) {
   return cmp_outcome(NULL, PyCmp_BAD, v, w);
 }
@@ -208,7 +202,6 @@ static int is_immortal(PyObject* obj) {
 static void* __attribute__ ((const)) get_addr_of_helper_func(int opcode, int oparg) {
     switch (opcode) {
 #define JIT_HELPER_ADDR(name)   case name: return JIT_HELPER_##name
-        JIT_HELPER_ADDR(UNARY_NOT);
         JIT_HELPER_ADDR(PRINT_EXPR);
         JIT_HELPER_ADDR(RAISE_VARARGS);
         JIT_HELPER_ADDR(GET_AITER);
@@ -271,6 +264,9 @@ static void* __attribute__ ((const)) get_addr_of_aot_func(int opcode, int oparg,
     OPCODE_PROFILE(UNARY_POSITIVE, PyNumber_Positive);
     OPCODE_PROFILE(UNARY_NEGATIVE, PyNumber_Negative);
     OPCODE_PROFILE(UNARY_INVERT, PyNumber_Invert);
+
+    // special case we reuse PyObject_IsTrue
+    OPCODE_STATIC(UNARY_NOT, jit_use_aot ? PyObject_IsTrueProfile : PyObject_IsTrue);
 
     OPCODE_PROFILE(GET_ITER, PyObject_GetIter);
 
@@ -335,10 +331,13 @@ static void* __attribute__ ((const)) get_addr_of_aot_func(int opcode, int oparg,
         case PyCmp_NOT_IN: return jit_use_aot ? cmp_outcomePyCmp_NOT_INProfile : cmp_outcomePyCmp_NOT_IN;
 
         // we don't create type specific version for those so use non Profile final versions
-        case PyCmp_IS: return cmp_outcomePyCmp_IS;
-        case PyCmp_IS_NOT: return cmp_outcomePyCmp_IS_NOT;
         case PyCmp_BAD: return cmp_outcomePyCmp_BAD;
         case PyCmp_EXC_MATCH: return cmp_outcomePyCmp_EXC_MATCH;
+
+        case PyCmp_IS:
+        case PyCmp_IS_NOT:
+            printf("unreachable: PyCmp_IS and PyCmp_IS_NOT are inlined\n");
+            abort();
         }
     }
 #undef OPCODE_STATIC
@@ -1312,7 +1311,8 @@ static void emit_jump_if_false(Jit* Dst, int oparg, RefStatus ref_status) {
 
     switch_section(Dst, SECTION_COLD);
     |1:
-    emit_call_decref_args1(Dst, PyObject_IsTrue, arg1_idx, &ref_status);
+    void* func = jit_use_aot ? PyObject_IsTrueProfile : PyObject_IsTrue;
+    emit_call_decref_args1(Dst, func, arg1_idx, &ref_status);
     | cmp res_32b, 0
     emit_je_to_bytecode_n(Dst, oparg);
     | jl ->error
@@ -1331,7 +1331,8 @@ static void emit_jump_if_true(Jit* Dst, int oparg, RefStatus ref_status) {
 
     switch_section(Dst, SECTION_COLD);
     |1:
-    emit_call_decref_args1(Dst, PyObject_IsTrue, arg1_idx, &ref_status);
+    void* func = jit_use_aot ? PyObject_IsTrueProfile : PyObject_IsTrue;
+    emit_call_decref_args1(Dst, func, arg1_idx, &ref_status);
     | cmp res_32b, 0
     emit_jg_to_bytecode_n(Dst, oparg);
     | jl ->error
@@ -2138,7 +2139,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             deferred_vs_pop2(Dst, arg2_idx, arg1_idx, ref_status);
             deferred_vs_convert_reg_to_stack(Dst);
 
-            void* func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
+            void* func = NULL;
             if (opcode == BINARY_SUBSCR && const_val && PyLong_CheckExact(const_val)) {
                 Py_ssize_t n = PyLong_AsSsize_t(const_val);
 
@@ -2149,9 +2150,25 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                     emit_mov_imm(Dst, arg3_idx, n);
                 }
             }
-
-            emit_call_decref_args2(Dst, func, arg2_idx, arg1_idx, ref_status);
-            emit_if_res_0_error(Dst);
+            if (opcode == COMPARE_OP && (oparg == PyCmp_IS || oparg == PyCmp_IS_NOT)) {
+                emit_mov_imm2(Dst, res_idx, Py_True, tmp_idx, Py_False);
+                | cmp Rq(arg1_idx), Rq(arg2_idx)
+                if (oparg == PyCmp_IS) {
+                    | cmovne Rq(res_idx), Rq(tmp_idx)
+                } else {
+                    | cmove Rq(res_idx), Rq(tmp_idx)
+                }
+                // don't need to incref these are immortals
+                if (ref_status[0] == OWNED)
+                    emit_decref(Dst, arg2_idx, 1 /*= preserve res */);
+                if (ref_status[1] == OWNED)
+                    emit_decref(Dst, arg1_idx, 1 /*= preserve res */);
+            } else {
+                if (!func)
+                    func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
+                emit_call_decref_args2(Dst, func, arg2_idx, arg1_idx, ref_status);
+                emit_if_res_0_error(Dst);
+            }
             deferred_vs_push(Dst, REGISTER, res_idx);
             break;
         }
@@ -2237,6 +2254,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
         case UNARY_POSITIVE:
         case UNARY_NEGATIVE:
+        case UNARY_NOT:
         case UNARY_INVERT:
         case GET_ITER:
         {
@@ -2244,7 +2262,17 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             deferred_vs_convert_reg_to_stack(Dst);
             void* func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
             emit_call_decref_args1(Dst, func, arg1_idx, &ref_status);
-            emit_if_res_0_error(Dst);
+            if (opcode == UNARY_NOT) {
+                | mov Rd(arg1_idx), Rd(res_idx) // save result for comparison
+                emit_mov_imm2(Dst, res_idx, Py_True, tmp_idx, Py_False);
+                | cmp Rd(arg1_idx), 0 // 32bit comparison!
+                | jl ->error // < 0, means error
+                | cmovne Rq(res_idx), Rq(tmp_idx)
+                // don't need to incref these are immortals
+            } else {
+                emit_if_res_0_error(Dst);
+            }
+
             deferred_vs_push(Dst, REGISTER, res_idx);
             break;
         }
@@ -2566,7 +2594,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             switch (opcode) {
                 // ### ONE PYTHON ARGS ###
                 // JIT_HELPER1
-                case UNARY_NOT:
                 case PRINT_EXPR:
                 case GET_AITER:
                 case GET_AWAITABLE:
@@ -2611,7 +2638,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             switch (opcode) {
                 // the following opcodes don't access the python value stack (no PUSH, POP etc)
                 // which means we don't need to create it we just have to spill the 'res' reg if it's used
-                case UNARY_NOT:
                 case PRINT_EXPR:
                 case GET_AITER:
                 case GET_AWAITABLE:
@@ -2744,7 +2770,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                     break;
 
                 // opcodes helper functions which return the result instead of pushing to the value stack
-                case UNARY_NOT:
                 case GET_AITER:
                 case GET_ANEXT:
                 case GET_AWAITABLE:

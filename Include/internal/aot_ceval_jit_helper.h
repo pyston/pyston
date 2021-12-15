@@ -22,7 +22,6 @@ extern "C" {
 #define JIT_HELPER_WITH_NAME_OPCACHE_AOT2(name_, py1, py2) PyObject* JIT_HELPER_##name_(PyObject* name, PyObject* py1, PyObject* py2, _PyOpcache *co_opcache)
 
 
-JIT_HELPER1(UNARY_NOT, value);
 JIT_HELPER1(PRINT_EXPR, value);
 JIT_HELPER_WITH_OPARG(RAISE_VARARGS);
 JIT_HELPER1(GET_AITER, obj);

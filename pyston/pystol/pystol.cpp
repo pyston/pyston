@@ -446,9 +446,10 @@ void pystolGlobalPythonSetup() {
 void pystolAddConstObj(PyObject* x) {
     int offset = offsetof(PyObject, ob_type); /* skip refcount */
     MARKNOTZERO((char*)x, offset); /* refcount is never zero but not const! */
-    if (PyLong_CheckExact(x))
-        MARKCONST(((char*)x) + offset, sizeof(PyLongObject)
-                                           + (Py_SIZE(x) - 1) * sizeof(digit)
+    if (PyLong_CheckExact(x) || PyBool_Check(x))
+        // implementation from 'int___sizeof___impl()'
+        MARKCONST(((char*)x) + offset, offsetof(PyLongObject, ob_digit)
+                                           + Py_ABS(Py_SIZE(x)) * sizeof(digit)
                                            - offset);
     else if (PyFloat_CheckExact(x))
         MARKCONST(((char*)x) + offset, sizeof(PyFloatObject) - offset);
