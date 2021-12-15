@@ -28,7 +28,7 @@ _feedstock_overrides = {
     "tensorflow-base": "tensorflow",
     "tensorflow-cpu": "tensorflow",
     "tensorflow-gpu": "tensorflow",
-    "tensorflow-estimator": "tensorflow",
+    "tensorflow-estimator": "tensorflow", # This was a separate feedstock pre-2.6.0, which I built manually
     "libtensorflow": "tensorflow",
     "libtensorflow_cc": "tensorflow",
     "llvm-openmp": "openmp",
@@ -146,8 +146,10 @@ def getBuildRequirements(pkg):
     with open(reponame + "/recipe/meta.yaml") as f:
         s = f.read()
 
-    strings = re.findall("^ *- ([^><={\n#]+)", s, re.M)
-    r = list(sorted(set([s.strip() for s in strings])))
+    strings = re.findall("^ *- *([^ \n#]+)(\n| *#| +[\d<>={])", s, re.M)
+    r = list(sorted(set([s[0].strip() for s in strings])))
+    if "echo" in r:
+        r.remove("echo")
 
     # ipython depends on ipykernel depends on ipython, but ipykernel depends on ipython more
     if pkg == "ipython":
@@ -175,6 +177,10 @@ def getBuildRequirements(pkg):
     if pkg == "numba" and "cudatoolkit" in r:
         r.remove("cudatoolkit")
 
+    # This is a circular dependency but just in tests:
+    if pkg == "pocl" and "pyopencl" in r:
+        r.remove("pyopencl")
+
     if pkg in r:
         r.remove(pkg)
 
@@ -194,6 +200,8 @@ def getDependencies(pkg):
     Returns the immediate package dependencies of a given package
     """
 
+    feedstock = getFeedstockName(pkg)
+
     if pkg not in packages_by_name:
         if verbose:
             print(repr(pkg), "is not a package we know about")
@@ -205,7 +213,7 @@ def getDependencies(pkg):
     for pattern in ("lib", "gcc", "gxx", "mkl", "glib", "gfortran", "dal(|-devel)$", "r-", "go-"):
         if re.match(pattern, pkg):
             return ()
-    if getFeedstockName(pkg) in ("ninja", "krb5", "llvmdev", "hcc", "clangdev", "conda", "binutils", "cairo", "jack", "gstreamer", "cyrus-sasl", "hdf5", "openjdk", "bazel", "qt", "atk", "fftw", "yasm", "fribidi", "brunsli", "harfbuzz", "mpir", "gdk-pixbuf", "pango", "gtk2", "graphviz", "cudatoolkit", "sysroot", "rust", "blis", "doxygen", "jsoncpp", "mesalib", "mongodb", "yajl"):
+    if feedstock in ("ninja", "krb5", "llvmdev", "hcc", "clangdev", "conda", "binutils", "cairo", "jack", "gstreamer", "cyrus-sasl", "hdf5", "openjdk", "bazel", "qt", "atk", "fftw", "yasm", "fribidi", "brunsli", "harfbuzz", "mpir", "gdk-pixbuf", "pango", "gtk2", "graphviz", "cudatoolkit", "sysroot", "rust", "blis", "doxygen", "jsoncpp", "mesalib", "mongodb", "yajl", "lz4", "blas", "nodejs", "gobject-introspection"):
         return ()
 
     # These are old and aren't built for modern versions of Python:

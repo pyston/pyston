@@ -1,9 +1,11 @@
 import collections
 import os
 import queue
+import random
 import subprocess
 import sys
 import threading
+import time
 
 from make_order import getFeedstockOrder, getFeedstockName, getFeedstockDependencies
 from pathlib import Path
@@ -16,9 +18,9 @@ versions_to_build = {
     "pytorch-cpu": ("1.8.0", "1.9.1", "1.10.0"),
     "pandas": ("1.3.4", "1.3.3", "1.3.2", "1.3.1", "1.3.0", "1.2.5", "1.2.4", "1.2.3", "1.2.2", "1.2.1", "1.2.0", "1.1.5"),
 
-    "protobuf": ("3.16.0", "3.18.1"),
+    "protobuf": ("3.15.8", "3.16.0", "3.18.1"),
     "wrapt": ("1.11.2", "1.12.1"), # pynput needs wrapt 1.11.*
-    "h5py": "3.1.0",
+    "h5py": ("2.10.0", "3.1.0"),
     "grpcio": "1.40.0",
     "setuptools": "57.4.0",
     "pyyaml": "5.4.1",
@@ -29,6 +31,7 @@ versions_to_build = {
     "pandas": ("latest", "1.2.5"), # 1.2.5 needed by daal4py
     "keyring": "21.2.1", # 21.2.* needed by poetry
     "httpstan": "4.5.0", # 4.5.0 needed by pystan
+    "setproctitle": ("1.1.10", "1.2.2"), # 1.1.10 needed by ray-packages
 }
 
 def getVersionsToBuild(feedstock):
@@ -146,13 +149,7 @@ def buildAll(order, done, nparallel):
     failed = set()
 
     for feedstock in order:
-        need_to_build = False
-        for version in getVersionsToBuild(feedstock):
-            if (feedstock, version) in done or (version == "latest" and feedstock in done):
-                continue
-            need_to_build = True
-            break
-        if not need_to_build:
+        if feedstock in done:
             added.add(feedstock)
     q = queue.Queue()
     nidle = 0
@@ -176,6 +173,7 @@ def buildAll(order, done, nparallel):
                         break
 
                     if d not in done:
+                        # print(f, "is not ready because", d, "is not done")
                         ready = False
                         break
 
@@ -200,8 +198,12 @@ def buildAll(order, done, nparallel):
                 built_any = True
                 print("Building", feedstock, version)
 
-                p = subprocess.Popen(["python3", SRC_DIR / "build_feedstock.py", feedstock, version, "--upload"], stdout=open("%s.log" % feedstock, "wb"), stderr=subprocess.STDOUT)
+                p = subprocess.Popen(["python3", "-u", SRC_DIR / "build_feedstock.py", feedstock, version, "--upload"], stdout=open("%s.log" % feedstock, "wb"), stderr=subprocess.STDOUT)
                 code = p.wait()
+                # time.sleep(random.random() * 0.5 + 0.2)
+                # code = 0
+
+                print(feedstock, version, "finished with code", code)
 
                 if code != 0:
                     break
@@ -213,7 +215,6 @@ def buildAll(order, done, nparallel):
                     done.add(feedstock)
                 else:
                     failed.add(feedstock)
-                print(feedstock, "finished with code", code)
                 addReady()
 
             q.task_done()
@@ -240,7 +241,8 @@ def main():
         feedstock = getFeedstockName(l.split()[0])
         version = l.split()[1]
         done_feedstocks.add((feedstock, version))
-        done_feedstocks.add(feedstock)
+        # TODO: better detection if there's a new version to build
+        done_feedstocks.add((feedstock, "latest"))
 
     topn = int(os.environ.get("TOPN", "500"))
     targets = []
@@ -253,6 +255,15 @@ def main():
             targets.append(extra)
 
     order = getFeedstockOrder(targets)
+
+    for feedstock in order:
+        all_done = True
+        for version in getVersionsToBuild(feedstock):
+            if (feedstock, version) not in done_feedstocks:
+                all_done = False
+                break
+        if all_done:
+            done_feedstocks.add(feedstock)
 
     total = len(order)
     ntobuild = 0

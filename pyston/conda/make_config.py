@@ -56,6 +56,8 @@ def main():
             continue
         if "paraview" in cwd and "qt" not in c:
             continue
+        if "pocl" in cwd and "hwloc1" in c:
+            continue
 
         # Not sure about this, but only build the cpu version of arrow-cpp
         if "arrow-cpp" in cwd:
