@@ -128,7 +128,7 @@ public:
     void* finish(LLVMEvaluator& eval);
 };
 
-FunctionPass* createFactPass(LLVMEvaluator& eval);
+FunctionPass* createFactPass(LLVMEvaluator& eval, JitConsts& consts);
 
 }
 

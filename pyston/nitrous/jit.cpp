@@ -743,7 +743,7 @@ void LLVMJit::optimizeFunc(LLVMEvaluator& eval) {
         fpm.add(llvm::createCorrelatedValuePropagationPass());
         fpm.add(llvm::createDeadStoreEliminationPass()); // Delete dead stores
 
-        fpm.add(createFactPass(eval));
+        fpm.add(createFactPass(eval, consts));
         fpm.add(llvm::createInstructionCombiningPass());
         //fpm.add(new RemoveICmpPtrPass(eval));
 

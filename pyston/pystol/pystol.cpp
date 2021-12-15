@@ -173,6 +173,31 @@ bool PystolFactDeriver::deriveFacts(Value* v, FactSet& facts, LLVMEvaluator& eva
                 }
             }
         }
+
+        if (fact->known_value) {
+            if (auto gv = dyn_cast<GlobalVariable>(fact->known_value)) {
+                PyTypeObject* type = (PyTypeObject*)GVTOP(eval.evalConstant(gv));
+
+                // None and NotImplemented are singletons, so if we know that
+                // something is of the NoneType, we know it is the None object.
+                if (type == &_PyNone_Type || type == &_PyNotImplemented_Type) {
+                    Knowledge& k = facts[Location()];
+                    if (!k.known_value || (k.known_at && !fact->known_at)) {
+                        if (type == &_PyNone_Type)
+                            k.known_value = eval.GVToConst(GenericValue(Py_None), v->getType());
+                        else if (type == &_PyNotImplemented_Type)
+                            k.known_value = eval.GVToConst(GenericValue(Py_NotImplemented), v->getType());
+                        else
+                            abort();
+
+                        k.known_at = fact->known_at;
+                        changed = true;
+                        if (nitrous_verbosity >= NITROUS_VERBOSITY_IR)
+                            outs() << "Know that " << *v << " is the singleton of type " << type->tp_name << "\n";
+                    }
+                }
+            }
+        }
     }
 
     if (isNamedStructPointer(v->getType(), "struct._is")) {
