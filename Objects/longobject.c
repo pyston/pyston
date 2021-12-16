@@ -2651,15 +2651,20 @@ digit beyond the first.
         goto done;
 
     PyObject* strobj_repr = PyObject_Repr(strobj);
-    if (!strobj_repr)
+    if (!strobj_repr) {
+        Py_DECREF(first);
         goto done;
+    }
 
     PyObject* strobj_repr_truncated = PyUnicode_Substring(strobj_repr, 0, 200);
     Py_DECREF(strobj_repr);
-    if (!strobj_repr_truncated)
+    if (!strobj_repr_truncated) {
+        Py_DECREF(first);
         goto done;
+    }
 
     PyObject* err = PyUnicode_Concat(first, strobj_repr_truncated);
+    Py_DECREF(first);
     Py_DECREF(strobj_repr_truncated);
 
     PyErr_SetObject(PyExc_ValueError, err);
