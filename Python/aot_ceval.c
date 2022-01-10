@@ -1404,6 +1404,17 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 #define JUMPTO(x)       (next_instr = first_instr + (x) / sizeof(_Py_CODEUNIT))
 #define JUMPBY(x)       (next_instr += (x) / sizeof(_Py_CODEUNIT))
 
+// JUMPTO which is counting backward jumps in order to todo OSR
+#define JUMPTO_WITH_OSR(x)  \
+    do { \
+        _Py_CODEUNIT* old_instr = next_instr; \
+        JUMPTO(x); \
+        if (next_instr < old_instr) { /* only increment if backwards jump */ \
+            HANDLE_JUMP_BACKWARD_OSR(); \
+        } \
+    } while (0)
+
+
 /* OpCode prediction macros
     Some opcodes tend to come in pairs thus making it possible to
     predict the second code when the first is run.  For example,
@@ -1616,6 +1627,30 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
     } while (0)
 
 #endif
+
+// increments the number of times this loop got ececuted and if the threshold is hit JIT func and do OSR.
+#define HANDLE_JUMP_BACKWARD_OSR() \
+    do {  \
+        ++co->co_opcache_flag;  \
+        OPCACHE_INIT_IF_HIT_THRESHOLD();  \
+        /* check if we should switch over to the JIT (OSR) */  \
+        if (co->co_opcache_flag > jit_min_runs && can_use_jit && co->co_jit_code == NULL  \
+            && !_Py_TracingPossible(ceval)) { /* don't OSR if tracing is enabled because we seem to skip a line */ \
+            co->co_jit_code = jit_func(co, tstate);  \
+            if (co->co_jit_code) {  \
+                /* JUMPTO() did not update f->f_lasti  \
+                (it still points to the JUMP_ABSOLUTE - not the destination of the jump)  \
+                 update f->f_lasti manually like DISPATCH() would do because  \
+                 we can only enter the machine code at jump targets. */ \
+                f->f_lasti = INSTR_OFFSET() - 2; /* -2 because our JIT entry is always adding two */ \
+                return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)co->co_jit_code); \
+            } else { \
+                /* never try again to JIT compile this python function */ \
+                co->co_jit_code = JIT_FUNC_FAILED; \
+                can_use_jit = 0; \
+            } \
+        } \
+    } while (0)
 
 /* Start of code */
 #if PROFILE_OPCODES
@@ -3626,7 +3661,7 @@ la_common:
             }
             if (cond == Py_False) {
                 Py_DECREF_IMMORTAL(cond);
-                JUMPTO(oparg);
+                JUMPTO_WITH_OSR(oparg);
                 FAST_DISPATCH();
             }
             err = PyObject_IsTrue(cond);
@@ -3634,7 +3669,7 @@ la_common:
             if (err > 0)
                 ;
             else if (err == 0)
-                JUMPTO(oparg);
+                JUMPTO_WITH_OSR(oparg);
             else
                 goto error;
             DISPATCH();
@@ -3650,13 +3685,13 @@ la_common:
             }
             if (cond == Py_True) {
                 Py_DECREF_IMMORTAL(cond);
-                JUMPTO(oparg);
+                JUMPTO_WITH_OSR(oparg);
                 FAST_DISPATCH();
             }
             err = PyObject_IsTrue(cond);
             Py_DECREF(cond);
             if (err > 0) {
-                JUMPTO(oparg);
+                JUMPTO_WITH_OSR(oparg);
             }
             else if (err == 0)
                 ;
@@ -3674,7 +3709,7 @@ la_common:
                 FAST_DISPATCH();
             }
             if (cond == Py_False) {
-                JUMPTO(oparg);
+                JUMPTO_WITH_OSR(oparg);
                 FAST_DISPATCH();
             }
             err = PyObject_IsTrue(cond);
@@ -3683,7 +3718,7 @@ la_common:
                 Py_DECREF(cond);
             }
             else if (err == 0)
-                JUMPTO(oparg);
+                JUMPTO_WITH_OSR(oparg);
             else
                 goto error;
             DISPATCH();
@@ -3698,12 +3733,12 @@ la_common:
                 FAST_DISPATCH();
             }
             if (cond == Py_True) {
-                JUMPTO(oparg);
+                JUMPTO_WITH_OSR(oparg);
                 FAST_DISPATCH();
             }
             err = PyObject_IsTrue(cond);
             if (err > 0) {
-                JUMPTO(oparg);
+                JUMPTO_WITH_OSR(oparg);
             }
             else if (err == 0) {
                 STACK_SHRINK(1);
@@ -3718,26 +3753,7 @@ la_common:
             PREDICTED(JUMP_ABSOLUTE);
             JUMPTO(oparg);
 
-            ++co->co_opcache_flag;
-            OPCACHE_INIT_IF_HIT_THRESHOLD();
-
-            // check if we should switch over to the JIT (OSR)
-            if (co->co_opcache_flag > jit_min_runs && can_use_jit && co->co_jit_code == NULL
-                && !_Py_TracingPossible(ceval)) { // don't OSR if tracing is enabled because we seem to skip a line
-                co->co_jit_code = jit_func(co, tstate);
-                if (co->co_jit_code) {
-                    // JUMPTO() did not update f->f_lasti
-                    // (it still points to the JUMP_ABSOLUTE - not the destination of the jump)
-                    // update f->f_lasti manually like DISPATCH() would do because
-                    // we can only enter the machine code at jump targets.
-                    f->f_lasti = INSTR_OFFSET() - 2; // -2 because our JIT entry is always adding two
-                    return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)co->co_jit_code);
-                } else {
-                    // never try again to JIT compile this python function
-                    co->co_jit_code = JIT_FUNC_FAILED;
-                    can_use_jit = 0;
-                }
-            }
+            HANDLE_JUMP_BACKWARD_OSR();
 
 #if FAST_LOOPS
             /* Enabling this path speeds-up all while and for-loops by bypassing
