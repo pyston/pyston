@@ -1495,64 +1495,69 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             }
 
             // loadAttrCache
-            // PyTypeObject *arg2 = Py_TYPE(obj)
-            | mov arg2, [arg1 + offsetof(PyObject, ob_type)]
-            | type_version_check, arg2, la->type_ver, >1
-
-            if (la->cache_type == LA_CACHE_DATA_DESCR) {
-                // save the obj so we can access it after the call
-                | mov tmp_preserved_reg, arg1
-
-                PyObject* descr = la->u.descr_cache.descr;
-                emit_mov_imm(Dst, tmp_idx, (unsigned long)descr);
-                | mov arg2, [tmp + offsetof(PyObject, ob_type)]
-                | type_version_check, arg2, la->u.descr_cache.descr_type_ver, >1
-
-                // res = descr->ob_type->tp_descr_get(descr, owner, (PyObject *)owner->ob_type);
-                | mov arg1, tmp
-                | mov arg2, tmp_preserved_reg
-                | mov arg3, [tmp_preserved_reg + offsetof(PyObject, ob_type)]
-                emit_call_ext_func(Dst, descr->ob_type->tp_descr_get);
-                | mov arg1, tmp_preserved_reg // restore the obj so that the decref code works
-                // attr can be NULL
-                | test res, res
-                | jz >3
-                emit_load_attr_res_0_helper = 1; // makes sure we emit label 3
-            } else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
-                // nothing todo
+            if (la->cache_type == LA_CACHE_BUILTIN) {
+                | cmp_imm_mem [arg1 + offsetof(PyObject, ob_type)], la->type
+                | jne >1
             } else {
-                // _PyObject_GetDictPtr
-                // arg2 = PyType(obj)->tp_dictoffset
-                | mov arg2, [arg2 + offsetof(PyTypeObject, tp_dictoffset)]
+                // PyTypeObject *arg2 = Py_TYPE(obj)
+                | mov arg2, [arg1 + offsetof(PyObject, ob_type)]
+                | type_version_check, arg2, la->type_ver, >1
 
-                | test arg2, arg2
-                // je -> tp_dictoffset == 0
-                // tp_dict_offset==0 implies dict_ptr==NULL implies dict version (either split keys or not) is 0
-                // Also, fail the cache if dictoffset<0 rather than do the lengthier dict_ptr computation
-                // TODO some of the checks here might be redundant with the tp_version_tag check (specifies a class)
-                // and the fact that we successfully wrote the cache the first time.
-                if (version_zero) {
-                    // offset==0 => automatic version check success
-                    | je >2
-                    // offset<0 => failure
-                    | js >1
+                if (la->cache_type == LA_CACHE_DATA_DESCR) {
+                    // save the obj so we can access it after the call
+                    | mov tmp_preserved_reg, arg1
+
+                    PyObject* descr = la->u.descr_cache.descr;
+                    emit_mov_imm(Dst, tmp_idx, (unsigned long)descr);
+                    | mov arg2, [tmp + offsetof(PyObject, ob_type)]
+                    | type_version_check, arg2, la->u.descr_cache.descr_type_ver, >1
+
+                    // res = descr->ob_type->tp_descr_get(descr, owner, (PyObject *)owner->ob_type);
+                    | mov arg1, tmp
+                    | mov arg2, tmp_preserved_reg
+                    | mov arg3, [tmp_preserved_reg + offsetof(PyObject, ob_type)]
+                    emit_call_ext_func(Dst, descr->ob_type->tp_descr_get);
+                    | mov arg1, tmp_preserved_reg // restore the obj so that the decref code works
+                    // attr can be NULL
+                    | test res, res
+                    | jz >3
+                    emit_load_attr_res_0_helper = 1; // makes sure we emit label 3
+                } else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
+                    // nothing todo
                 } else {
-                    // automatic failure if dict_offset is zero or if it is negative
-                    | jle >1
-                }
+                    // _PyObject_GetDictPtr
+                    // arg2 = PyType(obj)->tp_dictoffset
+                    | mov arg2, [arg2 + offsetof(PyTypeObject, tp_dictoffset)]
 
-                // Now loadAttrCache splits into two cases, but the first step on both
-                // is to load the dict pointer and check if it's null
+                    | test arg2, arg2
+                    // je -> tp_dictoffset == 0
+                    // tp_dict_offset==0 implies dict_ptr==NULL implies dict version (either split keys or not) is 0
+                    // Also, fail the cache if dictoffset<0 rather than do the lengthier dict_ptr computation
+                    // TODO some of the checks here might be redundant with the tp_version_tag check (specifies a class)
+                    // and the fact that we successfully wrote the cache the first time.
+                    if (version_zero) {
+                        // offset==0 => automatic version check success
+                        | je >2
+                        // offset<0 => failure
+                        | js >1
+                    } else {
+                        // automatic failure if dict_offset is zero or if it is negative
+                        | jle >1
+                    }
 
-                // arg2 = *(obj + dictoffset)
-                | mov arg2, [arg1 + arg2]
-                | test arg2, arg2
-                if (version_zero) {
-                    // null dict is always a cache hit
-                    | jz >2
-                } else {
-                    // null dict is always a cache miss
-                    | jz >1
+                    // Now loadAttrCache splits into two cases, but the first step on both
+                    // is to load the dict pointer and check if it's null
+
+                    // arg2 = *(obj + dictoffset)
+                    | mov arg2, [arg1 + arg2]
+                    | test arg2, arg2
+                    if (version_zero) {
+                        // null dict is always a cache hit
+                        | jz >2
+                    } else {
+                        // null dict is always a cache miss
+                        | jz >1
+                    }
                 }
             }
 
@@ -1591,7 +1596,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 // instead jump to the slow path
                 | jz >1
                 emit_incref(Dst, res_idx);
-            } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
+            } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT || la->cache_type == LA_CACHE_BUILTIN) {
                 if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
                     | cmp_imm_mem [arg2 + offsetof(PyDictObject, ma_values)], 0
                     | je >1 // fail if dict->ma_values == NULL
@@ -1600,9 +1605,11 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                     | mov arg3, [arg2 + offsetof(PyDictObject, ma_keys)]
                     | cmp_imm_mem [arg3 + offsetof(PyDictKeysObject, dk_version_tag)], la->u.value_cache.dict_ver
                     | jne >1
-                } else {
+                } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT) {
                     | cmp_imm_mem [arg2 + offsetof(PyDictObject, ma_version_tag)], la->u.value_cache.dict_ver
                     | jne >1
+                } else {
+                    // Already guarded
                 }
                 | 2:
                 PyObject* r = la->u.value_cache.obj;

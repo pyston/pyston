@@ -953,8 +953,13 @@ loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject*
     if (!co_opcache->optimized)
         return -1;
 
-    if (unlikely(Py_TYPE(owner)->tp_version_tag != la->type_ver))
-        return -1;
+    if (la->cache_type == LA_CACHE_BUILTIN) {
+        if (unlikely(Py_TYPE(owner) != la->type))
+            return -1;
+    } else {
+        if (unlikely(Py_TYPE(owner)->tp_version_tag != la->type_ver))
+            return -1;
+    }
 
     PyObject** dictptr = _PyObject_GetDictPtr(owner);
     if (meth_found)
@@ -977,13 +982,16 @@ loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject*
         if (*res == NULL)
             return -1;
         Py_INCREF(*res);
-    } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT)
+    } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT || la->cache_type == LA_CACHE_BUILTIN)
     {
         if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
             if (la->u.value_cache.dict_ver != getSplitDictKeysVersionFromDictPtr(dictptr))
                 return -1;
-        } else {
+        } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT) {
             if (la->u.value_cache.dict_ver != getDictVersionFromDictPtr(dictptr))
+                return -1;
+        } else {
+            if (la->type != Py_TYPE(owner))
                 return -1;
         }
 
@@ -1157,22 +1165,29 @@ setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObje
     // because we are not guarding on Py_TYPE(descr)->tp_version_tag
     la->guard_tp_descr_get = !meth_found;
 
-    // guard on the instance dict shape if the instance dict is a splitdict and does not contain the attribute name as key.
-    // else we will create guard which will check for the exact dict version (=less generic)
-    int is_split_dict = dict && _PyDict_HasSplitTable((PyDictObject*)dict);
-    if (is_split_dict && _PyDict_GetItemIndexSplitDict(dict, name) == -1) {
-        la->u.value_cache.dict_ver = getSplitDictKeysVersionFromDictPtr(dictptr);
-        la->cache_type = LA_CACHE_VALUE_CACHE_SPLIT_DICT;
+    if (!PyType_HasFeature(tp, Py_TPFLAGS_HEAPTYPE) && !dictptr) {
+        // Simple case: this is a static (immutable) type, so we don't have to guard on as much.
+        la->cache_type = LA_CACHE_BUILTIN;
+        la->type = tp;
     } else {
-        la->u.value_cache.dict_ver = getDictVersionFromDictPtr(dictptr);
-        la->cache_type = LA_CACHE_VALUE_CACHE_DICT;
+        // guard on the instance dict shape if the instance dict is a splitdict and does not contain the attribute name as key.
+        // else we will create guard which will check for the exact dict version (=less generic)
+        int is_split_dict = dict && _PyDict_HasSplitTable((PyDictObject*)dict);
+        if (is_split_dict && _PyDict_GetItemIndexSplitDict(dict, name) == -1) {
+            la->u.value_cache.dict_ver = getSplitDictKeysVersionFromDictPtr(dictptr);
+            la->cache_type = LA_CACHE_VALUE_CACHE_SPLIT_DICT;
+        } else {
+            la->u.value_cache.dict_ver = getDictVersionFromDictPtr(dictptr);
+            la->cache_type = LA_CACHE_VALUE_CACHE_DICT;
+        }
     }
     la->u.value_cache.obj = res;
 
 common_cached:
     co_opcache->optimized = 1;
     la->meth_found = meth_found;
-    la->type_ver = tp->tp_version_tag;
+    if (la->cache_type != LA_CACHE_BUILTIN)
+        la->type_ver = tp->tp_version_tag;
     return 0;
 }
 
