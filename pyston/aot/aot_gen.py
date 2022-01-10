@@ -240,6 +240,24 @@ class Handler(object):
         else:
             return self.case.unspecialized_name
 
+    def _emitDeopt(self, deopt_to, pass_args, f):
+        # if we call another AOT function we have to make sure we generate a jump and not a call
+        # this is because the called trace will try to patch the call instruction by looking at the
+        # return address. Unfortunately only Clang >= 13 has __attribute__((musttail)).
+        # To workaround this issue we call into the unspecialized function but patch the return address
+        # to the more optimized guard_fail_fn_name which will get called from the JIT next time.
+        print(f"    SET_JIT_AOT_FUNC({deopt_to});", file=f)
+        if 0: # case when clang 13 is widely adopted
+            print(f"    PyObject* ret = {deopt_to}({pass_args});", file=f)
+            # this makes sure the compiler is not merging the calls into a single one
+            print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
+            print(f"    __attribute__((musttail)) return ret;", file=f)
+        else:
+            print(f"    PyObject* ret = {self.case.unspecialized_name}({pass_args});", file=f)
+            # this makes sure the compiler is not merging the calls into a single one
+            print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
+            print(f"    return ret;", file=f)
+
 class NormalHandler(Handler):
     """
     Handler object for handling "normal" functions that take their arguments normally
@@ -260,11 +278,7 @@ class NormalHandler(Handler):
             guard_fail_fn_name = self.getGuardFailFuncName(signature)
             print(f"{self._get_ret_type()} {name}({', '.join(parameters)})", "{", file=f)
             print(f"  if (unlikely(!({signature.getGuard(arg_names)})))", "{", file=f)
-            print(f"    SET_JIT_AOT_FUNC({guard_fail_fn_name});", file=f)
-            print(f"    PyObject* ret = {guard_fail_fn_name}({pass_args});", file=f)
-            # this makes sure the compiler is not merging the two calls into a single one
-            print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
-            print(f"    return ret;",  file=f)
+            self._emitDeopt(guard_fail_fn_name, pass_args, f)
             print("  }", file=f)
 
             for assumption in signature.getAssumptions(arg_names):
@@ -374,21 +388,13 @@ class CallableHandler(Handler):
             # to add this additional guard.
             # we don't use getGuardFailFuncName() here because if the number of args is different
             # it's likely faster to just go to the untraced case.
-            print(f"    SET_JIT_AOT_FUNC({self.case.unspecialized_name});", file=f)
-            print(f"    PyObject* ret = {self.case.unspecialized_name}({pass_args});", file=f)
-            # this makes sure the compiler is not merging the calls into a single one
-            print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
-            print(f"    return ret;", file=f)
-
+            self._emitDeopt(self.case.unspecialized_name, pass_args, f)
             print("  }", file=f)
+
             guard_fail_fn_name = self.getGuardFailFuncName(signature)
             print(f"  PyObject* f = stack[-oparg - 1];", file=f)
             print(f"  if (unlikely(!({signature.getGuard(arg_names)})))", "{", file=f)
-            print(f"    SET_JIT_AOT_FUNC({guard_fail_fn_name});", file=f)
-            print(f"    PyObject* ret = {guard_fail_fn_name}({pass_args});", file=f)
-            # this makes sure the compiler is not merging the calls into a single one
-            print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
-            print(f"    return ret;", file=f)
+            self._emitDeopt(guard_fail_fn_name, pass_args, f)
             print("  }", file=f)
 
             for assumption in signature.getAssumptions(arg_names):
@@ -654,7 +660,6 @@ def loadCases():
     def createBuiltinCFunction1ArgSignature(func_name, func, arg1type_name, arg1examples):
         classes = []
         classes.append(ObjectClass(func_name, IdentityGuard(f"(PyObject*)&builtin_{func_name}_obj"), [func]))
-
         if arg1type_name: # specialize on arg->ob_type == arg1type_name
             guard = TypeGuard(f"&{getCTypeName(arg1type_name)}")
             guard_fail_fn_name = f"{func_name}2"
