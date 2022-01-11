@@ -64,7 +64,7 @@ sudo apt-get install build-essential ninja-build git cmake clang libssl-dev libs
 
 Extra dependencies for running the test suite:
 ```
-sudo apt-get install libwebp-dev libjpeg-dev python3.8-gdbm python3.8-tk python3.8-dev tk-dev libgdbm-dev libgdbm-compat-dev liblzma-dev libbz2-dev nginx rustc
+sudo apt-get install libwebp-dev libjpeg-dev python3.8-gdbm python3.8-tk python3.8-dev tk-dev libgdbm-dev libgdbm-compat-dev liblzma-dev libbz2-dev nginx rustc time
 ```
 
 Extra dependencies for producing Pyston debian packages and portable directory release:

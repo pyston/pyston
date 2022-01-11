@@ -12,7 +12,7 @@ django_requirements.txt:
 
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as tempdir:
-        print("PYSTONTEST: on-failure-print If you see a WebP failure, you might have to install libweb-dev, delete the cached pillow wheel, and try again")
+        print("PYSTONTEST: on-failure-print If you see a WebP failure, you might have to install libwebp-dev, delete the cached pillow wheel, and try again")
 
         def rel(path):
             return os.path.join(os.path.dirname(__file__), path)

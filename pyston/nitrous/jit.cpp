@@ -98,10 +98,12 @@ public:
                       ObjLayerT::NotifyLoadedFtor(),
                       [](uint64_t K, const object::ObjectFile& Obj,
                          const RuntimeDyld::LoadedObjectInfo& L) {
+                          /* disabled because we don't link in perfjitevents if avialable
                           static JITEventListener* jit_event
                               = JITEventListener::createPerfJITEventListener();
                           if (jit_event)
                               jit_event->notifyObjectLoaded(K, Obj, L);
+                          */
                       }),
           CompileLayer(AcknowledgeORCv1Deprecation, ObjectLayer, SimpleCompiler(*TM)) {
         llvm::sys::DynamicLibrary::LoadLibraryPermanently(nullptr);

@@ -41,12 +41,8 @@ if __name__ == "__main__":
         # One option could be to allow differences in the test counts, but for
         # now let's try forcing the numpy testsuite to think it's running on Pyston
         # even for the baseline run.
-        with open(os.path.join(env_dir, "lib/%s/site-packages/usercustomize.py" % libdir), 'w') as f:
-            f.write("""
-import sys
-if not hasattr(sys, "pyston_version_info"):
-    sys.pyston_version_info = ()
-""")
+        with open(os.path.join(env_dir, "lib/%s/site-packages/pretend_to_be_pyston.pth" % libdir), 'w') as f:
+            f.write("import sys; sys.pyston_version_info = getattr(sys, 'pyston_version_info', ())")
 
         r = subprocess.call([os.path.join(env_dir, "bin/python"), "-u", "runtests.py", "--mode=full", "-v"], cwd=numpy_dir)
         assert r in (0, 1)
