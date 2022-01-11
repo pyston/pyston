@@ -220,7 +220,7 @@ perf_%_$(1): %.py build/$(1)_env/update.stamp
 	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath build/$(1)_install$(_PREFIX)/lib) JIT_PERF_MAP=1 perf record -g ./build/$(1)_env/bin/python3 $$< $$(ARGS)
 	$$(MAKE) perf_report
 
-pyperf_%_$(1): %.py ./build/$(1)_env/bin/update.stamp build/system_env/bin/python
+pyperf_%_$(1): %.py ./build/$(1)_env/update.stamp build/system_env/bin/python
 	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath build/$(1)_install$(_PREFIX)/lib) $$(PYPERF) build/$(1)_env/bin/python3 $$< $$(ARGS)
 
 # UNSAFE build target
