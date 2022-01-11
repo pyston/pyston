@@ -226,6 +226,7 @@ Py_ssize_t lookdict_split(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObj
 
 PyObject * method_vectorcall_NOARGS(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 PyObject * method_vectorcall_O(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
+PyObject * method_vectorcall_FASTCALL(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 
 static int is_immortal(PyObject* obj) {
     return obj->ob_refcnt > (1L<<59);
@@ -2299,8 +2300,8 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 Dst->call_method_hints = hint->next;
 
                 if (hint->attr) {
-                    int num_args = oparg + hint->meth_found;
-                    int num_vs_args = num_args + 1;
+                    int num_args = oparg + hint->meth_found; // number of arguments to the function, including a potential "self"
+                    int num_vs_args = num_args + 1; // number of python values; one more than the number of arguments since it includes the callable
 
                     if (hint->attr->ob_type == &PyMethodDescr_Type) {
                         PyMethodDescrObject* method = (PyMethodDescrObject*)hint->attr;
@@ -2325,6 +2326,18 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                                 | jne >1
 
                                 | mov arg2, [vsp - 8 * num_args + 8] // first python arg
+
+                                emit_call_ext_func(Dst, funcptr);
+
+                                wrote_inline_cache = 1;
+                            } else if (method->vectorcall == method_vectorcall_FASTCALL) {
+                                | mov arg1, [vsp - 8 * num_args] // self
+
+                                | cmp_imm_mem [arg1 + offsetof(PyObject, ob_type)], hint->type
+                                | jne >1
+
+                                | lea arg2, [vsp - 8 * num_args + 8]
+                                emit_mov_imm(Dst, arg3_idx, num_args - 1);
 
                                 emit_call_ext_func(Dst, funcptr);
 
