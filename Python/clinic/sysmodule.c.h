@@ -304,7 +304,7 @@ sys_setcheckinterval(PyObject *module, PyObject *arg)
     PyObject *return_value = NULL;
     int n;
 
-    if (PyFloat_Check(arg)) {
+    if (!PyLong_CheckExact(arg) && PyFloat_Check(arg)) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -428,7 +428,7 @@ sys_setrecursionlimit(PyObject *module, PyObject *arg)
     PyObject *return_value = NULL;
     int new_limit;
 
-    if (PyFloat_Check(arg)) {
+    if (!PyLong_CheckExact(arg) && PyFloat_Check(arg)) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -473,7 +473,7 @@ sys_set_coroutine_origin_tracking_depth(PyObject *module, PyObject *const *args,
     if (!args) {
         goto exit;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -646,7 +646,7 @@ sys_setdlopenflags(PyObject *module, PyObject *arg)
     PyObject *return_value = NULL;
     int new_val;
 
-    if (PyFloat_Check(arg)) {
+    if (!PyLong_CheckExact(arg) && PyFloat_Check(arg)) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -706,7 +706,7 @@ sys_mdebug(PyObject *module, PyObject *arg)
     PyObject *return_value = NULL;
     int flag;
 
-    if (PyFloat_Check(arg)) {
+    if (!PyLong_CheckExact(arg) && PyFloat_Check(arg)) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -786,6 +786,8 @@ exit:
 
 #endif /* defined(Py_REF_DEBUG) */
 
+#if (PY_DEBUGGING_FEATURES)
+
 PyDoc_STRVAR(sys_getallocatedblocks__doc__,
 "getallocatedblocks($module, /)\n"
 "--\n"
@@ -813,6 +815,8 @@ sys_getallocatedblocks(PyObject *module, PyObject *Py_UNUSED(ignored))
 exit:
     return return_value;
 }
+
+#endif /* (PY_DEBUGGING_FEATURES) */
 
 #if defined(COUNT_ALLOCS)
 
@@ -867,7 +871,7 @@ sys__getframe(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 1) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -1081,6 +1085,10 @@ sys_getandroidapilevel(PyObject *module, PyObject *Py_UNUSED(ignored))
     #define SYS_GETTOTALREFCOUNT_METHODDEF
 #endif /* !defined(SYS_GETTOTALREFCOUNT_METHODDEF) */
 
+#ifndef SYS_GETALLOCATEDBLOCKS_METHODDEF
+    #define SYS_GETALLOCATEDBLOCKS_METHODDEF
+#endif /* !defined(SYS_GETALLOCATEDBLOCKS_METHODDEF) */
+
 #ifndef SYS_GETCOUNTS_METHODDEF
     #define SYS_GETCOUNTS_METHODDEF
 #endif /* !defined(SYS_GETCOUNTS_METHODDEF) */
@@ -1088,4 +1096,4 @@ sys_getandroidapilevel(PyObject *module, PyObject *Py_UNUSED(ignored))
 #ifndef SYS_GETANDROIDAPILEVEL_METHODDEF
     #define SYS_GETANDROIDAPILEVEL_METHODDEF
 #endif /* !defined(SYS_GETANDROIDAPILEVEL_METHODDEF) */
-/*[clinic end generated code: output=273f9cec8bfcab91 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=d9c463bd000de5a5 input=a9049054013a1b77]*/

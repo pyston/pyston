@@ -43,7 +43,7 @@ warnings_warn(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObjec
         }
     }
     if (args[2]) {
-        if (PyFloat_Check(args[2])) {
+        if (!PyLong_CheckExact(args[2]) && PyFloat_Check(args[2])) {
             PyErr_SetString(PyExc_TypeError,
                             "integer argument expected, got float" );
             goto exit;
@@ -71,4 +71,4 @@ skip_optional_pos:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=b7bb54c73b5433ec input=a9049054013a1b77]*/
+/*[clinic end generated code: output=c4dd11a1a01ff281 input=a9049054013a1b77]*/

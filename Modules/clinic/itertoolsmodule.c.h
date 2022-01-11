@@ -170,7 +170,7 @@ itertools_tee(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 2) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -356,7 +356,7 @@ itertools_combinations(PyTypeObject *type, PyObject *args, PyObject *kwargs)
         goto exit;
     }
     iterable = fastargs[0];
-    if (PyFloat_Check(fastargs[1])) {
+    if (!PyLong_CheckExact(fastargs[1]) && PyFloat_Check(fastargs[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -409,7 +409,7 @@ itertools_combinations_with_replacement(PyTypeObject *type, PyObject *args, PyOb
         goto exit;
     }
     iterable = fastargs[0];
-    if (PyFloat_Check(fastargs[1])) {
+    if (!PyLong_CheckExact(fastargs[1]) && PyFloat_Check(fastargs[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -642,4 +642,4 @@ skip_optional_pos:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=392c9706e79f6710 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=d0adeb107cf21da1 input=a9049054013a1b77]*/

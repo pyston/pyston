@@ -19,7 +19,7 @@ resource_getrusage(PyObject *module, PyObject *arg)
     PyObject *return_value = NULL;
     int who;
 
-    if (PyFloat_Check(arg)) {
+    if (!PyLong_CheckExact(arg) && PyFloat_Check(arg)) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -51,7 +51,7 @@ resource_getrlimit(PyObject *module, PyObject *arg)
     PyObject *return_value = NULL;
     int resource;
 
-    if (PyFloat_Check(arg)) {
+    if (!PyLong_CheckExact(arg) && PyFloat_Check(arg)) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -87,7 +87,7 @@ resource_setrlimit(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (!_PyArg_CheckPositional("setrlimit", nargs, 2, 2)) {
         goto exit;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -178,4 +178,4 @@ exit:
 #ifndef RESOURCE_PRLIMIT_METHODDEF
     #define RESOURCE_PRLIMIT_METHODDEF
 #endif /* !defined(RESOURCE_PRLIMIT_METHODDEF) */
-/*[clinic end generated code: output=ef3034f291156a34 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=f85e6a1082a5aff7 input=a9049054013a1b77]*/

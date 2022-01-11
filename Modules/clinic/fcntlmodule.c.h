@@ -38,7 +38,7 @@ fcntl_fcntl(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (!conv_descriptor(args[0], &fd)) {
         goto exit;
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -113,7 +113,7 @@ fcntl_ioctl(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (!conv_descriptor(args[0], &fd)) {
         goto exit;
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -168,7 +168,7 @@ fcntl_flock(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (!conv_descriptor(args[0], &fd)) {
         goto exit;
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -233,7 +233,7 @@ fcntl_lockf(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (!conv_descriptor(args[0], &fd)) {
         goto exit;
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -253,7 +253,7 @@ fcntl_lockf(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 5) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[4])) {
+    if (!PyLong_CheckExact(args[4]) && PyFloat_Check(args[4])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -268,4 +268,4 @@ skip_optional:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=e912d25e28362c52 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=9f853f78c62eb2a0 input=a9049054013a1b77]*/

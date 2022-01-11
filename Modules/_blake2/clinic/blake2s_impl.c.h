@@ -54,7 +54,7 @@ skip_optional_posonly:
         goto skip_optional_kwonly;
     }
     if (fastargs[1]) {
-        if (PyFloat_Check(fastargs[1])) {
+        if (!PyLong_CheckExact(fastargs[1]) && PyFloat_Check(fastargs[1])) {
             PyErr_SetString(PyExc_TypeError,
                             "integer argument expected, got float" );
             goto exit;
@@ -104,7 +104,7 @@ skip_optional_posonly:
         }
     }
     if (fastargs[5]) {
-        if (PyFloat_Check(fastargs[5])) {
+        if (!PyLong_CheckExact(fastargs[5]) && PyFloat_Check(fastargs[5])) {
             PyErr_SetString(PyExc_TypeError,
                             "integer argument expected, got float" );
             goto exit;
@@ -118,7 +118,7 @@ skip_optional_posonly:
         }
     }
     if (fastargs[6]) {
-        if (PyFloat_Check(fastargs[6])) {
+        if (!PyLong_CheckExact(fastargs[6]) && PyFloat_Check(fastargs[6])) {
             PyErr_SetString(PyExc_TypeError,
                             "integer argument expected, got float" );
             goto exit;
@@ -148,7 +148,7 @@ skip_optional_posonly:
         }
     }
     if (fastargs[9]) {
-        if (PyFloat_Check(fastargs[9])) {
+        if (!PyLong_CheckExact(fastargs[9]) && PyFloat_Check(fastargs[9])) {
             PyErr_SetString(PyExc_TypeError,
                             "integer argument expected, got float" );
             goto exit;
@@ -162,7 +162,7 @@ skip_optional_posonly:
         }
     }
     if (fastargs[10]) {
-        if (PyFloat_Check(fastargs[10])) {
+        if (!PyLong_CheckExact(fastargs[10]) && PyFloat_Check(fastargs[10])) {
             PyErr_SetString(PyExc_TypeError,
                             "integer argument expected, got float" );
             goto exit;
@@ -261,4 +261,4 @@ _blake2_blake2s_hexdigest(BLAKE2sObject *self, PyObject *Py_UNUSED(ignored))
 {
     return _blake2_blake2s_hexdigest_impl(self);
 }
-/*[clinic end generated code: output=39af5a74c8805b36 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=d065a40ad892fd64 input=a9049054013a1b77]*/

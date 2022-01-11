@@ -391,7 +391,7 @@ pbkdf2_hmac(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObject 
         _PyArg_BadArgument("pbkdf2_hmac", "argument 'salt'", "contiguous buffer", args[2]);
         goto exit;
     }
-    if (PyFloat_Check(args[3])) {
+    if (!PyLong_CheckExact(args[3]) && PyFloat_Check(args[3])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -510,7 +510,7 @@ _hashlib_scrypt(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObj
         }
     }
     if (args[5]) {
-        if (PyFloat_Check(args[5])) {
+        if (!PyLong_CheckExact(args[5]) && PyFloat_Check(args[5])) {
             PyErr_SetString(PyExc_TypeError,
                             "integer argument expected, got float" );
             goto exit;
@@ -523,7 +523,7 @@ _hashlib_scrypt(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObj
             goto skip_optional_kwonly;
         }
     }
-    if (PyFloat_Check(args[6])) {
+    if (!PyLong_CheckExact(args[6]) && PyFloat_Check(args[6])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -623,4 +623,4 @@ exit:
 #ifndef _HASHLIB_SCRYPT_METHODDEF
     #define _HASHLIB_SCRYPT_METHODDEF
 #endif /* !defined(_HASHLIB_SCRYPT_METHODDEF) */
-/*[clinic end generated code: output=38c2637f67e9bb79 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=eb7e9065f2e80745 input=a9049054013a1b77]*/

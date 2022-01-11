@@ -36,7 +36,7 @@ tb_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
         goto exit;
     }
     tb_frame = (PyFrameObject *)fastargs[1];
-    if (PyFloat_Check(fastargs[2])) {
+    if (!PyLong_CheckExact(fastargs[2]) && PyFloat_Check(fastargs[2])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -45,7 +45,7 @@ tb_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
     if (tb_lasti == -1 && PyErr_Occurred()) {
         goto exit;
     }
-    if (PyFloat_Check(fastargs[3])) {
+    if (!PyLong_CheckExact(fastargs[3]) && PyFloat_Check(fastargs[3])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -59,4 +59,4 @@ tb_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=3def6c06248feed8 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=c84ae60dab5af84f input=a9049054013a1b77]*/
