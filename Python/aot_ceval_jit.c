@@ -120,6 +120,33 @@ typedef struct DeferredValueStackEntry {
     int val;
 } DeferredValueStackEntry;
 
+// We have a very simple analysis method:
+// When we see a LOAD_METHOD bytecode, we try to gather some hints that
+// can help the corresponding CALL_METHOD.
+//
+// The corresponding LOAD_METHOD and CALL_METHOD can be a bit hard to determine,
+// so the strategy used here is to just put the hints in a stack for LOAD_METHOD,
+// and pop them off for CALL_METHOD.
+//
+// The reason this optimization is valuable is because the LOAD_METHOD bytecode
+// might have a decent amount of information available: typically the value of
+// the callable on the fast path.
+//
+// Some of this is gained from using AOT speculation, but there are more fields
+// that can be specialized on than we have in our traces. Plus we can skip extra
+// guards by doing a single type check at the beginning.
+//
+// There is always a hint object defined for each LOAD_METHOD bytecode, and one
+// consumed by each CALL_METHOD bytecode. If no hinting information was found
+// then the hint object will contain NULL entries.
+typedef struct CallMethodHint {
+    struct CallMethodHint* next; // next item in this linked list
+
+    PyTypeObject* type; // type of the object we got the attribute from
+    PyObject* attr; // the attribute that we fetched
+    char meth_found;
+} CallMethodHint;
+
 typedef struct Jit {
     struct dasm_State* d;
     PyCodeObject* co;
@@ -155,6 +182,8 @@ typedef struct Jit {
     // used by emit_instr_start to keep state across calls
     int old_line_number;
     int emitted_trace_check_for_line;
+
+    CallMethodHint* call_method_hints; // linked list, each item needs to be freed
 } Jit;
 
 #define Dst_DECL Jit* Dst
@@ -194,6 +223,8 @@ PyObject * import_from(PyThreadState *, PyObject *, PyObject *);
 void format_exc_unbound(PyThreadState *tstate, PyCodeObject *co, int oparg);
 
 Py_ssize_t lookdict_split(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject **value_addr);
+
+PyObject * method_vectorcall_NOARGS(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 
 static int is_immortal(PyObject* obj) {
     return obj->ob_refcnt > (1L<<59);
@@ -1498,6 +1529,13 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             if (la->cache_type == LA_CACHE_BUILTIN) {
                 | cmp_imm_mem [arg1 + offsetof(PyObject, ob_type)], la->type
                 | jne >1
+
+                if (opcode == LOAD_METHOD) {
+                    CallMethodHint* hint = Dst->call_method_hints;
+                    hint->type = la->type;
+                    hint->attr = la->u.value_cache.obj;
+                    hint->meth_found = la->meth_found;
+                }
             } else {
                 // PyTypeObject *arg2 = Py_TYPE(obj)
                 | mov arg2, [arg1 + offsetof(PyObject, ob_type)]
@@ -2253,6 +2291,51 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 deferred_vs_pop1_owned(Dst, arg4_idx);
             }
             deferred_vs_apply(Dst);
+
+            char wrote_inline_cache = 0;
+            if (opcode == CALL_METHOD) {
+                CallMethodHint* hint = Dst->call_method_hints;
+                Dst->call_method_hints = hint->next;
+
+                if (hint->attr) {
+                    int num_args = oparg + hint->meth_found;
+                    int num_vs_args = num_args + 1;
+
+                    if (hint->attr->ob_type == &PyMethodDescr_Type) {
+                        PyMethodDescrObject* method = (PyMethodDescrObject*)hint->attr;
+                        void* funcptr = method->d_method->ml_meth;
+
+                        if (funcptr && _PyObject_RealIsSubclass((PyObject*)hint->type, (PyObject *)PyDescr_TYPE(method))) {
+                            // We skip the recursion check since we know we did one when
+                            // entering this python frame.
+                            if (method->vectorcall == (vectorcallfunc)method_vectorcall_NOARGS && num_args == 1) {
+                                | mov arg1, [vsp - 8 * num_args] // self
+
+                                | cmp_imm_mem [arg1 + offsetof(PyObject, ob_type)], hint->type
+                                | jne >1
+
+                                emit_call_ext_func(Dst, funcptr);
+
+                                wrote_inline_cache = 1;
+                            }
+
+                            if (wrote_inline_cache) {
+                                for (int i = 0; i < num_vs_args; i++) {
+                                    | mov arg1, [vsp - (i + 1) * 8]
+                                    emit_decref(Dst, arg1_idx, 1 /* preserve res */);
+                                }
+                                emit_adjust_vs(Dst, -num_vs_args);
+                                emit_if_res_0_error(Dst);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (wrote_inline_cache)
+                switch_section(Dst, SECTION_COLD);
+
+            |1:
             | mov arg1, tstate
 
             // arg2 = vsp
@@ -2275,6 +2358,13 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             emit_adjust_vs(Dst, -num_vs_args);
 
             emit_if_res_0_error(Dst);
+
+            if (wrote_inline_cache) {
+                | jmp >2
+                switch_section(Dst, SECTION_CODE);
+                |2:
+            }
+
             deferred_vs_push(Dst, REGISTER, res_idx);
             break;
 
@@ -2626,6 +2716,12 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                     co_opcache = &co->co_opcache[co_opt_offset - 1];
                     JIT_ASSERT(co_opcache != NULL, "");
                 }
+            }
+
+            if (opcode == LOAD_METHOD) {
+                CallMethodHint* hint = (CallMethodHint*)calloc(1, sizeof(CallMethodHint));
+                hint->next = Dst->call_method_hints;
+                Dst->call_method_hints = hint;
             }
 
             // try emitting a IC for the operation if possible
@@ -3135,6 +3231,14 @@ cleanup:
     Dst->is_jmp_target = NULL;
     free(Dst->known_defined);
     Dst->known_defined = NULL;
+
+    CallMethodHint *hint = Dst->call_method_hints;
+    Dst->call_method_hints = NULL;
+    while (hint) {
+        CallMethodHint *new_hint = hint->next;
+        free(hint);
+        hint = new_hint;
+    }
 
     return success ? labels[lbl_entry] : NULL;
 }
