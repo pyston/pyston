@@ -228,6 +228,12 @@ PyObject * method_vectorcall_NOARGS(PyObject *func, PyObject *const *args, size_
 PyObject * method_vectorcall_O(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 PyObject * method_vectorcall_FASTCALL(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 
+static void decref_array(PyObject** vec, int n) {
+    for (int i = -1; i >= -n; i--) {
+        Py_DECREF(vec[i]);
+    }
+}
+
 static int is_immortal(PyObject* obj) {
     return obj->ob_refcnt > (1L<<59);
 }
@@ -2345,9 +2351,23 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                             }
 
                             if (wrote_inline_cache) {
-                                for (int i = 0; i < num_vs_args; i++) {
-                                    | mov arg1, [vsp - (i + 1) * 8]
-                                    emit_decref(Dst, arg1_idx, 1 /* preserve res */);
+                                // Inlining the decrefs into the jitted code seems to help in some cases and hurt in others.
+                                // For now use the heuristic that we'll inline a small
+                                // number of decrefs into the jitted code.
+                                // This could use more research.
+                                int do_inline_decrefs = num_vs_args < 3;
+
+                                if (!do_inline_decrefs) {
+                                    | mov tmp_preserved_reg, res
+                                    | mov arg1, vsp
+                                    emit_mov_imm(Dst, arg2_idx, num_vs_args);
+                                    emit_call_ext_func(Dst, decref_array);
+                                    | mov res, tmp_preserved_reg
+                                } else {
+                                    for (int i = 0; i < num_vs_args; i++) {
+                                        | mov arg1, [vsp - (i + 1) * 8]
+                                        emit_decref(Dst, arg1_idx, 1 /* preserve res */);
+                                    }
                                 }
                                 emit_adjust_vs(Dst, -num_vs_args);
                                 emit_if_res_0_error(Dst);
