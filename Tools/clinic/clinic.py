@@ -2727,7 +2727,7 @@ class bool_converter(CConverter):
             # XXX PyFloat_Check can be removed after the end of the
             # deprecation in _PyLong_FromNbIndexOrNbInt.
             return """
-                if (PyFloat_Check({argname})) {{{{
+                if (!PyLong_CheckExact({argname}) && PyFloat_Check({argname})) {{{{
                     PyErr_SetString(PyExc_TypeError,
                                     "integer argument expected, got float" );
                     goto exit;
@@ -2793,7 +2793,7 @@ class unsigned_char_converter(CConverter):
     def parse_arg(self, argname, displayname):
         if self.format_unit == 'b':
             return """
-                if (PyFloat_Check({argname})) {{{{
+                if (!PyLong_CheckExact({argname}) && PyFloat_Check({argname})) {{{{
                     PyErr_SetString(PyExc_TypeError,
                                     "integer argument expected, got float" );
                     goto exit;
@@ -2820,7 +2820,7 @@ class unsigned_char_converter(CConverter):
                 """.format(argname=argname, paramname=self.name)
         elif self.format_unit == 'B':
             return """
-                if (PyFloat_Check({argname})) {{{{
+                if (!PyLong_CheckExact({argname}) && PyFloat_Check({argname})) {{{{
                     PyErr_SetString(PyExc_TypeError,
                                     "integer argument expected, got float" );
                     goto exit;
@@ -2848,7 +2848,7 @@ class short_converter(CConverter):
     def parse_arg(self, argname, displayname):
         if self.format_unit == 'h':
             return """
-                if (PyFloat_Check({argname})) {{{{
+                if (!PyLong_CheckExact({argname}) && PyFloat_Check({argname})) {{{{
                     PyErr_SetString(PyExc_TypeError,
                                     "integer argument expected, got float" );
                     goto exit;
@@ -2889,7 +2889,7 @@ class unsigned_short_converter(CConverter):
     def parse_arg(self, argname, displayname):
         if self.format_unit == 'H':
             return """
-                if (PyFloat_Check({argname})) {{{{
+                if (!PyLong_CheckExact({argname}) && PyFloat_Check({argname})) {{{{
                     PyErr_SetString(PyExc_TypeError,
                                     "integer argument expected, got float" );
                     goto exit;
@@ -2919,7 +2919,7 @@ class int_converter(CConverter):
     def parse_arg(self, argname, displayname):
         if self.format_unit == 'i':
             return """
-                if (PyFloat_Check({argname})) {{{{
+                if (!PyLong_CheckExact({argname}) && PyFloat_Check({argname})) {{{{
                     PyErr_SetString(PyExc_TypeError,
                                     "integer argument expected, got float" );
                     goto exit;
@@ -2961,7 +2961,7 @@ class unsigned_int_converter(CConverter):
     def parse_arg(self, argname, displayname):
         if self.format_unit == 'I':
             return """
-                if (PyFloat_Check({argname})) {{{{
+                if (!PyLong_CheckExact({argname}) && PyFloat_Check({argname})) {{{{
                     PyErr_SetString(PyExc_TypeError,
                                     "integer argument expected, got float" );
                     goto exit;
@@ -2982,7 +2982,7 @@ class long_converter(CConverter):
     def parse_arg(self, argname, displayname):
         if self.format_unit == 'l':
             return """
-                if (PyFloat_Check({argname})) {{{{
+                if (!PyLong_CheckExact({argname}) && PyFloat_Check({argname})) {{{{
                     PyErr_SetString(PyExc_TypeError,
                                     "integer argument expected, got float" );
                     goto exit;
@@ -3026,7 +3026,7 @@ class long_long_converter(CConverter):
     def parse_arg(self, argname, displayname):
         if self.format_unit == 'L':
             return """
-                if (PyFloat_Check({argname})) {{{{
+                if (!PyLong_CheckExact({argname}) && PyFloat_Check({argname})) {{{{
                     PyErr_SetString(PyExc_TypeError,
                                     "integer argument expected, got float" );
                     goto exit;
@@ -3077,7 +3077,7 @@ class Py_ssize_t_converter(CConverter):
     def parse_arg(self, argname, displayname):
         if self.format_unit == 'n':
             return """
-                if (PyFloat_Check({argname})) {{{{
+                if (!PyLong_CheckExact({argname}) && PyFloat_Check({argname})) {{{{
                     PyErr_SetString(PyExc_TypeError,
                                     "integer argument expected, got float" );
                     goto exit;
