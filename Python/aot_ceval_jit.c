@@ -234,6 +234,16 @@ static void decref_array(PyObject** vec, int n) {
     }
 }
 
+__attribute__((flatten))
+static void decref_array3(PyObject** vec) {
+    decref_array(vec, 3);
+}
+
+__attribute__((flatten))
+static void decref_array4(PyObject** vec) {
+    decref_array(vec, 4);
+}
+
 static int is_immortal(PyObject* obj) {
     return obj->ob_refcnt > (1L<<59);
 }
@@ -2360,8 +2370,14 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                                 if (!do_inline_decrefs) {
                                     | mov tmp_preserved_reg, res
                                     | mov arg1, vsp
-                                    emit_mov_imm(Dst, arg2_idx, num_vs_args);
-                                    emit_call_ext_func(Dst, decref_array);
+                                    if (num_vs_args == 3) {
+                                        emit_call_ext_func(Dst, decref_array3);
+                                    } else if (num_vs_args == 4) {
+                                        emit_call_ext_func(Dst, decref_array4);
+                                    } else {
+                                        emit_mov_imm(Dst, arg2_idx, num_vs_args);
+                                        emit_call_ext_func(Dst, decref_array);
+                                    }
                                     | mov res, tmp_preserved_reg
                                 } else {
                                     for (int i = 0; i < num_vs_args; i++) {
