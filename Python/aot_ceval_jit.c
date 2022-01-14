@@ -227,6 +227,7 @@ Py_ssize_t lookdict_split(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObj
 PyObject * method_vectorcall_NOARGS(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 PyObject * method_vectorcall_O(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 PyObject * method_vectorcall_FASTCALL(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
+PyObject * method_vectorcall_VARARGS(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 
 static void decref_array(PyObject** vec, int n) {
     for (int i = -1; i >= -n; i--) {
@@ -2353,7 +2354,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                                 | jne >1
 
                                 | mov arg2, [vsp - 8 * num_args + 8] // first python arg
-
                                 emit_call_ext_func(Dst, funcptr);
 
                                 wrote_inline_cache = 1;
@@ -2363,17 +2363,41 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                                 | je >1
 
                                 | mov arg1, [vsp - 8 * num_args] // self
-
                                 | cmp_imm_mem [arg1 + offsetof(PyObject, ob_type)], hint->type
                                 | jne >1
 
                                 | lea arg2, [vsp - 8 * num_args + 8]
                                 emit_mov_imm(Dst, arg3_idx, num_args - 1);
-
                                 emit_call_ext_func(Dst, funcptr);
 
                                 wrote_inline_cache = 1;
+                            } else if (method->vectorcall == method_vectorcall_VARARGS) {
+                                | mov arg1, [vsp - 8 * num_vs_args] // callable
+                                | test arg1, arg1
+                                | je >1
+
+                                | mov arg1, [vsp - 8 * num_args] // self
+                                | cmp_imm_mem [arg1 + offsetof(PyObject, ob_type)], hint->type
+                                | jne >1
+
+                                | lea arg1, [vsp - 8 * num_args + 8]
+                                emit_mov_imm(Dst, arg2_idx, num_args - 1);
+                                emit_call_ext_func(Dst, _PyTuple_FromArray_Borrowed);
+                                emit_if_res_0_error(Dst);
+                                | mov tmp_preserved_reg, res
+
+                                | mov arg1, [vsp - 8 * num_args] // self
+                                | mov arg2, res // args
+                                emit_call_ext_func(Dst, funcptr);
+
+                                | mov arg1, tmp_preserved_reg
+                                | mov tmp_preserved_reg, res
+                                emit_call_ext_func(Dst, _PyTuple_Decref_Borrowed);
+                                | mov res, tmp_preserved_reg
+
+                                wrote_inline_cache = 1;
                             }
+
 
                             if (wrote_inline_cache) {
                                 int num_decrefs = num_vs_args;
