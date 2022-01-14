@@ -1841,10 +1841,10 @@ _PyTypes_Init(void)
 #if PYSTON_SPEEDUPS
 #define INIT_TYPE(TYPE, NAME) \
     do { \
+        MAKE_IMMORTAL((PyObject*)TYPE); \
         if (PyType_Ready(TYPE) < 0) { \
             return _PyStatus_ERR("Can't initialize " NAME " type"); \
         } \
-        MAKE_IMMORTAL((PyObject*)TYPE); \
     } while (0)
 #else
 #define INIT_TYPE(TYPE, NAME) \

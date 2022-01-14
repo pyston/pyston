@@ -906,6 +906,9 @@ PyDescr_NewMethod(PyTypeObject *type, PyMethodDef *method)
     if (descr != NULL) {
         descr->d_method = method;
         descr->vectorcall = vectorcall;
+
+        if (IS_IMMORTAL(type))
+            MAKE_IMMORTAL(descr);
     }
     return (PyObject *)descr;
 }

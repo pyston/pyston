@@ -244,10 +244,6 @@ static void decref_array4(PyObject** vec) {
     decref_array(vec, 4);
 }
 
-static int is_immortal(PyObject* obj) {
-    return obj->ob_refcnt > (1L<<59);
-}
-
 static void* __attribute__ ((const)) get_addr_of_helper_func(int opcode, int oparg) {
     switch (opcode) {
 #define JIT_HELPER_ADDR(name)   case name: return JIT_HELPER_##name
@@ -1116,7 +1112,7 @@ static void deferred_vs_emit(Jit* Dst) {
             if (entry->loc == CONST) {
                 PyObject* obj = PyTuple_GET_ITEM(Dst->co_consts, entry->val);
                 emit_mov_imm(Dst, tmp_idx, (unsigned long)obj);
-                if (!is_immortal(obj))
+                if (!IS_IMMORTAL(obj))
                     emit_incref(Dst, tmp_idx);
                 | mov [vsp+ 8 * (i-1)], tmp
             } else if (entry->loc == FAST) {
@@ -1199,7 +1195,7 @@ static RefStatus deferred_vs_peek(Jit* Dst, int r_idx, int num) {
         if (entry->loc == CONST) {
             PyObject* obj = PyTuple_GET_ITEM(Dst->co_consts, entry->val);
             emit_mov_imm(Dst, r_idx, (unsigned long)obj);
-            ref_status = is_immortal(obj) ? IMMORTAL : BORROWED;
+            ref_status = IS_IMMORTAL(obj) ? IMMORTAL : BORROWED;
         } else if (entry->loc == FAST) {
             | mov Rq(r_idx), [f + get_fastlocal_offset(entry->val)]
             ref_status = BORROWED;
@@ -1681,7 +1677,8 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                     | jne >1
                 }
 
-                emit_incref(Dst, res_idx);
+                if (!IS_IMMORTAL(r))
+                    emit_incref(Dst, res_idx);
             } else if (la->cache_type == LA_CACHE_IDX_SPLIT_DICT) {
                 // arg4 = dict->ma_values
                 | mov arg4, [arg2 + offsetof(PyDictObject, ma_values)]
@@ -2052,7 +2049,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             deferred_vs_apply(Dst);
             PyObject* obj = PyTuple_GET_ITEM(Dst->co_consts, oparg);
             emit_mov_imm(Dst, arg1_idx, (unsigned long)obj);
-            if (!is_immortal(obj))
+            if (!IS_IMMORTAL(obj))
                 emit_incref(Dst, arg1_idx);
             emit_push_v(Dst, arg1_idx);
 #endif
@@ -2379,26 +2376,30 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                             }
 
                             if (wrote_inline_cache) {
+                                int num_decrefs = num_vs_args;
+                                if (IS_IMMORTAL(hint->attr))
+                                    num_decrefs--;
+
                                 // Inlining the decrefs into the jitted code seems to help in some cases and hurt in others.
                                 // For now use the heuristic that we'll inline a small
                                 // number of decrefs into the jitted code.
                                 // This could use more research.
-                                int do_inline_decrefs = num_vs_args < 3;
+                                int do_inline_decrefs = num_decrefs < 3;
 
                                 if (!do_inline_decrefs) {
                                     | mov tmp_preserved_reg, res
                                     | mov arg1, vsp
-                                    if (num_vs_args == 3) {
+                                    if (num_decrefs == 3) {
                                         emit_call_ext_func(Dst, decref_array3);
-                                    } else if (num_vs_args == 4) {
+                                    } else if (num_decrefs == 4) {
                                         emit_call_ext_func(Dst, decref_array4);
                                     } else {
-                                        emit_mov_imm(Dst, arg2_idx, num_vs_args);
+                                        emit_mov_imm(Dst, arg2_idx, num_decrefs);
                                         emit_call_ext_func(Dst, decref_array);
                                     }
                                     | mov res, tmp_preserved_reg
                                 } else {
-                                    for (int i = 0; i < num_vs_args; i++) {
+                                    for (int i = 0; i < num_decrefs; i++) {
                                         | mov arg1, [vsp - (i + 1) * 8]
                                         emit_decref(Dst, arg1_idx, 1 /* preserve res */);
                                     }
@@ -2660,7 +2661,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 PyObject* empty_tuple = PyTuple_New(0);
                 deferred_vs_convert_reg_to_stack(Dst);
                 emit_mov_imm(Dst, res_idx, (unsigned long)empty_tuple);
-                if (!is_immortal(empty_tuple))
+                if (!IS_IMMORTAL(empty_tuple))
                     emit_incref(Dst, res_idx);
                 deferred_vs_push(Dst, REGISTER, res_idx);
                 Py_DECREF(empty_tuple);
