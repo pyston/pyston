@@ -2315,7 +2315,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 CallMethodHint* hint = Dst->call_method_hints;
                 Dst->call_method_hints = hint->next;
 
-                if (hint->attr) {
+                if (hint->attr && hint->meth_found) {
                     int num_args = oparg + hint->meth_found; // number of arguments to the function, including a potential "self"
                     int num_vs_args = num_args + 1; // number of python values; one more than the number of arguments since it includes the callable
 
@@ -2324,11 +2324,22 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                         void* funcptr = method->d_method->ml_meth;
 
                         if (funcptr && _PyObject_RealIsSubclass((PyObject*)hint->type, (PyObject *)PyDescr_TYPE(method))) {
+                            // Strategy:
+                            // First guard that meth != NULL.
+                            // We need this to verify that the object in the "self" stack slot
+                            // is actually the self object and not a non-method attribute.
+                            //
+                            // Then guard that self->ob_type == hint->type
+                            //
                             // We skip the recursion check since we know we did one when
                             // entering this python frame.
-                            if (method->vectorcall == method_vectorcall_NOARGS && num_args == 1) {
-                                | mov arg1, [vsp - 8 * num_args] // self
 
+                            if (method->vectorcall == method_vectorcall_NOARGS && num_args == 1) {
+                                | mov arg1, [vsp - 8 * num_vs_args] // callable
+                                | test arg1, arg1
+                                | je >1
+
+                                | mov arg1, [vsp - 8 * num_args] // self
                                 | cmp_imm_mem [arg1 + offsetof(PyObject, ob_type)], hint->type
                                 | jne >1
 
@@ -2336,8 +2347,11 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
                                 wrote_inline_cache = 1;
                             } else if (method->vectorcall == method_vectorcall_O && num_args == 2) {
-                                | mov arg1, [vsp - 8 * num_args] // self
+                                | mov arg1, [vsp - 8 * num_vs_args] // callable
+                                | test arg1, arg1
+                                | je >1
 
+                                | mov arg1, [vsp - 8 * num_args] // self
                                 | cmp_imm_mem [arg1 + offsetof(PyObject, ob_type)], hint->type
                                 | jne >1
 
@@ -2347,6 +2361,10 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
                                 wrote_inline_cache = 1;
                             } else if (method->vectorcall == method_vectorcall_FASTCALL) {
+                                | mov arg1, [vsp - 8 * num_vs_args] // callable
+                                | test arg1, arg1
+                                | je >1
+
                                 | mov arg1, [vsp - 8 * num_args] // self
 
                                 | cmp_imm_mem [arg1 + offsetof(PyObject, ob_type)], hint->type
