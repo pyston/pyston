@@ -900,6 +900,38 @@ static void emit_decref(Jit* Dst, int r_idx, int preserve_res) {
     }
 }
 
+// Decrefs two registers and makes sure that a call to _Py_Dealloc does not clobber
+// the registers of the second variable to decref and the 'res' register.
+static void emit_decref2(Jit* Dst, int r_idx, int r_idx2, int preserve_res) {
+    const int can_use_vs_preserved_reg = Dst->deferred_vs_preserved_reg_used == 0;
+    enum {
+        TMP_REG,
+        VS_REG,
+        STACK_SLOT,
+    } LocationOfVar2;
+
+    if (!preserve_res) { // if we don't need to preserve the result, we can store the second var to decref where we would store it (tmp_preserved_reg)
+        | mov tmp_preserved_reg, Rq(r_idx2)
+        LocationOfVar2 = TMP_REG;
+    } else if (can_use_vs_preserved_reg) { // we have the second preserved register available use it
+        | mov vs_preserved_reg, Rq(r_idx2)
+        LocationOfVar2 = VS_REG;
+    } else { // have to use the stack
+        | mov [rsp + 0 /* stack slot */ ], Rq(r_idx2)
+        LocationOfVar2 = STACK_SLOT;
+    }
+    emit_decref(Dst, r_idx, preserve_res);
+    if (LocationOfVar2 == TMP_REG) {
+        emit_decref(Dst, tmp_preserved_reg_idx, preserve_res);
+    } else if (LocationOfVar2 == VS_REG) {
+        emit_decref(Dst, vs_preserved_reg_idx, preserve_res);
+        emit_mov_imm(Dst, vs_preserved_reg_idx, 0); // we have to clear it because error path will xdecref
+    } else {
+        | mov arg1, [rsp + 0 /* stack slot */]
+        emit_decref(Dst, arg1_idx, preserve_res);
+    }
+}
+
 static void emit_xdecref_arg1(Jit* Dst) {
     | test arg1, arg1
     | jz >9
@@ -931,6 +963,8 @@ static void emit_call_decref_args(Jit* Dst, void* func, int num, int regs[], Ref
             | mov vs_preserved_reg, Rq(regs[i])
         } else {
             int stack_slot = num_owned - can_use_vs_preserved_reg -1;
+            // this should never happen if it does adjust NUM_MANUAL_STACK_SLOTS
+            JIT_ASSERT(stack_slot < NUM_MANUAL_STACK_SLOTS, "");
             | mov [rsp + stack_slot*8], Rq(regs[i])
         }
         ++num_owned;
@@ -2158,10 +2192,12 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 } else {
                     | cmove Rq(res_idx), Rq(tmp_idx)
                 }
-                // don't need to incref these are immortals
-                if (ref_status[0] == OWNED)
+                // don't need to incref Py_True/Py_False because they are immortals
+                if (ref_status[0] == OWNED && ref_status[1] == OWNED)
+                    emit_decref2(Dst, arg2_idx, arg1_idx, 1 /*= preserve res */);
+                else if (ref_status[0] == OWNED)
                     emit_decref(Dst, arg2_idx, 1 /*= preserve res */);
-                if (ref_status[1] == OWNED)
+                else if (ref_status[1] == OWNED)
                     emit_decref(Dst, arg1_idx, 1 /*= preserve res */);
             } else {
                 if (!func)
