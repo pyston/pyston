@@ -16,7 +16,7 @@ pypy-benchmarks:
 
 BUILDS:=opt system pypy
 
-ENV_DIR:=../../build/
+ENV_DIR:=../../../build/
 
 # To run the pypy benchmarks on 3.8, you need to update
 # pypy-benchmarks/unladen_swallow/perf.py, and comment out lines
@@ -34,9 +34,9 @@ pypybench_results: $(patsubst %,results/pypybench-%.json,$(BUILDS))
 # Usage: make_benchmark,NAME,NITERS
 define make_benchmark
 $(eval
-results/$(1)-%.json: ../../macrobenchmarks/benchmarks/$(1).py | $(ENV_DIR)%_env/bin/python results
+results/$(1)-%.json: ../../macrobenchmarks/benchmarks/bm_$(1)/run_benchmark.py | $(ENV_DIR)%_env/bin/python results
 	PYTHONPATH=..:$(PYTHONPATH) python3 -c "import tune; tune.tune()"
-	/usr/bin/time --verbose --output=$$(patsubst %.json,%.time_,$$@) $$(firstword $$|) $$< $(2) $$@ || echo failed > $$@
+	/usr/bin/time --verbose --output=$$(patsubst %.json,%.time_,$$@) $$(firstword $$|) $$< --legacy $(2) $$@ || echo failed > $$@
 	PYTHONPATH=..:$(PYTHONPATH) python3 -c "import tune; tune.untune()"
 	mv $$(patsubst %.json,%.time_,$$@) $$(patsubst %.json,%.time,$$@)
 	cat $$(patsubst %.json,%.time,$$@)
