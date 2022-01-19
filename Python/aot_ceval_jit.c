@@ -2327,7 +2327,9 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                             wrote_inline_cache = 1;
 
                             // Strategy:
-                            // First guard that meth != NULL.
+                            // First guard on tstate->use_tracing == 0
+                            //
+                            // Then guard that meth != NULL.
                             // We need this to verify that the object in the "self" stack slot
                             // is actually the self object and not a non-method attribute.
                             //
@@ -2335,6 +2337,11 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                             //
                             // We skip the recursion check since we know we did one when
                             // entering this python frame.
+
+                            JIT_ASSERT(sizeof(tstate->use_tracing) == 4, "");
+                            | mov eax, [tstate + offsetof(PyThreadState, use_tracing)]
+                            | test eax, eax
+                            | jne >1
 
                             | mov arg1, [vsp - 8 * num_vs_args] // callable
                             | test arg1, arg1
