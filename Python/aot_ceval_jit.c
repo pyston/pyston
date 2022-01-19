@@ -2324,6 +2324,8 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                         void* funcptr = method->d_method->ml_meth;
 
                         if (funcptr && _PyObject_RealIsSubclass((PyObject*)hint->type, (PyObject *)PyDescr_TYPE(method))) {
+                            wrote_inline_cache = 1;
+
                             // Strategy:
                             // First guard that meth != NULL.
                             // We need this to verify that the object in the "self" stack slot
@@ -2334,40 +2336,23 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                             // We skip the recursion check since we know we did one when
                             // entering this python frame.
 
+                            | mov arg1, [vsp - 8 * num_vs_args] // callable
+                            | test arg1, arg1
+                            | je >1
+
+                            | mov arg1, [vsp - 8 * num_args] // self
+                            | cmp_imm_mem [arg1 + offsetof(PyObject, ob_type)], hint->type
+                            | jne >1
+
                             if (method->vectorcall == method_vectorcall_NOARGS && num_args == 1) {
-                                | mov arg1, [vsp - 8 * num_vs_args] // callable
-                                | test arg1, arg1
-                                | je >1
-
-                                | mov arg1, [vsp - 8 * num_args] // self
-                                | cmp_imm_mem [arg1 + offsetof(PyObject, ob_type)], hint->type
-                                | jne >1
-
                                 emit_call_ext_func(Dst, funcptr);
 
-                                wrote_inline_cache = 1;
                             } else if (method->vectorcall == method_vectorcall_O && num_args == 2) {
-                                | mov arg1, [vsp - 8 * num_vs_args] // callable
-                                | test arg1, arg1
-                                | je >1
-
-                                | mov arg1, [vsp - 8 * num_args] // self
-                                | cmp_imm_mem [arg1 + offsetof(PyObject, ob_type)], hint->type
-                                | jne >1
-
                                 | mov arg2, [vsp - 8 * num_args + 8] // first python arg
                                 emit_call_ext_func(Dst, funcptr);
 
                                 wrote_inline_cache = 1;
                             } else if (method->vectorcall == method_vectorcall_FASTCALL || method->vectorcall == method_vectorcall_FASTCALL_KEYWORDS) {
-                                | mov arg1, [vsp - 8 * num_vs_args] // callable
-                                | test arg1, arg1
-                                | je >1
-
-                                | mov arg1, [vsp - 8 * num_args] // self
-                                | cmp_imm_mem [arg1 + offsetof(PyObject, ob_type)], hint->type
-                                | jne >1
-
                                 | lea arg2, [vsp - 8 * num_args + 8]
                                 emit_mov_imm(Dst, arg3_idx, num_args - 1);
                                 if (method->vectorcall == method_vectorcall_FASTCALL_KEYWORDS)
@@ -2376,14 +2361,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
                                 wrote_inline_cache = 1;
                             } else if (method->vectorcall == method_vectorcall_VARARGS || method->vectorcall == method_vectorcall_VARARGS_KEYWORDS) {
-                                | mov arg1, [vsp - 8 * num_vs_args] // callable
-                                | test arg1, arg1
-                                | je >1
-
-                                | mov arg1, [vsp - 8 * num_args] // self
-                                | cmp_imm_mem [arg1 + offsetof(PyObject, ob_type)], hint->type
-                                | jne >1
-
+                                // Convert stack to tuple:
                                 | lea arg1, [vsp - 8 * num_args + 8]
                                 emit_mov_imm(Dst, arg2_idx, num_args - 1);
                                 emit_call_ext_func(Dst, _PyTuple_FromArray_Borrowed);
@@ -2402,6 +2380,8 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                                 | mov res, tmp_preserved_reg
 
                                 wrote_inline_cache = 1;
+                            } else {
+                                abort();
                             }
 
 
