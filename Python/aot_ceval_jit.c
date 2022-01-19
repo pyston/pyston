@@ -227,7 +227,9 @@ Py_ssize_t lookdict_split(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObj
 PyObject * method_vectorcall_NOARGS(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 PyObject * method_vectorcall_O(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 PyObject * method_vectorcall_FASTCALL(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
+PyObject * method_vectorcall_FASTCALL_KEYWORDS(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 PyObject * method_vectorcall_VARARGS(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
+PyObject * method_vectorcall_VARARGS_KEYWORDS(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 
 static void decref_array(PyObject** vec, int n) {
     for (int i = -1; i >= -n; i--) {
@@ -2357,7 +2359,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                                 emit_call_ext_func(Dst, funcptr);
 
                                 wrote_inline_cache = 1;
-                            } else if (method->vectorcall == method_vectorcall_FASTCALL) {
+                            } else if (method->vectorcall == method_vectorcall_FASTCALL || method->vectorcall == method_vectorcall_FASTCALL_KEYWORDS) {
                                 | mov arg1, [vsp - 8 * num_vs_args] // callable
                                 | test arg1, arg1
                                 | je >1
@@ -2368,10 +2370,12 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
                                 | lea arg2, [vsp - 8 * num_args + 8]
                                 emit_mov_imm(Dst, arg3_idx, num_args - 1);
+                                if (method->vectorcall == method_vectorcall_FASTCALL_KEYWORDS)
+                                    emit_mov_imm(Dst, arg4_idx, 0); // kwnames
                                 emit_call_ext_func(Dst, funcptr);
 
                                 wrote_inline_cache = 1;
-                            } else if (method->vectorcall == method_vectorcall_VARARGS) {
+                            } else if (method->vectorcall == method_vectorcall_VARARGS || method->vectorcall == method_vectorcall_VARARGS_KEYWORDS) {
                                 | mov arg1, [vsp - 8 * num_vs_args] // callable
                                 | test arg1, arg1
                                 | je >1
@@ -2388,6 +2392,8 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
                                 | mov arg1, [vsp - 8 * num_args] // self
                                 | mov arg2, res // args
+                                if (method->vectorcall == method_vectorcall_VARARGS_KEYWORDS)
+                                    emit_mov_imm(Dst, arg3_idx, 0); // kwargs
                                 emit_call_ext_func(Dst, funcptr);
 
                                 | mov arg1, tmp_preserved_reg
