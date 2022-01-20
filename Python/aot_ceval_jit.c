@@ -179,6 +179,7 @@ struct PerfMapEntry {
 } *perf_map_funcs;
 
 static int jit_use_aot = 1;
+static int jit_callsites = 1, jit_callsites_trivial = 0;
 
 static PyObject* cmp_outcomePyCmp_BAD(PyObject *v, PyObject *w) {
   return cmp_outcome(NULL, PyCmp_BAD, v, w);
@@ -195,9 +196,19 @@ void format_exc_unbound(PyThreadState *tstate, PyCodeObject *co, int oparg);
 
 Py_ssize_t lookdict_split(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject **value_addr);
 
+PyObject* _Py_HOT_FUNCTION
+_PyEval_EvalFrame_AOT_FromCallsiteJit(PyFrameObject *f, PyThreadState* tstate);
+
 static int is_immortal(PyObject* obj) {
     return obj->ob_refcnt > (1L<<59);
 }
+
+|.arch x64
+|.globals lbl_
+|.actionlist bf_actions
+static Jit* jit_alloc(void** labels);
+static void* jit_generate_code(Jit* Dst, long* code_size_in_bytes);
+static void jit_free(Jit* Dst);
 
 static void* __attribute__ ((const)) get_addr_of_helper_func(int opcode, int oparg) {
     switch (opcode) {
@@ -573,9 +584,9 @@ static int check_func_args_never_deleted(Jit* Dst) {
 
 static int8_t* mem_chunk = NULL;
 static size_t mem_chunk_bytes_remaining = 0;
-static long mem_bytes_allocated = 0, mem_bytes_used = 0;
+static long mem_bytes_allocated = 0, mem_bytes_used = 0, mem_bytes_used_callsites = 0;
 static long mem_bytes_used_max = 100*1000*1000; // will stop emitting code after that many bytes
-static int jit_num_funcs = 0;
+static int jit_num_funcs = 0, jit_num_callsites = 0;
 
 static int jit_stats_enabled = 0;
 static unsigned long jit_stat_load_attr_hit, jit_stat_load_attr_miss, jit_stat_load_attr_inline, jit_stat_load_attr_total;
@@ -589,7 +600,6 @@ static unsigned long jit_stat_load_global_hit, jit_stat_load_global_miss, jit_st
 #define ENABLE_AVOID_SIG_TRACE_CHECK 1
 
 
-|.arch x64
 // section layout is same as specified here from left to right
 |.section entry, code, cold, opcode_addr
 
@@ -1855,24 +1865,18 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     int success = 0;
 
     // setup jit context, will get accessed from all dynasm functions via the name 'Dst'
-    Jit jit;
-    memset(&jit, 0, sizeof(jit));
-    jit.co = co;
-    jit.co_consts = co->co_consts;
-    jit.co_names = co->co_names;
-    jit.current_section = -1;
-
-    jit.num_opcodes = PyBytes_Size(co->co_code)/sizeof(_Py_CODEUNIT);
-    jit.first_instr = (_Py_CODEUNIT *)PyBytes_AS_STRING(co->co_code);
-
-    Jit* Dst = &jit;
-    dasm_init(Dst, DASM_MAXSECTION);
-    |.globals lbl_
     void* labels[lbl__MAX];
-    dasm_setupglobal(Dst, labels, lbl__MAX);
+    Jit* Dst = jit_alloc(labels);
+    if (Dst == NULL)
+        goto cleanup;
 
-    |.actionlist bf_actions
-    dasm_setup(Dst, bf_actions);
+    Dst->co = co;
+    Dst->co_consts = co->co_consts;
+    Dst->co_names = co->co_names;
+    Dst->num_opcodes = PyBytes_Size(co->co_code)/sizeof(_Py_CODEUNIT);
+    Dst->first_instr = (_Py_CODEUNIT *)PyBytes_AS_STRING(co->co_code);
+
+
 
     // we emit the opcode implementations first and afterwards the entry point of the function because
     // we don't know how much stack it will use etc..
@@ -1881,9 +1885,9 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     // allocate enough space for emitting a dynamic label for the start of every bytecode
     dasm_growpc(Dst,  Dst->num_opcodes + 1);
 
-    jit.is_jmp_target = calculate_jmp_targets(Dst);
+    Dst->is_jmp_target = calculate_jmp_targets(Dst);
 
-    jit.known_defined = (char*)malloc(co->co_nlocals);
+    Dst->known_defined = (char*)malloc(co->co_nlocals);
     const int funcs_args_are_always_defined = check_func_args_never_deleted(Dst);
 
     // did we emit the * label already?
@@ -3025,50 +3029,14 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 #if JIT_DEBUG
     |->is_jmp_target:
     for (int i=0; i<Dst->num_opcodes; ++i) {
-        |.byte jit.is_jmp_target[i]
+        |.byte Dst->is_jmp_target[i]
     }
 #endif
 
-#ifdef DASM_CHECKS
-    int dasm_err = dasm_checkstep(Dst, -1);
-    if (dasm_err) {
-        fprintf(stderr, "dynasm returned error %d", dasm_err);
-        JIT_ASSERT(0, "");
-    }
-#endif
-
-    size_t size;
-    dasm_link(Dst, &size);
-
-    // Align code regions to cache line boundaries.
-    // I don't know concretely that this is important but seems like
-    // something maybe you're supposed to do?
-    size = (size + 15) / 16 * 16;
-
-    // Allocate jitted code regions in 256KB chunks:
-    if (size > mem_chunk_bytes_remaining) {
-        mem_chunk_bytes_remaining = size > (1<<18) ? size : (1<<18);
-
-        // allocate memory which address fits inside a 32bit pointer (makes sure we can use 32bit rip relative addressing)
-        void* new_chunk = mem_chunk = mmap(0, mem_chunk_bytes_remaining, PROT_READ | PROT_WRITE, MAP_32BIT | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-        if (mem_chunk == MAP_FAILED) {
-            mem_chunk_bytes_remaining = 0;
-            goto cleanup;
-        }
-        mem_chunk = new_chunk;
-
-        // we self modify (=AOTFuncs) so make it writable to
-        mprotect(mem_chunk, mem_chunk_bytes_remaining, PROT_READ | PROT_EXEC | PROT_WRITE);
-
-        mem_bytes_allocated += (mem_chunk_bytes_remaining + 4095) / 4096 * 4096;
-    }
-
-    void* mem = mem_chunk;
-    mem_chunk += size;
-    mem_chunk_bytes_remaining -= size;
-    mem_bytes_used += size;
-
-    dasm_encode(Dst, mem);
+    long size = 0;
+    void* mem = jit_generate_code(Dst, &size);
+    if (mem == NULL)
+        goto cleanup;
 
     if (perf_map_file) {
         PyObject *type, *value, *traceback;
@@ -3123,18 +3091,19 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     success = 1;
 
 cleanup:
-    dasm_free(Dst);
     free(Dst->is_jmp_target);
     Dst->is_jmp_target = NULL;
     free(Dst->known_defined);
     Dst->known_defined = NULL;
+    jit_free(Dst);
 
     return success ? labels[lbl_entry] : NULL;
 }
 
 void show_jit_stats() {
-    fprintf(stderr, "jit: compiled %d functions\n", jit_num_funcs);
+    fprintf(stderr, "jit: compiled %d functions and %d callsites\n", jit_num_funcs, jit_num_callsites);
     fprintf(stderr, "jit: %ld bytes used (%.1f%% of allocated)\n", mem_bytes_used, 100.0 * mem_bytes_used / mem_bytes_allocated);
+    fprintf(stderr, "jit: %ld bytes are used by callsites\n", mem_bytes_used_callsites);
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_ATTR caches: %lu hits %lu misses\n", jit_stat_load_attr_inline, jit_stat_load_attr_total, jit_stat_load_attr_hit, jit_stat_load_attr_miss);
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_METHOD caches: %lu hits %lu misses\n", jit_stat_load_method_inline, jit_stat_load_method_total, jit_stat_load_method_hit, jit_stat_load_method_miss);
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_GLOBAL caches: %lu hits %lu misses\n", jit_stat_load_global_inline, jit_stat_load_global_total, jit_stat_load_global_hit, jit_stat_load_global_miss);
@@ -3166,6 +3135,15 @@ void jit_start() {
     val = getenv("JIT_USE_AOT");
     if (val) {
         jit_use_aot = atoi(val);
+    }
+
+    val = getenv("JIT_CALLSITES");
+    if (val) {
+        jit_callsites = atoi(val);
+    }
+    val = getenv("JIT_CALLSITES_TRIVIAL");
+    if (val) {
+        jit_callsites_trivial = atoi(val);
     }
 }
 
@@ -3202,4 +3180,288 @@ void jit_finish() {
 
     if (perf_map_opcode_map)
         fclose(perf_map_opcode_map);
+}
+
+
+PyObject* jit_call(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg, PyObject* kwnames) {
+    int success = 0;
+    const int MAX_ARGS = 16;
+    char is_arg_set[MAX_ARGS];
+    memset(is_arg_set, 0, sizeof(is_arg_set));
+
+    if (!jit_callsites)
+        goto cant_jit;
+
+    if (mem_bytes_used_max <= mem_bytes_used) // stop emitting code we used up all memory
+        goto cant_jit;
+
+    PyObject* called_obj = stack[-oparg -1];
+    PyFunctionObject* func = NULL;
+    PyObject* func_obj = NULL;
+    int is_meth = PyMethod_Check(called_obj);
+    if (is_meth)
+        func_obj = PyMethod_GET_FUNCTION(called_obj);
+    else
+        func_obj = called_obj;
+    if (!PyFunction_Check(func_obj))
+        goto cant_jit;
+    func = (PyFunctionObject*)func_obj;
+    // we add 'self' (stored the the method object) when calling the function object
+    int num_args = is_meth ? oparg + 1 : oparg;
+
+    PyCodeObject* callee_co = (PyCodeObject*)PyFunction_GET_CODE(func);
+    PyObject *argdefs = PyFunction_GET_DEFAULTS(func);
+    int argdef_size = argdefs ? PyTuple_GET_SIZE(argdefs) : 0;
+    int kwnames_size = kwnames ? PyTuple_GET_SIZE(kwnames) : 0;
+    int num_pos_args = num_args - kwnames_size;
+
+
+    if (callee_co->co_argcount > MAX_ARGS)
+        goto cant_jit;
+
+    if (!jit_callsites_trivial && (callee_co->co_argcount == num_args && kwnames_size == 0))
+        goto cant_jit;
+
+    if (callee_co->co_argcount < num_args)
+        goto cant_jit;
+
+    if (callee_co->co_argcount > num_args + argdef_size)
+        goto cant_jit;
+
+    if (callee_co->co_kwonlyargcount != 0)
+        goto cant_jit;
+
+    if ((callee_co->co_flags & ~(PyCF_MASK | CO_NESTED)) != (CO_OPTIMIZED | CO_NEWLOCALS | CO_NOFREE))
+        goto cant_jit;
+
+    if (_PyFunction_GetVersionForCurrentState(func) == 0)
+        goto cant_jit;
+
+    // setup jit context, will get accessed from all dynasm functions via the name 'Dst'
+    void* labels[lbl__MAX];
+    Jit *Dst = jit_alloc(labels);
+    if (Dst == NULL)
+        goto cleanup;
+
+    |.define r_tstate, r12
+    |.define r_stack, r13
+    |.define r_oparg, r14
+
+    |.macro read_stack, r, i
+    | mov r, [r_stack - (oparg + 1 - (i)) * sizeof(PyObject*)]
+    |.endmacro
+
+    |.macro write_frame_arg, i, r
+    | mov qword [res + offsetof(PyFrameObject, f_localsplus) + (i) * sizeof(PyObject*)], r
+    |.endmacro
+
+    |.align 16
+    |->entry:
+    | push r_tstate
+    | push r_stack
+    | push r_oparg
+    | mov r_tstate, arg1
+    | mov r_stack, arg2
+    | mov r_oparg, arg3
+    | cmp arg3, oparg
+    | jne ->deopt_call
+
+    | read_stack arg5, 0 /* = called obj */
+    if (is_meth) {
+        emit_cmp_imm(Dst, arg5_idx, (unsigned long)&PyMethod_Type);
+        | jne ->deopt_call
+
+        | cmp qword [arg5 + offsetof(PyMethodObject, im_self)], 0
+        | jz ->deopt_call
+
+        | mov arg5, [arg5 + offsetof(PyMethodObject, im_func)]
+    }
+    | cmp_imm_mem [arg5 + offsetof(PyObject, ob_type)], &PyFunction_Type
+    | jne ->deopt_call
+    _Static_assert(sizeof(func->func_version) == 4, "");
+    | cmp dword [arg5 + offsetof(PyFunctionObject, func_version)], func->func_version;
+    | jne ->deopt_call
+    _Static_assert(sizeof(tstate->use_tracing) == 4, "");
+    | cmp dword [r_tstate + offsetof(PyThreadState, use_tracing)], 0
+    | jne ->deopt_call
+
+    // f = _PyFrame_New_NoTrack(tstate, co, globals, NULL);
+    | mov arg1, r_tstate
+    emit_mov_imm(Dst, arg2_idx, (unsigned long)callee_co);
+    emit_mov_imm(Dst, arg3_idx, (unsigned long)PyFunction_GET_GLOBALS(func));
+    emit_mov_imm(Dst, arg4_idx, 0);
+    emit_call_ext_func(Dst, _PyFrame_New_NoTrack);
+    | test res, res
+    | jz ->deopt_call
+
+    for (int i=0; i<num_pos_args; ++i) {
+        if (i == 0 && is_meth) {
+            | read_stack tmp, 0 /* = method obj */
+            | mov arg1, [tmp + offsetof(PyMethodObject, im_self)]
+            emit_incref(Dst, arg1_idx);
+        } else {
+            | read_stack arg1, is_meth ? i : i+1
+        }
+        | write_frame_arg i, arg1
+        is_arg_set[i] = 1;
+    }
+
+    for (int i = 0; i < kwnames_size; ++i) {
+        PyObject *keyword = PyTuple_GET_ITEM(kwnames, i);
+        int value_idx = oparg - kwnames_size + i + 1;
+        Py_ssize_t j;
+
+        if (keyword == NULL || !PyUnicode_Check(keyword)) {
+            goto cleanup;
+        }
+
+        /* Speed hack: do raw pointer compares. As names are
+           normally interned this should almost always hit. */
+        PyObject **co_varnames = ((PyTupleObject *)(callee_co->co_varnames))->ob_item;
+        int found = 0;
+        for (j = callee_co->co_posonlyargcount; j < callee_co->co_argcount; j++) {
+            PyObject *name = co_varnames[j];
+            if (name == keyword) {
+                if (is_arg_set[j]) {
+                    goto cleanup;
+                }
+                | read_stack arg1, is_meth ? (value_idx-1) : value_idx
+                | write_frame_arg j, arg1
+                is_arg_set[j] = 1;
+                found  = 1;
+                break;
+            }
+        }
+        if (!found)
+            goto cleanup;
+    }
+
+    // check that every argument is set / set to default value
+    for (int i=0; i<callee_co->co_argcount; ++i) {
+        if (is_arg_set[i])
+            continue;
+        // try filling in default value
+        int defstart = callee_co->co_argcount - argdef_size;
+        if (i < defstart)
+            goto cleanup; // no default value set
+        PyObject* arg = PyTuple_GET_ITEM(argdefs, i - defstart);
+        emit_mov_imm(Dst, arg1_idx, (unsigned long)arg);
+        emit_incref(Dst, arg1_idx);
+        | write_frame_arg i, arg1
+        is_arg_set[i] = 1;
+    }
+
+    // _PyEval_EvalFrame_AOT_FromCallsiteJit(frame, tstate)
+    | mov arg1, res
+    | mov arg2, r_tstate
+    emit_call_ext_func(Dst, _PyEval_EvalFrame_AOT_FromCallsiteJit);
+
+    // decref func / method
+    | read_stack arg1, 0 /* = called obj */
+    emit_decref(Dst, arg1_idx, 1 /*preserve_res*/);
+
+    |->ret:
+    | pop r_oparg
+    | pop r_stack
+    | pop r_tstate
+    | ret
+    |->deopt_call:
+    | mov arg1, r_tstate
+    | mov arg2, r_stack
+    | mov arg3, r_oparg
+    if (kwnames) {
+        emit_mov_imm(Dst, arg4_idx, (unsigned long)kwnames);
+        emit_call_ext_func(Dst, call_function_ceval_kwNoCallsiteJitProfile);
+    } else {
+        emit_call_ext_func(Dst, call_function_ceval_no_kwNoCallsiteJitProfile);
+    }
+    | jmp ->ret
+
+    long size = 0;
+    void* mem = jit_generate_code(Dst, &size);
+    if (mem == NULL)
+        goto cleanup;
+
+    mem_bytes_used_callsites += size;
+    ++jit_num_callsites;
+    success = 1;
+
+cleanup:
+    jit_free(Dst);
+    return success ? labels[lbl_entry] : NULL;
+
+cant_jit:
+    return 0;
+}
+
+static Jit* jit_alloc(void** labels) {
+    Jit* Dst = (Jit*)malloc(sizeof(Jit));
+    if (!Dst)
+        return 0;
+    memset(Dst, 0, sizeof(*Dst));
+    dasm_init(Dst, DASM_MAXSECTION);
+    if (Dst->d == NULL)
+        return 0;
+
+    dasm_setupglobal(Dst, labels, lbl__MAX);
+    dasm_setup(Dst, bf_actions);
+
+    Dst->current_section = -1;
+    switch_section(Dst, SECTION_CODE);
+    return Dst;
+}
+
+// return pointer to emitted code or NULL on error
+static void* jit_generate_code(Jit* Dst, long* code_size_in_bytes) {
+#ifdef DASM_CHECKS
+    int dasm_err = dasm_checkstep(Dst, -1);
+    if (dasm_err) {
+        fprintf(stderr, "dynasm returned error %d", dasm_err);
+        JIT_ASSERT(0, "");
+    }
+#endif
+
+    size_t size;
+    if (dasm_link(Dst, &size) != DASM_S_OK)
+        return NULL;
+
+    // Align code regions to cache line boundaries.
+    // I don't know concretely that this is important but seems like
+    // something maybe you're supposed to do?
+    size = (size + 15) / 16 * 16;
+
+    // Allocate jitted code regions in 256KB chunks:
+    if (size > mem_chunk_bytes_remaining) {
+        mem_chunk_bytes_remaining = size > (1<<18) ? size : (1<<18);
+
+        // allocate memory which address fits inside a 32bit pointer (makes sure we can use 32bit rip relative addressing)
+        void* new_chunk = mem_chunk = mmap(0, mem_chunk_bytes_remaining, PROT_READ | PROT_WRITE, MAP_32BIT | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (mem_chunk == MAP_FAILED) {
+            mem_chunk_bytes_remaining = 0;
+            return NULL;
+        }
+        mem_chunk = new_chunk;
+
+        // we self modify (=AOTFuncs) so make it writable to
+        mprotect(mem_chunk, mem_chunk_bytes_remaining, PROT_READ | PROT_EXEC | PROT_WRITE);
+
+        mem_bytes_allocated += (mem_chunk_bytes_remaining + 4095) / 4096 * 4096;
+    }
+
+    void* mem = mem_chunk;
+    mem_chunk += size;
+    mem_chunk_bytes_remaining -= size;
+    mem_bytes_used += size;
+
+    if (dasm_encode(Dst, mem) != DASM_S_OK)
+        return NULL;
+    *code_size_in_bytes = (long)size;
+    return mem;
+}
+static void jit_free(Jit* Dst) {
+    if (!Dst)
+        return;
+    if (Dst->d)
+        dasm_free(Dst);
+    free(Dst);
 }
