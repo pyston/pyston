@@ -1007,17 +1007,18 @@ static void* get_aot_func_addr(Jit* Dst, int opcode, int oparg, int opcache_avai
     return get_addr_of_aot_func(opcode, oparg, opcache_available);
 }
 
-static void emit_mov_inst_addr(Jit* Dst, int r_dst, int r_inst_idx) {
+static void emit_mov_inst_addr_to_tmp(Jit* Dst, int r_inst_idx) {
     // *2 instead of *4 because:
     // entries are 4byte wide addresses but lasti needs to be divided by 2
     // because it tracks offset in bytecode (2bytes long) array not the index
-    | mov Rd(r_dst), [Rq(r_inst_idx)*2 + ->opcode_addr_begin]
+    | lea tmp, [->opcode_addr_begin]
+    | mov Rd(tmp_idx), [tmp + Rq(r_inst_idx)*2]
 }
 
 static void emit_jmp_to_inst_idx(Jit* Dst, int r_idx) {
     JIT_ASSERT(r_idx != tmp_idx, "can't be tmp");
 
-    emit_mov_inst_addr(Dst, tmp_idx, r_idx);
+    emit_mov_inst_addr_to_tmp(Dst, r_idx);
     | jmp tmp
 }
 
@@ -1028,7 +1029,7 @@ static void debug_error_not_a_jump_target(PyFrameObject* f) {
 }
 #endif
 
-// warning this will overwrite tmp and arg1
+// warning this will overwrite tmp, arg1 and arg2
 static void emit_jmp_to_lasti(Jit* Dst) {
     | mov Rd(arg1_idx), [f + offsetof(PyFrameObject, f_lasti)]
 
@@ -1036,8 +1037,8 @@ static void emit_jmp_to_lasti(Jit* Dst) {
     // generate code to check that the instruction we jump to had 'is_jmp_target' set
     | mov tmp, arg1
     | shr tmp, 1 // divide by 2, because f_lasti is offset into bytecode array and every bytecode is 2bytes
-    | add tmp, ->is_jmp_target
-    | cmp byte [tmp], 0
+    | lea arg2, [->is_jmp_target]
+    | cmp byte [tmp + arg2], 0
     | jne >9
     | mov arg1, f
     emit_call_ext_func(Dst, debug_error_not_a_jump_target);
@@ -2887,7 +2888,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
     |->handle_signal_jump_to_inst:
     | mov Rd(arg1_idx), [f + offsetof(PyFrameObject, f_lasti)]
-    emit_mov_inst_addr(Dst, tmp_idx, arg1_idx);
+    emit_mov_inst_addr_to_tmp(Dst, arg1_idx);
     // tmp points now to the beginning of the bytecode implementation
     // but we want to skip the signal check.
     // We can't just directly jump after the signal check beause the jne instruction is variable size
@@ -3011,15 +3012,12 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     ////////////////////////////////
     // OPCODE TABLE
 
-    // table of bytecode index -> IP
+    // space for the table of bytecode index -> IP
     // used e.g. for continuing generators
+    // will fill in the actual address after dasm_link
     switch_section(Dst, SECTION_OPCODE_ADDR);
     |->opcode_addr_begin:
-    for (int inst_idx=0; inst_idx < Dst->num_opcodes; ++inst_idx) {
-        // emit 4byte address to start of implementation of instruction with index 'inst_idx'
-        // - this is fine our addresses are only 4 byte long not 8
-        |.aword =>inst_idx
-    }
+    |.space Dst->num_opcodes * 4, 255 // fill all bytes with this value to catch bugs
 
 
 #if JIT_DEBUG
@@ -3069,6 +3067,15 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     mem_bytes_used += size;
 
     dasm_encode(Dst, mem);
+
+    // fill in the table of bytecode index -> IP
+    for (int inst_idx=0; inst_idx < Dst->num_opcodes; ++inst_idx) {
+        // emit 4byte address to start of implementation of instruction with index 'inst_idx'
+        // - this is fine our addresses are only 4 byte long not 8
+        unsigned int* opcode_addr_begin = (unsigned int*)labels[lbl_opcode_addr_begin];
+        int offset = dasm_getpclabel(Dst, inst_idx);
+        opcode_addr_begin[inst_idx] = (unsigned int)mem + (unsigned int)offset;
+    }
 
     if (perf_map_file) {
         PyObject *type, *value, *traceback;
