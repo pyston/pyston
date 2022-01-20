@@ -2328,6 +2328,9 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
                             // Strategy:
                             // First guard on tstate->use_tracing == 0
+                            // It looks like we have to guard on this variable, even though we already
+                            // guarded on ceval->tracing_possible, because it looks like a profile
+                            // function will set use_tracing but not tracing_possible
                             //
                             // Then guard that meth != NULL.
                             // We need this to verify that the object in the "self" stack slot
