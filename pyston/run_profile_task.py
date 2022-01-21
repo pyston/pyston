@@ -17,5 +17,5 @@ if __name__ == "__main__":
 
     lock = fasteners.InterProcessLock("/tmp/pyston_pgo.lock")
     with lock:
-        run("macrobenchmarks/benchmarks/djangocms.py", "800") # approx 21s
-        run("macrobenchmarks/benchmarks/flaskblogging.py", "1800") # approx 10s
+        run("macrobenchmarks/benchmarks/bm_djangocms/run_benchmark.py", "--legacy") # approx 21s
+        run("macrobenchmarks/benchmarks/bm_flaskblogging/run_benchmark.py", "--legacy") # approx 10s

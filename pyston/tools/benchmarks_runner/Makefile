@@ -47,25 +47,25 @@ all_results: $(1)_results
 endef
 
 $(call make_benchmark,flaskblogging,80000)
-$(call make_benchmark,pylint_bench,200)
+$(call make_benchmark,pylint,200)
 $(call make_benchmark,djangocms,10000)
-$(call make_benchmark,mypy_bench,100)
-$(call make_benchmark,pycparser_bench,50)
+$(call make_benchmark,mypy,100)
+$(call make_benchmark,pycparser,50)
 $(call make_benchmark,pytorch_alexnet_inference,1000)
 $(call make_benchmark,gunicorn,10000)
 $(call make_benchmark,aiohttp,10000)
-$(call make_benchmark,json_bench,1000)
-$(call make_benchmark,thrift_bench,10000)
-$(call make_benchmark,kinto_bench,30000)
+$(call make_benchmark,json,1000)
+$(call make_benchmark,thrift,10000)
+$(call make_benchmark,kinto,30000)
 
 .PHONY: analyze
 analyze: all_results # pypybench_results
 	python3 analyze.py
 
-quick_analyze: results/djangocms-system.json results/djangocms-opt.json results/flaskblogging-system.json results/flaskblogging-opt.json results/kinto_bench-system.json results/kinto_bench-opt.json
+quick_analyze: results/djangocms-system.json results/djangocms-opt.json results/flaskblogging-system.json results/flaskblogging-opt.json results/kinto-system.json results/kinto-opt.json
 	python3 analyze.py
 
-quick_analyze_systempyston: results/djangocms-system.json results/djangocms-systempyston.json results/flaskblogging-system.json results/flaskblogging-systempyston.json results/kinto_bench-system.json results/kinto_bench-systempyston.json
+quick_analyze_systempyston: results/djangocms-system.json results/djangocms-systempyston.json results/flaskblogging-system.json results/flaskblogging-systempyston.json results/kinto-system.json results/kinto-systempyston.json
 	python3 analyze.py
 
 clean:
