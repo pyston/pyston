@@ -712,7 +712,7 @@ static void emit_dec_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
     // This causes issues because x86_64 rip memory access only use 32bit offsets.
     // To solve this issue we have to load the pointer into a register.
     if (IS_32BIT_VAL(ptr)) {
-        | dec qword [ptr]
+        | add qword [ptr], -1
     } else {
         // unfortunately we can't modify any register here :/
         // which means we will have to safe an restore via the stack
@@ -720,7 +720,7 @@ static void emit_dec_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
             | push tmp
         }
         | mov64 tmp, (unsigned long)ptr
-        | dec qword [tmp]
+        | add qword [tmp], -1
         if (!can_use_tmp_reg) {
             | pop tmp
         }
@@ -728,13 +728,13 @@ static void emit_dec_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
 }
 static void emit_inc_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
     if (IS_32BIT_VAL(ptr)) {
-        | inc qword [ptr]
+        | add qword [ptr], 1
     } else {
         if (!can_use_tmp_reg) {
             | push tmp
         }
         | mov64 tmp, (unsigned long)ptr
-        | inc qword [tmp]
+        | add qword [tmp], 1
         if (!can_use_tmp_reg) {
             | pop tmp
         }
@@ -748,7 +748,7 @@ static void emit_incref(Jit* Dst, int r_idx) {
     _Static_assert(sizeof(_Py_RefTotal) == 8,  "adjust inc qword");
     emit_inc_qword_ptr(Dst, &_Py_RefTotal, 0 /*=can't use tmp_reg*/);
 #endif
-    | inc qword [Rq(r_idx)]
+    | add qword [Rq(r_idx)], 1
 }
 
 static void emit_if_res_0_error(Jit* Dst) {
@@ -862,7 +862,7 @@ static void emit_decref(Jit* Dst, int r_idx, int preserve_res) {
 #ifdef Py_REF_DEBUG
     emit_dec_qword_ptr(Dst, &_Py_RefTotal, 1 /* can_use_tmp_reg  */);
 #endif
-    | dec qword [Rq(r_idx)]
+    | add qword [Rq(r_idx)], -1
 
     // normally we emit the dealloc call into the cold section but if we are already inside it
     // we have to instead emit it inline
