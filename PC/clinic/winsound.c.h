@@ -34,7 +34,7 @@ winsound_PlaySound(PyObject *module, PyObject *const *args, Py_ssize_t nargs, Py
         goto exit;
     }
     sound = args[0];
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -81,7 +81,7 @@ winsound_Beep(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObjec
     if (!args) {
         goto exit;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -90,7 +90,7 @@ winsound_Beep(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObjec
     if (frequency == -1 && PyErr_Occurred()) {
         goto exit;
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -136,7 +136,7 @@ winsound_MessageBeep(PyObject *module, PyObject *const *args, Py_ssize_t nargs, 
     if (!noptargs) {
         goto skip_optional_pos;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -151,4 +151,4 @@ skip_optional_pos:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=28d1cd033282723d input=a9049054013a1b77]*/
+/*[clinic end generated code: output=56a917cf2e56a889 input=a9049054013a1b77]*/

@@ -59,7 +59,7 @@ code_replace(PyCodeObject *self, PyObject *const *args, Py_ssize_t nargs, PyObje
         goto skip_optional_kwonly;
     }
     if (args[0]) {
-        if (PyFloat_Check(args[0])) {
+        if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
             PyErr_SetString(PyExc_TypeError,
                             "integer argument expected, got float" );
             goto exit;
@@ -73,7 +73,7 @@ code_replace(PyCodeObject *self, PyObject *const *args, Py_ssize_t nargs, PyObje
         }
     }
     if (args[1]) {
-        if (PyFloat_Check(args[1])) {
+        if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
             PyErr_SetString(PyExc_TypeError,
                             "integer argument expected, got float" );
             goto exit;
@@ -87,7 +87,7 @@ code_replace(PyCodeObject *self, PyObject *const *args, Py_ssize_t nargs, PyObje
         }
     }
     if (args[2]) {
-        if (PyFloat_Check(args[2])) {
+        if (!PyLong_CheckExact(args[2]) && PyFloat_Check(args[2])) {
             PyErr_SetString(PyExc_TypeError,
                             "integer argument expected, got float" );
             goto exit;
@@ -101,7 +101,7 @@ code_replace(PyCodeObject *self, PyObject *const *args, Py_ssize_t nargs, PyObje
         }
     }
     if (args[3]) {
-        if (PyFloat_Check(args[3])) {
+        if (!PyLong_CheckExact(args[3]) && PyFloat_Check(args[3])) {
             PyErr_SetString(PyExc_TypeError,
                             "integer argument expected, got float" );
             goto exit;
@@ -115,7 +115,7 @@ code_replace(PyCodeObject *self, PyObject *const *args, Py_ssize_t nargs, PyObje
         }
     }
     if (args[4]) {
-        if (PyFloat_Check(args[4])) {
+        if (!PyLong_CheckExact(args[4]) && PyFloat_Check(args[4])) {
             PyErr_SetString(PyExc_TypeError,
                             "integer argument expected, got float" );
             goto exit;
@@ -129,7 +129,7 @@ code_replace(PyCodeObject *self, PyObject *const *args, Py_ssize_t nargs, PyObje
         }
     }
     if (args[5]) {
-        if (PyFloat_Check(args[5])) {
+        if (!PyLong_CheckExact(args[5]) && PyFloat_Check(args[5])) {
             PyErr_SetString(PyExc_TypeError,
                             "integer argument expected, got float" );
             goto exit;
@@ -143,7 +143,7 @@ code_replace(PyCodeObject *self, PyObject *const *args, Py_ssize_t nargs, PyObje
         }
     }
     if (args[6]) {
-        if (PyFloat_Check(args[6])) {
+        if (!PyLong_CheckExact(args[6]) && PyFloat_Check(args[6])) {
             PyErr_SetString(PyExc_TypeError,
                             "integer argument expected, got float" );
             goto exit;
@@ -253,4 +253,4 @@ skip_optional_kwonly:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=27fe34e82106b220 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=2656adf671325c99 input=a9049054013a1b77]*/

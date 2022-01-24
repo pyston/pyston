@@ -177,7 +177,7 @@ _io_StringIO_seek(stringio *self, PyObject *const *args, Py_ssize_t nargs)
     if (!_PyArg_CheckPositional("seek", nargs, 1, 2)) {
         goto exit;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -197,7 +197,7 @@ _io_StringIO_seek(stringio *self, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 2) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -348,4 +348,4 @@ _io_StringIO_seekable(stringio *self, PyObject *Py_UNUSED(ignored))
 {
     return _io_StringIO_seekable_impl(self);
 }
-/*[clinic end generated code: output=7aad5ab2e64a25b8 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=3a3bacc8fb41ccbb input=a9049054013a1b77]*/

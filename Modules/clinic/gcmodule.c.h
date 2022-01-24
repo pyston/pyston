@@ -102,7 +102,7 @@ gc_collect(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObject *
     if (!noptargs) {
         goto skip_optional_pos;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -151,7 +151,7 @@ gc_set_debug(PyObject *module, PyObject *arg)
     PyObject *return_value = NULL;
     int flags;
 
-    if (PyFloat_Check(arg)) {
+    if (!PyLong_CheckExact(arg) && PyFloat_Check(arg)) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -373,4 +373,4 @@ gc_get_freeze_count(PyObject *module, PyObject *Py_UNUSED(ignored))
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=e40d384b1f0d513c input=a9049054013a1b77]*/
+/*[clinic end generated code: output=17efd9d19429395d input=a9049054013a1b77]*/

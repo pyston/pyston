@@ -211,7 +211,7 @@ int_to_bytes(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject *
     if (!args) {
         goto exit;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -315,4 +315,4 @@ skip_optional_kwonly:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=77bc3b2615822cb8 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=e19d2ac6c5ad5445 input=a9049054013a1b77]*/

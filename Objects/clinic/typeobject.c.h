@@ -166,7 +166,7 @@ object___reduce_ex__(PyObject *self, PyObject *arg)
     PyObject *return_value = NULL;
     int protocol;
 
-    if (PyFloat_Check(arg)) {
+    if (!PyLong_CheckExact(arg) && PyFloat_Check(arg)) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -288,4 +288,4 @@ exit:
 }
 
 #endif /* (PYSTON_SPEEDUPS) */
-/*[clinic end generated code: output=55914a264b28f881 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=a6a08b7c60fa2edb input=a9049054013a1b77]*/

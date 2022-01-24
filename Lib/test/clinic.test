@@ -418,7 +418,7 @@ test_bool_converter(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 3) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[2])) {
+    if (!PyLong_CheckExact(args[2]) && PyFloat_Check(args[2])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -436,7 +436,7 @@ exit:
 
 static PyObject *
 test_bool_converter_impl(PyObject *module, int a, int b, int c)
-/*[clinic end generated code: output=25f20963894256a1 input=939854fa9f248c60]*/
+/*[clinic end generated code: output=990581b852cbae56 input=939854fa9f248c60]*/
 
 
 /*[clinic input]
@@ -729,7 +729,7 @@ test_unsigned_char_converter(PyObject *module, PyObject *const *args, Py_ssize_t
     if (nargs < 1) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -756,7 +756,7 @@ test_unsigned_char_converter(PyObject *module, PyObject *const *args, Py_ssize_t
     if (nargs < 2) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -783,7 +783,7 @@ test_unsigned_char_converter(PyObject *module, PyObject *const *args, Py_ssize_t
     if (nargs < 3) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[2])) {
+    if (!PyLong_CheckExact(args[2]) && PyFloat_Check(args[2])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -807,7 +807,7 @@ exit:
 static PyObject *
 test_unsigned_char_converter_impl(PyObject *module, unsigned char a,
                                   unsigned char b, unsigned char c)
-/*[clinic end generated code: output=ebf905c5c9414762 input=021414060993e289]*/
+/*[clinic end generated code: output=a5da4ef702198c20 input=021414060993e289]*/
 
 
 /*[clinic input]
@@ -841,7 +841,7 @@ test_short_converter(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 1) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -874,7 +874,7 @@ exit:
 
 static PyObject *
 test_short_converter_impl(PyObject *module, short a)
-/*[clinic end generated code: output=86fe1a1496a7ff20 input=6a8a7a509a498ff4]*/
+/*[clinic end generated code: output=c75b98471eab6484 input=6a8a7a509a498ff4]*/
 
 
 /*[clinic input]
@@ -925,7 +925,7 @@ test_unsigned_short_converter(PyObject *module, PyObject *const *args, Py_ssize_
     if (nargs < 3) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[2])) {
+    if (!PyLong_CheckExact(args[2]) && PyFloat_Check(args[2])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -944,7 +944,7 @@ exit:
 static PyObject *
 test_unsigned_short_converter_impl(PyObject *module, unsigned short a,
                                    unsigned short b, unsigned short c)
-/*[clinic end generated code: output=3779fe104319e3ae input=cdfd8eff3d9176b4]*/
+/*[clinic end generated code: output=777a50db198447b9 input=cdfd8eff3d9176b4]*/
 
 
 /*[clinic input]
@@ -984,7 +984,7 @@ test_int_converter(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 1) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -996,7 +996,7 @@ test_int_converter(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 2) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -1023,7 +1023,7 @@ test_int_converter(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 4) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[3])) {
+    if (!PyLong_CheckExact(args[3]) && PyFloat_Check(args[3])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -1041,7 +1041,7 @@ exit:
 
 static PyObject *
 test_int_converter_impl(PyObject *module, int a, int b, int c, myenum d)
-/*[clinic end generated code: output=10a2e48a34af5d7a input=d20541fc1ca0553e]*/
+/*[clinic end generated code: output=aa19e7e0b2c5dd19 input=d20541fc1ca0553e]*/
 
 
 /*[clinic input]
@@ -1092,7 +1092,7 @@ test_unsigned_int_converter(PyObject *module, PyObject *const *args, Py_ssize_t 
     if (nargs < 3) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[2])) {
+    if (!PyLong_CheckExact(args[2]) && PyFloat_Check(args[2])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -1111,7 +1111,7 @@ exit:
 static PyObject *
 test_unsigned_int_converter_impl(PyObject *module, unsigned int a,
                                  unsigned int b, unsigned int c)
-/*[clinic end generated code: output=189176ce67c7d2e7 input=5533534828b62fc0]*/
+/*[clinic end generated code: output=5de1bd2493b4f3ad input=5533534828b62fc0]*/
 
 
 /*[clinic input]
@@ -1145,7 +1145,7 @@ test_long_converter(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 1) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -1163,7 +1163,7 @@ exit:
 
 static PyObject *
 test_long_converter_impl(PyObject *module, long a)
-/*[clinic end generated code: output=44cd8823f59d116b input=d2179e3c9cdcde89]*/
+/*[clinic end generated code: output=b2d367a50acf0fae input=d2179e3c9cdcde89]*/
 
 
 /*[clinic input]
@@ -1263,7 +1263,7 @@ test_long_long_converter(PyObject *module, PyObject *const *args, Py_ssize_t nar
     if (nargs < 1) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -1281,7 +1281,7 @@ exit:
 
 static PyObject *
 test_long_long_converter_impl(PyObject *module, long long a)
-/*[clinic end generated code: output=3e8083f3aee4f18a input=d5fc81577ff4dd02]*/
+/*[clinic end generated code: output=a9a95eb2162d73d9 input=d5fc81577ff4dd02]*/
 
 
 /*[clinic input]
@@ -1390,7 +1390,7 @@ test_Py_ssize_t_converter(PyObject *module, PyObject *const *args, Py_ssize_t na
     if (nargs < 1) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -1410,7 +1410,7 @@ test_Py_ssize_t_converter(PyObject *module, PyObject *const *args, Py_ssize_t na
     if (nargs < 2) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -1443,7 +1443,7 @@ exit:
 static PyObject *
 test_Py_ssize_t_converter_impl(PyObject *module, Py_ssize_t a, Py_ssize_t b,
                                Py_ssize_t c)
-/*[clinic end generated code: output=a46d2aaf40c10398 input=3855f184bb3f299d]*/
+/*[clinic end generated code: output=7237bd110886315b input=3855f184bb3f299d]*/
 
 
 /*[clinic input]

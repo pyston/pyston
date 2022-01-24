@@ -434,7 +434,7 @@ _tkinter_tkapp_createfilehandler(TkappObject *self, PyObject *const *args, Py_ss
         goto exit;
     }
     file = args[0];
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -503,7 +503,7 @@ _tkinter_tkapp_createtimerhandler(TkappObject *self, PyObject *const *args, Py_s
     if (!_PyArg_CheckPositional("createtimerhandler", nargs, 2, 2)) {
         goto exit;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -542,7 +542,7 @@ _tkinter_tkapp_mainloop(TkappObject *self, PyObject *const *args, Py_ssize_t nar
     if (nargs < 1) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -581,7 +581,7 @@ _tkinter_tkapp_dooneevent(TkappObject *self, PyObject *const *args, Py_ssize_t n
     if (nargs < 1) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -769,7 +769,7 @@ _tkinter_create(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 4) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[3])) {
+    if (!PyLong_CheckExact(args[3]) && PyFloat_Check(args[3])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -781,7 +781,7 @@ _tkinter_create(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 5) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[4])) {
+    if (!PyLong_CheckExact(args[4]) && PyFloat_Check(args[4])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -793,7 +793,7 @@ _tkinter_create(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 6) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[5])) {
+    if (!PyLong_CheckExact(args[5]) && PyFloat_Check(args[5])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -805,7 +805,7 @@ _tkinter_create(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 7) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[6])) {
+    if (!PyLong_CheckExact(args[6]) && PyFloat_Check(args[6])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -862,7 +862,7 @@ _tkinter_setbusywaitinterval(PyObject *module, PyObject *arg)
     PyObject *return_value = NULL;
     int new_val;
 
-    if (PyFloat_Check(arg)) {
+    if (!PyLong_CheckExact(arg) && PyFloat_Check(arg)) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -912,4 +912,4 @@ exit:
 #ifndef _TKINTER_TKAPP_DELETEFILEHANDLER_METHODDEF
     #define _TKINTER_TKAPP_DELETEFILEHANDLER_METHODDEF
 #endif /* !defined(_TKINTER_TKAPP_DELETEFILEHANDLER_METHODDEF) */
-/*[clinic end generated code: output=492b8b833fe54bc9 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=9b333353147ca87e input=a9049054013a1b77]*/

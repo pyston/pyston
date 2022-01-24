@@ -162,7 +162,7 @@ dbmopen(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 3) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[2])) {
+    if (!PyLong_CheckExact(args[2]) && PyFloat_Check(args[2])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -177,4 +177,4 @@ skip_optional:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=7ced103488cbca7a input=a9049054013a1b77]*/
+/*[clinic end generated code: output=7784efe370e9bf45 input=a9049054013a1b77]*/

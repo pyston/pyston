@@ -116,7 +116,7 @@ _lzma_LZMADecompressor_decompress(Decompressor *self, PyObject *const *args, Py_
     if (!noptargs) {
         goto skip_optional_pos;
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -194,7 +194,7 @@ _lzma_LZMADecompressor___init__(PyObject *self, PyObject *args, PyObject *kwargs
         goto skip_optional_pos;
     }
     if (fastargs[0]) {
-        if (PyFloat_Check(fastargs[0])) {
+        if (!PyLong_CheckExact(fastargs[0]) && PyFloat_Check(fastargs[0])) {
             PyErr_SetString(PyExc_TypeError,
                             "integer argument expected, got float" );
             goto exit;
@@ -241,7 +241,7 @@ _lzma_is_check_supported(PyObject *module, PyObject *arg)
     PyObject *return_value = NULL;
     int check_id;
 
-    if (PyFloat_Check(arg)) {
+    if (!PyLong_CheckExact(arg) && PyFloat_Check(arg)) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -334,4 +334,4 @@ exit:
 
     return return_value;
 }
-/*[clinic end generated code: output=f7477a10e86a717d input=a9049054013a1b77]*/
+/*[clinic end generated code: output=2cec867205b6bf03 input=a9049054013a1b77]*/

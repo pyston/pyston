@@ -1424,7 +1424,7 @@ _operator_length_hint(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 2) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -1491,4 +1491,4 @@ _operator__compare_digest(PyObject *module, PyObject *const *args, Py_ssize_t na
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=e7ed71a8c475a901 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=e558faf011fbd29b input=a9049054013a1b77]*/

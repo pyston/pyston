@@ -2,6 +2,8 @@
 preserve
 [clinic start generated code]*/
 
+#if (PY_DEBUGGING_FEATURES)
+
 PyDoc_STRVAR(_tracemalloc_is_tracing__doc__,
 "is_tracing($module, /)\n"
 "--\n"
@@ -20,6 +22,10 @@ _tracemalloc_is_tracing(PyObject *module, PyObject *Py_UNUSED(ignored))
     return _tracemalloc_is_tracing_impl(module);
 }
 
+#endif /* (PY_DEBUGGING_FEATURES) */
+
+#if (PY_DEBUGGING_FEATURES)
+
 PyDoc_STRVAR(_tracemalloc_clear_traces__doc__,
 "clear_traces($module, /)\n"
 "--\n"
@@ -37,6 +43,10 @@ _tracemalloc_clear_traces(PyObject *module, PyObject *Py_UNUSED(ignored))
 {
     return _tracemalloc_clear_traces_impl(module);
 }
+
+#endif /* (PY_DEBUGGING_FEATURES) */
+
+#if (PY_DEBUGGING_FEATURES)
 
 PyDoc_STRVAR(_tracemalloc__get_traces__doc__,
 "_get_traces($module, /)\n"
@@ -61,6 +71,10 @@ _tracemalloc__get_traces(PyObject *module, PyObject *Py_UNUSED(ignored))
     return _tracemalloc__get_traces_impl(module);
 }
 
+#endif /* (PY_DEBUGGING_FEATURES) */
+
+#if (PY_DEBUGGING_FEATURES)
+
 PyDoc_STRVAR(_tracemalloc__get_object_traceback__doc__,
 "_get_object_traceback($module, obj, /)\n"
 "--\n"
@@ -73,6 +87,10 @@ PyDoc_STRVAR(_tracemalloc__get_object_traceback__doc__,
 
 #define _TRACEMALLOC__GET_OBJECT_TRACEBACK_METHODDEF    \
     {"_get_object_traceback", (PyCFunction)_tracemalloc__get_object_traceback, METH_O, _tracemalloc__get_object_traceback__doc__},
+
+#endif /* (PY_DEBUGGING_FEATURES) */
+
+#if (PY_DEBUGGING_FEATURES)
 
 PyDoc_STRVAR(_tracemalloc_start__doc__,
 "start($module, nframe=1, /)\n"
@@ -101,7 +119,7 @@ _tracemalloc_start(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 1) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -116,6 +134,10 @@ skip_optional:
 exit:
     return return_value;
 }
+
+#endif /* (PY_DEBUGGING_FEATURES) */
+
+#if (PY_DEBUGGING_FEATURES)
 
 PyDoc_STRVAR(_tracemalloc_stop__doc__,
 "stop($module, /)\n"
@@ -136,6 +158,10 @@ _tracemalloc_stop(PyObject *module, PyObject *Py_UNUSED(ignored))
 {
     return _tracemalloc_stop_impl(module);
 }
+
+#endif /* (PY_DEBUGGING_FEATURES) */
+
+#if (PY_DEBUGGING_FEATURES)
 
 PyDoc_STRVAR(_tracemalloc_get_traceback_limit__doc__,
 "get_traceback_limit($module, /)\n"
@@ -158,6 +184,10 @@ _tracemalloc_get_traceback_limit(PyObject *module, PyObject *Py_UNUSED(ignored))
     return _tracemalloc_get_traceback_limit_impl(module);
 }
 
+#endif /* (PY_DEBUGGING_FEATURES) */
+
+#if (PY_DEBUGGING_FEATURES)
+
 PyDoc_STRVAR(_tracemalloc_get_tracemalloc_memory__doc__,
 "get_tracemalloc_memory($module, /)\n"
 "--\n"
@@ -178,6 +208,10 @@ _tracemalloc_get_tracemalloc_memory(PyObject *module, PyObject *Py_UNUSED(ignore
     return _tracemalloc_get_tracemalloc_memory_impl(module);
 }
 
+#endif /* (PY_DEBUGGING_FEATURES) */
+
+#if (PY_DEBUGGING_FEATURES)
+
 PyDoc_STRVAR(_tracemalloc_get_traced_memory__doc__,
 "get_traced_memory($module, /)\n"
 "--\n"
@@ -197,4 +231,42 @@ _tracemalloc_get_traced_memory(PyObject *module, PyObject *Py_UNUSED(ignored))
 {
     return _tracemalloc_get_traced_memory_impl(module);
 }
-/*[clinic end generated code: output=1bc96dc569706afa input=a9049054013a1b77]*/
+
+#endif /* (PY_DEBUGGING_FEATURES) */
+
+#ifndef _TRACEMALLOC_IS_TRACING_METHODDEF
+    #define _TRACEMALLOC_IS_TRACING_METHODDEF
+#endif /* !defined(_TRACEMALLOC_IS_TRACING_METHODDEF) */
+
+#ifndef _TRACEMALLOC_CLEAR_TRACES_METHODDEF
+    #define _TRACEMALLOC_CLEAR_TRACES_METHODDEF
+#endif /* !defined(_TRACEMALLOC_CLEAR_TRACES_METHODDEF) */
+
+#ifndef _TRACEMALLOC__GET_TRACES_METHODDEF
+    #define _TRACEMALLOC__GET_TRACES_METHODDEF
+#endif /* !defined(_TRACEMALLOC__GET_TRACES_METHODDEF) */
+
+#ifndef _TRACEMALLOC__GET_OBJECT_TRACEBACK_METHODDEF
+    #define _TRACEMALLOC__GET_OBJECT_TRACEBACK_METHODDEF
+#endif /* !defined(_TRACEMALLOC__GET_OBJECT_TRACEBACK_METHODDEF) */
+
+#ifndef _TRACEMALLOC_START_METHODDEF
+    #define _TRACEMALLOC_START_METHODDEF
+#endif /* !defined(_TRACEMALLOC_START_METHODDEF) */
+
+#ifndef _TRACEMALLOC_STOP_METHODDEF
+    #define _TRACEMALLOC_STOP_METHODDEF
+#endif /* !defined(_TRACEMALLOC_STOP_METHODDEF) */
+
+#ifndef _TRACEMALLOC_GET_TRACEBACK_LIMIT_METHODDEF
+    #define _TRACEMALLOC_GET_TRACEBACK_LIMIT_METHODDEF
+#endif /* !defined(_TRACEMALLOC_GET_TRACEBACK_LIMIT_METHODDEF) */
+
+#ifndef _TRACEMALLOC_GET_TRACEMALLOC_MEMORY_METHODDEF
+    #define _TRACEMALLOC_GET_TRACEMALLOC_MEMORY_METHODDEF
+#endif /* !defined(_TRACEMALLOC_GET_TRACEMALLOC_MEMORY_METHODDEF) */
+
+#ifndef _TRACEMALLOC_GET_TRACED_MEMORY_METHODDEF
+    #define _TRACEMALLOC_GET_TRACED_MEMORY_METHODDEF
+#endif /* !defined(_TRACEMALLOC_GET_TRACED_MEMORY_METHODDEF) */
+/*[clinic end generated code: output=af2d5a3575962062 input=a9049054013a1b77]*/

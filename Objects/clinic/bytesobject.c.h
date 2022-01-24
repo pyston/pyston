@@ -46,7 +46,7 @@ bytes_split(PyBytesObject *self, PyObject *const *args, Py_ssize_t nargs, PyObje
             goto skip_optional_pos;
         }
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -202,7 +202,7 @@ bytes_rsplit(PyBytesObject *self, PyObject *const *args, Py_ssize_t nargs, PyObj
             goto skip_optional_pos;
         }
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -493,7 +493,7 @@ bytes_replace(PyBytesObject *self, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 3) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[2])) {
+    if (!PyLong_CheckExact(args[2]) && PyFloat_Check(args[2])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -636,7 +636,7 @@ bytes_splitlines(PyBytesObject *self, PyObject *const *args, Py_ssize_t nargs, P
     if (!noptargs) {
         goto skip_optional_pos;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -740,7 +740,7 @@ bytes_hex(PyBytesObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject
             goto skip_optional_pos;
         }
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -824,4 +824,4 @@ skip_optional_pos:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=6101b417d6a6a717 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=8649cddb08e16733 input=a9049054013a1b77]*/

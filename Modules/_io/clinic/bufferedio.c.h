@@ -120,7 +120,7 @@ _io__Buffered_peek(buffered *self, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 1) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -200,7 +200,7 @@ _io__Buffered_read1(buffered *self, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 1) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -356,7 +356,7 @@ _io__Buffered_seek(buffered *self, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 2) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -434,7 +434,7 @@ _io_BufferedReader___init__(PyObject *self, PyObject *args, PyObject *kwargs)
     if (!noptargs) {
         goto skip_optional_pos;
     }
-    if (PyFloat_Check(fastargs[1])) {
+    if (!PyLong_CheckExact(fastargs[1]) && PyFloat_Check(fastargs[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -493,7 +493,7 @@ _io_BufferedWriter___init__(PyObject *self, PyObject *args, PyObject *kwargs)
     if (!noptargs) {
         goto skip_optional_pos;
     }
-    if (PyFloat_Check(fastargs[1])) {
+    if (!PyLong_CheckExact(fastargs[1]) && PyFloat_Check(fastargs[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -590,7 +590,7 @@ _io_BufferedRWPair___init__(PyObject *self, PyObject *args, PyObject *kwargs)
     if (PyTuple_GET_SIZE(args) < 3) {
         goto skip_optional;
     }
-    if (PyFloat_Check(PyTuple_GET_ITEM(args, 2))) {
+    if (!PyLong_CheckExact(PyTuple_GET_ITEM(args, 2)) && PyFloat_Check(PyTuple_GET_ITEM(args, 2))) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -649,7 +649,7 @@ _io_BufferedRandom___init__(PyObject *self, PyObject *args, PyObject *kwargs)
     if (!noptargs) {
         goto skip_optional_pos;
     }
-    if (PyFloat_Check(fastargs[1])) {
+    if (!PyLong_CheckExact(fastargs[1]) && PyFloat_Check(fastargs[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -672,4 +672,4 @@ skip_optional_pos:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=7246104f6c7d3167 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=f4738c3884ba8d6a input=a9049054013a1b77]*/

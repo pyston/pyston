@@ -24,7 +24,7 @@ list_insert(PyListObject *self, PyObject *const *args, Py_ssize_t nargs)
     if (!_PyArg_CheckPositional("insert", nargs, 2, 2)) {
         goto exit;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -128,7 +128,7 @@ list_pop(PyListObject *self, PyObject *const *args, Py_ssize_t nargs)
     if (nargs < 1) {
         goto skip_optional;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -196,7 +196,7 @@ list_sort(PyListObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject 
             goto skip_optional_kwonly;
         }
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -367,4 +367,4 @@ list___reversed__(PyListObject *self, PyObject *Py_UNUSED(ignored))
 {
     return list___reversed___impl(self);
 }
-/*[clinic end generated code: output=73718c0c33798c62 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=9e5d8d8b457bc5cb input=a9049054013a1b77]*/

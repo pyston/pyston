@@ -23,7 +23,7 @@ signal_alarm(PyObject *module, PyObject *arg)
     int seconds;
     long _return_value;
 
-    if (PyFloat_Check(arg)) {
+    if (!PyLong_CheckExact(arg) && PyFloat_Check(arg)) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -84,7 +84,7 @@ signal_raise_signal(PyObject *module, PyObject *arg)
     PyObject *return_value = NULL;
     int signalnum;
 
-    if (PyFloat_Check(arg)) {
+    if (!PyLong_CheckExact(arg) && PyFloat_Check(arg)) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -128,7 +128,7 @@ signal_signal(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (!_PyArg_CheckPositional("signal", nargs, 2, 2)) {
         goto exit;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -168,7 +168,7 @@ signal_getsignal(PyObject *module, PyObject *arg)
     PyObject *return_value = NULL;
     int signalnum;
 
-    if (PyFloat_Check(arg)) {
+    if (!PyLong_CheckExact(arg) && PyFloat_Check(arg)) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -204,7 +204,7 @@ signal_strsignal(PyObject *module, PyObject *arg)
     PyObject *return_value = NULL;
     int signalnum;
 
-    if (PyFloat_Check(arg)) {
+    if (!PyLong_CheckExact(arg) && PyFloat_Check(arg)) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -246,7 +246,7 @@ signal_siginterrupt(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (!_PyArg_CheckPositional("siginterrupt", nargs, 2, 2)) {
         goto exit;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -255,7 +255,7 @@ signal_siginterrupt(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (signalnum == -1 && PyErr_Occurred()) {
         goto exit;
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -303,7 +303,7 @@ signal_setitimer(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
     if (!_PyArg_CheckPositional("setitimer", nargs, 2, 3)) {
         goto exit;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -346,7 +346,7 @@ signal_getitimer(PyObject *module, PyObject *arg)
     PyObject *return_value = NULL;
     int which;
 
-    if (PyFloat_Check(arg)) {
+    if (!PyLong_CheckExact(arg) && PyFloat_Check(arg)) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -387,7 +387,7 @@ signal_pthread_sigmask(PyObject *module, PyObject *const *args, Py_ssize_t nargs
     if (!_PyArg_CheckPositional("pthread_sigmask", nargs, 2, 2)) {
         goto exit;
     }
-    if (PyFloat_Check(args[0])) {
+    if (!PyLong_CheckExact(args[0]) && PyFloat_Check(args[0])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -594,7 +594,7 @@ signal_pthread_kill(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
         goto exit;
     }
     thread_id = PyLong_AsUnsignedLongMask(args[0]);
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -658,4 +658,4 @@ exit:
 #ifndef SIGNAL_PTHREAD_KILL_METHODDEF
     #define SIGNAL_PTHREAD_KILL_METHODDEF
 #endif /* !defined(SIGNAL_PTHREAD_KILL_METHODDEF) */
-/*[clinic end generated code: output=3320b8f73c20ba60 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=600d173b533bd27c input=a9049054013a1b77]*/

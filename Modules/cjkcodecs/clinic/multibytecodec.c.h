@@ -171,7 +171,7 @@ _multibytecodec_MultibyteIncrementalEncoder_encode(MultibyteIncrementalEncoderOb
     if (!noptargs) {
         goto skip_optional_pos;
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -288,7 +288,7 @@ _multibytecodec_MultibyteIncrementalDecoder_decode(MultibyteIncrementalDecoderOb
     if (!noptargs) {
         goto skip_optional_pos;
     }
-    if (PyFloat_Check(args[1])) {
+    if (!PyLong_CheckExact(args[1]) && PyFloat_Check(args[1])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -525,4 +525,4 @@ PyDoc_STRVAR(_multibytecodec___create_codec__doc__,
 
 #define _MULTIBYTECODEC___CREATE_CODEC_METHODDEF    \
     {"__create_codec", (PyCFunction)_multibytecodec___create_codec, METH_O, _multibytecodec___create_codec__doc__},
-/*[clinic end generated code: output=5ce6fd4ca1f95620 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=bcb0b9fc8c4dca6a input=a9049054013a1b77]*/

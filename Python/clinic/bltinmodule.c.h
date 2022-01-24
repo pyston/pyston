@@ -79,7 +79,7 @@ builtin___import__(PyObject *module, PyObject *const *args, Py_ssize_t nargs, Py
             goto skip_optional_pos;
         }
     }
-    if (PyFloat_Check(args[4])) {
+    if (!PyLong_CheckExact(args[4]) && PyFloat_Check(args[4])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -229,7 +229,7 @@ builtin_chr(PyObject *module, PyObject *arg)
     PyObject *return_value = NULL;
     int i;
 
-    if (PyFloat_Check(arg)) {
+    if (!PyLong_CheckExact(arg) && PyFloat_Check(arg)) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -311,7 +311,7 @@ builtin_compile(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObj
         goto skip_optional_pos;
     }
     if (args[3]) {
-        if (PyFloat_Check(args[3])) {
+        if (!PyLong_CheckExact(args[3]) && PyFloat_Check(args[3])) {
             PyErr_SetString(PyExc_TypeError,
                             "integer argument expected, got float" );
             goto exit;
@@ -325,7 +325,7 @@ builtin_compile(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObj
         }
     }
     if (args[4]) {
-        if (PyFloat_Check(args[4])) {
+        if (!PyLong_CheckExact(args[4]) && PyFloat_Check(args[4])) {
             PyErr_SetString(PyExc_TypeError,
                             "integer argument expected, got float" );
             goto exit;
@@ -339,7 +339,7 @@ builtin_compile(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObj
         }
     }
     if (args[5]) {
-        if (PyFloat_Check(args[5])) {
+        if (!PyLong_CheckExact(args[5]) && PyFloat_Check(args[5])) {
             PyErr_SetString(PyExc_TypeError,
                             "integer argument expected, got float" );
             goto exit;
@@ -356,7 +356,7 @@ skip_optional_pos:
     if (!noptargs) {
         goto skip_optional_kwonly;
     }
-    if (PyFloat_Check(args[6])) {
+    if (!PyLong_CheckExact(args[6]) && PyFloat_Check(args[6])) {
         PyErr_SetString(PyExc_TypeError,
                         "integer argument expected, got float" );
         goto exit;
@@ -954,4 +954,4 @@ exit:
 #ifndef BUILTIN___IMPORT___METHODDEF
     #define BUILTIN___IMPORT___METHODDEF
 #endif /* !defined(BUILTIN___IMPORT___METHODDEF) */
-/*[clinic end generated code: output=e66cfaf75eabdc84 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=c9f208278974513e input=a9049054013a1b77]*/
