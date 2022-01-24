@@ -1549,9 +1549,11 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
 
                 if (opcode == LOAD_METHOD) {
                     CallMethodHint* hint = Dst->call_method_hints;
-                    hint->type = la->type;
-                    hint->attr = la->u.value_cache.obj;
-                    hint->meth_found = la->meth_found;
+                    if (hint) {
+                        hint->type = la->type;
+                        hint->attr = la->u.value_cache.obj;
+                        hint->meth_found = la->meth_found;
+                    }
                 }
             } else {
                 // PyTypeObject *arg2 = Py_TYPE(obj)
@@ -2313,9 +2315,14 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             char wrote_inline_cache = 0;
             if (opcode == CALL_METHOD) {
                 CallMethodHint* hint = Dst->call_method_hints;
-                Dst->call_method_hints = hint->next;
 
-                if (hint->attr && hint->meth_found) {
+                // For proper bytecode there should be exactly
+                // one hint per hint-usage, but check for the existence
+                // of the hint just in case:
+                if (hint)
+                    Dst->call_method_hints = hint->next;
+
+                if (hint && hint->attr && hint->meth_found) {
                     int num_args = oparg + hint->meth_found; // number of arguments to the function, including a potential "self"
                     int num_vs_args = num_args + 1; // number of python values; one more than the number of arguments since it includes the callable
 
@@ -2424,6 +2431,9 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                         }
                     }
                 }
+
+                if (hint)
+                    free(hint);
             }
 
             if (wrote_inline_cache)
@@ -3326,6 +3336,10 @@ cleanup:
     free(Dst->known_defined);
     Dst->known_defined = NULL;
 
+    // For reasonable bytecode we won't have any hints
+    // left because we will have consumed them all. But
+    // for the sake of completeness free any that might
+    // be left due to weird bytecode:
     CallMethodHint *hint = Dst->call_method_hints;
     Dst->call_method_hints = NULL;
     while (hint) {
