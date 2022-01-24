@@ -2359,7 +2359,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                                 | mov arg2, [vsp - 8 * num_args + 8] // first python arg
                                 emit_call_ext_func(Dst, funcptr);
 
-                                wrote_inline_cache = 1;
                             } else if (method->vectorcall == method_vectorcall_FASTCALL || method->vectorcall == method_vectorcall_FASTCALL_KEYWORDS) {
                                 | lea arg2, [vsp - 8 * num_args + 8]
                                 emit_mov_imm(Dst, arg3_idx, num_args - 1);
@@ -2367,7 +2366,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                                     emit_mov_imm(Dst, arg4_idx, 0); // kwnames
                                 emit_call_ext_func(Dst, funcptr);
 
-                                wrote_inline_cache = 1;
                             } else if (method->vectorcall == method_vectorcall_VARARGS || method->vectorcall == method_vectorcall_VARARGS_KEYWORDS) {
                                 // Convert stack to tuple:
                                 | lea arg1, [vsp - 8 * num_args + 8]
@@ -2387,44 +2385,42 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                                 emit_call_ext_func(Dst, _PyTuple_Decref_Borrowed);
                                 | mov res, tmp_preserved_reg
 
-                                wrote_inline_cache = 1;
                             } else {
+                                // We assume that all cases are handled, that we don't need to keep track
+                                // of whether we were able to generate an IC or not.
                                 abort();
                             }
 
+                            int num_decrefs = num_vs_args;
+                            if (IS_IMMORTAL(hint->attr))
+                                num_decrefs--;
 
-                            if (wrote_inline_cache) {
-                                int num_decrefs = num_vs_args;
-                                if (IS_IMMORTAL(hint->attr))
-                                    num_decrefs--;
+                            // Inlining the decrefs into the jitted code seems to help in some cases and hurt in others.
+                            // For now use the heuristic that we'll inline a small
+                            // number of decrefs into the jitted code.
+                            // This could use more research.
+                            int do_inline_decrefs = num_decrefs < 3;
 
-                                // Inlining the decrefs into the jitted code seems to help in some cases and hurt in others.
-                                // For now use the heuristic that we'll inline a small
-                                // number of decrefs into the jitted code.
-                                // This could use more research.
-                                int do_inline_decrefs = num_decrefs < 3;
-
-                                if (!do_inline_decrefs) {
-                                    | mov tmp_preserved_reg, res
-                                    | mov arg1, vsp
-                                    if (num_decrefs == 3) {
-                                        emit_call_ext_func(Dst, decref_array3);
-                                    } else if (num_decrefs == 4) {
-                                        emit_call_ext_func(Dst, decref_array4);
-                                    } else {
-                                        emit_mov_imm(Dst, arg2_idx, num_decrefs);
-                                        emit_call_ext_func(Dst, decref_array);
-                                    }
-                                    | mov res, tmp_preserved_reg
+                            if (!do_inline_decrefs) {
+                                | mov tmp_preserved_reg, res
+                                | mov arg1, vsp
+                                if (num_decrefs == 3) {
+                                    emit_call_ext_func(Dst, decref_array3);
+                                } else if (num_decrefs == 4) {
+                                    emit_call_ext_func(Dst, decref_array4);
                                 } else {
-                                    for (int i = 0; i < num_decrefs; i++) {
-                                        | mov arg1, [vsp - (i + 1) * 8]
-                                        emit_decref(Dst, arg1_idx, 1 /* preserve res */);
-                                    }
+                                    emit_mov_imm(Dst, arg2_idx, num_decrefs);
+                                    emit_call_ext_func(Dst, decref_array);
                                 }
-                                emit_adjust_vs(Dst, -num_vs_args);
-                                emit_if_res_0_error(Dst);
+                                | mov res, tmp_preserved_reg
+                            } else {
+                                for (int i = 0; i < num_decrefs; i++) {
+                                    | mov arg1, [vsp - (i + 1) * 8]
+                                    emit_decref(Dst, arg1_idx, 1 /* preserve res */);
+                                }
                             }
+                            emit_adjust_vs(Dst, -num_vs_args);
+                            emit_if_res_0_error(Dst);
                         }
                     }
                 }
