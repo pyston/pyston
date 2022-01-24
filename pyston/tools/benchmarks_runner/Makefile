@@ -16,7 +16,7 @@ pypy-benchmarks:
 
 BUILDS:=opt system pypy
 
-ENV_DIR:=../../build/
+ENV_DIR:=../../../build/
 
 # To run the pypy benchmarks on 3.8, you need to update
 # pypy-benchmarks/unladen_swallow/perf.py, and comment out lines
@@ -34,9 +34,9 @@ pypybench_results: $(patsubst %,results/pypybench-%.json,$(BUILDS))
 # Usage: make_benchmark,NAME,NITERS
 define make_benchmark
 $(eval
-results/$(1)-%.json: ../../macrobenchmarks/benchmarks/$(1).py | $(ENV_DIR)%_env/bin/python results
+results/$(1)-%.json: ../../macrobenchmarks/benchmarks/bm_$(1)/run_benchmark.py | $(ENV_DIR)%_env/bin/python results
 	PYTHONPATH=..:$(PYTHONPATH) python3 -c "import tune; tune.tune()"
-	/usr/bin/time --verbose --output=$$(patsubst %.json,%.time_,$$@) $$(firstword $$|) $$< $(2) $$@ || echo failed > $$@
+	/usr/bin/time --verbose --output=$$(patsubst %.json,%.time_,$$@) $$(firstword $$|) $$< --legacy $(2) $$@ || echo failed > $$@
 	PYTHONPATH=..:$(PYTHONPATH) python3 -c "import tune; tune.untune()"
 	mv $$(patsubst %.json,%.time_,$$@) $$(patsubst %.json,%.time,$$@)
 	cat $$(patsubst %.json,%.time,$$@)
@@ -47,25 +47,25 @@ all_results: $(1)_results
 endef
 
 $(call make_benchmark,flaskblogging,80000)
-$(call make_benchmark,pylint_bench,200)
+$(call make_benchmark,pylint,200)
 $(call make_benchmark,djangocms,10000)
-$(call make_benchmark,mypy_bench,100)
-$(call make_benchmark,pycparser_bench,50)
+$(call make_benchmark,mypy,100)
+$(call make_benchmark,pycparser,50)
 $(call make_benchmark,pytorch_alexnet_inference,1000)
 $(call make_benchmark,gunicorn,10000)
 $(call make_benchmark,aiohttp,10000)
-$(call make_benchmark,json_bench,1000)
-$(call make_benchmark,thrift_bench,10000)
-$(call make_benchmark,kinto_bench,30000)
+$(call make_benchmark,json,1000)
+$(call make_benchmark,thrift,10000)
+$(call make_benchmark,kinto,30000)
 
 .PHONY: analyze
 analyze: all_results # pypybench_results
 	python3 analyze.py
 
-quick_analyze: results/djangocms-system.json results/djangocms-opt.json results/flaskblogging-system.json results/flaskblogging-opt.json results/kinto_bench-system.json results/kinto_bench-opt.json
+quick_analyze: results/djangocms-system.json results/djangocms-opt.json results/flaskblogging-system.json results/flaskblogging-opt.json results/kinto-system.json results/kinto-opt.json
 	python3 analyze.py
 
-quick_analyze_systempyston: results/djangocms-system.json results/djangocms-systempyston.json results/flaskblogging-system.json results/flaskblogging-systempyston.json results/kinto_bench-system.json results/kinto_bench-systempyston.json
+quick_analyze_systempyston: results/djangocms-system.json results/djangocms-systempyston.json results/flaskblogging-system.json results/flaskblogging-systempyston.json results/kinto-system.json results/kinto-systempyston.json
 	python3 analyze.py
 
 clean:
