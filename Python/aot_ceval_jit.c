@@ -850,6 +850,17 @@ static void emit_mov_imm(Jit* Dst, int r_idx, unsigned long val) {
     }
 }
 
+// moves a 32bit or 64bit immediate into a 64 bit memory location uses smallest encoding
+// because of a limitation of DynASM this has to be a macro an not a C function
+|.macro mov_mem64_imm, mem, val
+|| if (IS_32BIT_VAL(val)) {
+|       mov qword mem, (unsigned int)val
+|| } else {
+||      emit_mov_imm(Dst, tmp_idx, val);
+|       mov qword mem, tmp
+|| }
+|.endmacro
+
 static void emit_cmp_imm(Jit* Dst, int r_idx, unsigned long val) {
     if (IS_32BIT_VAL(val)) {
         | cmp Rq(r_idx), (unsigned int)val
@@ -1115,10 +1126,13 @@ static void deferred_vs_emit(Jit* Dst) {
             DeferredValueStackEntry* entry = &Dst->deferred_vs[i-1];
             if (entry->loc == CONST) {
                 PyObject* obj = PyTuple_GET_ITEM(Dst->co_consts, entry->val);
-                emit_mov_imm(Dst, tmp_idx, (unsigned long)obj);
-                if (!IS_IMMORTAL(obj))
+                if (IS_IMMORTAL(obj)) {
+                    | mov_mem64_imm [vsp+ 8 * (i-1)], (unsigned long)obj
+                } else {
+                    emit_mov_imm(Dst, tmp_idx, (unsigned long)obj);
                     emit_incref(Dst, tmp_idx);
-                | mov [vsp+ 8 * (i-1)], tmp
+                    | mov [vsp+ 8 * (i-1)], tmp
+                }
             } else if (entry->loc == FAST) {
                 | mov tmp, [f + get_fastlocal_offset(entry->val)]
                 emit_incref(Dst, tmp_idx);
