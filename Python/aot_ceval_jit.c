@@ -1494,7 +1494,8 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 | jne >1
             }
             emit_mov_imm(Dst, res_idx, (unsigned long)lg->ptr);
-            emit_incref(Dst, res_idx);
+            if (!IS_IMMORTAL(lg->ptr))
+                emit_incref(Dst, res_idx);
             if (jit_stats_enabled) {
                 emit_inc_qword_ptr(Dst, &jit_stat_load_global_hit, 1 /*=can use tmp_reg*/);
             }
