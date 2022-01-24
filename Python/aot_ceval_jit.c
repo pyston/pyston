@@ -2342,12 +2342,10 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                             // entering this python frame.
 
                             JIT_ASSERT(sizeof(tstate->use_tracing) == 4, "");
-                            | mov eax, [tstate + offsetof(PyThreadState, use_tracing)]
-                            | test eax, eax
+                            | cmp dword [tstate + offsetof(PyThreadState, use_tracing)], 0
                             | jne >1
 
-                            | mov arg1, [vsp - 8 * num_vs_args] // callable
-                            | test arg1, arg1
+                            | cmp qword [vsp - 8 * num_vs_args], 0 // callable
                             | je >1
 
                             | mov arg1, [vsp - 8 * num_args] // self
