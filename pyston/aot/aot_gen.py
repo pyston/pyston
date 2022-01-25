@@ -588,7 +588,7 @@ def loadCases():
                                (len, (([1, 2, 3], )), ((1, 2), ), ("test string", )), # one arg
                                (isinstance, (5, int), (42, str)), # two arg
                                (getattr, (5, "does not exist", 42))],  # three arg
-             "MethodDescr": [(str.join, (" ", ("a", "b", "c"))), (str.upper, ("hello world",))],
+             "MethodDescr": [(str.upper, ("hello world",)), (str.join, (" ", ("a", "b", "c"))), (str.ljust, ("", 5, "x")), (str.replace, ("hello world", "hello", "HELLO", 1))],
              "Method": _method_cases,
              "Function": _function_cases,
 

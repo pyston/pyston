@@ -282,7 +282,7 @@ method_enter_call(PyObject *func)
 }
 
 /* Now the actual vectorcall functions */
-static PyObject *
+/* static */ PyObject *
 method_vectorcall_VARARGS(
     PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames)
 {
@@ -305,7 +305,7 @@ method_vectorcall_VARARGS(
     return result;
 }
 
-static PyObject *
+/* static */ PyObject *
 method_vectorcall_VARARGS_KEYWORDS(
     PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames)
 {
@@ -339,7 +339,7 @@ exit:
     return result;
 }
 
-static PyObject *
+/* static */ PyObject *
 method_vectorcall_FASTCALL(
     PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames)
 {
@@ -357,7 +357,7 @@ method_vectorcall_FASTCALL(
     return result;
 }
 
-static PyObject *
+/* static */ PyObject *
 method_vectorcall_FASTCALL_KEYWORDS(
     PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames)
 {
@@ -906,6 +906,9 @@ PyDescr_NewMethod(PyTypeObject *type, PyMethodDef *method)
     if (descr != NULL) {
         descr->d_method = method;
         descr->vectorcall = vectorcall;
+
+        if (IS_IMMORTAL(type))
+            MAKE_IMMORTAL(descr);
     }
     return (PyObject *)descr;
 }

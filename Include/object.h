@@ -571,12 +571,14 @@ PyAPI_DATA(PyObject) _Py_NoneStruct; /* Don't use this directly */
 // as is done by the gc module
 #define IMMORTAL_REFCOUNT (1L<<60)
 #define MAKE_IMMORTAL(obj) (((PyObject*)obj)->ob_refcnt = IMMORTAL_REFCOUNT)
+#define IS_IMMORTAL(obj) (((PyObject*)obj)->ob_refcnt > IMMORTAL_REFCOUNT / 2)
 #else
 #define Py_INCREF_IMMORTAL(obj) Py_INCREF(obj)
 #define Py_XINCREF_IMMORTAL(obj) Py_XINCREF(obj)
 #define Py_DECREF_IMMORTAL(obj) Py_DECREF(obj)
 #define Py_XDECREF_IMMORTAL(obj) Py_XDECREF(obj)
 #define MAKE_IMMORTAL(obj) ((void)obj)
+#define IS_IMMORTAL(obj) (0)
 #endif
 
 /* Macro for returning Py_None from a function */

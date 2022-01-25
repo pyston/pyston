@@ -378,6 +378,12 @@ public:
         if (function_name == "unicode_upper")
             return false;
 
+        if (function_name == "unicode_ljust")
+            return false;
+
+        if (function_name == "unicode_replace")
+            return false;
+
         if (function_name == "builtin_globals")
             return false;
 

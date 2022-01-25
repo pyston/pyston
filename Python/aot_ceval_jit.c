@@ -120,6 +120,33 @@ typedef struct DeferredValueStackEntry {
     int val;
 } DeferredValueStackEntry;
 
+// We have a very simple analysis method:
+// When we see a LOAD_METHOD bytecode, we try to gather some hints that
+// can help the corresponding CALL_METHOD.
+//
+// The corresponding LOAD_METHOD and CALL_METHOD can be a bit hard to determine,
+// so the strategy used here is to just put the hints in a stack for LOAD_METHOD,
+// and pop them off for CALL_METHOD.
+//
+// The reason this optimization is valuable is because the LOAD_METHOD bytecode
+// might have a decent amount of information available: typically the value of
+// the callable on the fast path.
+//
+// Some of this is gained from using AOT speculation, but there are more fields
+// that can be specialized on than we have in our traces. Plus we can skip extra
+// guards by doing a single type check at the beginning.
+//
+// There is always a hint object defined for each LOAD_METHOD bytecode, and one
+// consumed by each CALL_METHOD bytecode. If no hinting information was found
+// then the hint object will contain NULL entries.
+typedef struct CallMethodHint {
+    struct CallMethodHint* next; // next item in this linked list
+
+    PyTypeObject* type; // type of the object we got the attribute from
+    PyObject* attr; // the attribute that we fetched
+    char meth_found;
+} CallMethodHint;
+
 typedef struct Jit {
     struct dasm_State* d;
     PyCodeObject* co;
@@ -155,6 +182,8 @@ typedef struct Jit {
     // used by emit_instr_start to keep state across calls
     int old_line_number;
     int emitted_trace_check_for_line;
+
+    CallMethodHint* call_method_hints; // linked list, each item needs to be freed
 } Jit;
 
 #define Dst_DECL Jit* Dst
@@ -195,8 +224,27 @@ void format_exc_unbound(PyThreadState *tstate, PyCodeObject *co, int oparg);
 
 Py_ssize_t lookdict_split(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject **value_addr);
 
-static int is_immortal(PyObject* obj) {
-    return obj->ob_refcnt > (1L<<59);
+PyObject * method_vectorcall_NOARGS(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
+PyObject * method_vectorcall_O(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
+PyObject * method_vectorcall_FASTCALL(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
+PyObject * method_vectorcall_FASTCALL_KEYWORDS(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
+PyObject * method_vectorcall_VARARGS(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
+PyObject * method_vectorcall_VARARGS_KEYWORDS(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
+
+static void decref_array(PyObject** vec, int n) {
+    for (int i = -1; i >= -n; i--) {
+        Py_DECREF(vec[i]);
+    }
+}
+
+__attribute__((flatten))
+static void decref_array3(PyObject** vec) {
+    decref_array(vec, 3);
+}
+
+__attribute__((flatten))
+static void decref_array4(PyObject** vec) {
+    decref_array(vec, 4);
 }
 
 static void* __attribute__ ((const)) get_addr_of_helper_func(int opcode, int oparg) {
@@ -1068,7 +1116,7 @@ static void deferred_vs_emit(Jit* Dst) {
             if (entry->loc == CONST) {
                 PyObject* obj = PyTuple_GET_ITEM(Dst->co_consts, entry->val);
                 emit_mov_imm(Dst, tmp_idx, (unsigned long)obj);
-                if (!is_immortal(obj))
+                if (!IS_IMMORTAL(obj))
                     emit_incref(Dst, tmp_idx);
                 | mov [vsp+ 8 * (i-1)], tmp
             } else if (entry->loc == FAST) {
@@ -1151,7 +1199,7 @@ static RefStatus deferred_vs_peek(Jit* Dst, int r_idx, int num) {
         if (entry->loc == CONST) {
             PyObject* obj = PyTuple_GET_ITEM(Dst->co_consts, entry->val);
             emit_mov_imm(Dst, r_idx, (unsigned long)obj);
-            ref_status = is_immortal(obj) ? IMMORTAL : BORROWED;
+            ref_status = IS_IMMORTAL(obj) ? IMMORTAL : BORROWED;
         } else if (entry->loc == FAST) {
             | mov Rq(r_idx), [f + get_fastlocal_offset(entry->val)]
             ref_status = BORROWED;
@@ -1496,64 +1544,78 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             }
 
             // loadAttrCache
-            // PyTypeObject *arg2 = Py_TYPE(obj)
-            | mov arg2, [arg1 + offsetof(PyObject, ob_type)]
-            | type_version_check, arg2, la->type_ver, >1
+            if (la->cache_type == LA_CACHE_BUILTIN) {
+                | cmp_imm_mem [arg1 + offsetof(PyObject, ob_type)], la->type
+                | jne >1
 
-            if (la->cache_type == LA_CACHE_DATA_DESCR) {
-                // save the obj so we can access it after the call
-                | mov tmp_preserved_reg, arg1
-
-                PyObject* descr = la->u.descr_cache.descr;
-                emit_mov_imm(Dst, tmp_idx, (unsigned long)descr);
-                | mov arg2, [tmp + offsetof(PyObject, ob_type)]
-                | type_version_check, arg2, la->u.descr_cache.descr_type_ver, >1
-
-                // res = descr->ob_type->tp_descr_get(descr, owner, (PyObject *)owner->ob_type);
-                | mov arg1, tmp
-                | mov arg2, tmp_preserved_reg
-                | mov arg3, [tmp_preserved_reg + offsetof(PyObject, ob_type)]
-                emit_call_ext_func(Dst, descr->ob_type->tp_descr_get);
-                | mov arg1, tmp_preserved_reg // restore the obj so that the decref code works
-                // attr can be NULL
-                | test res, res
-                | jz >3
-                emit_load_attr_res_0_helper = 1; // makes sure we emit label 3
-            } else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
-                // nothing todo
-            } else {
-                // _PyObject_GetDictPtr
-                // arg2 = PyType(obj)->tp_dictoffset
-                | mov arg2, [arg2 + offsetof(PyTypeObject, tp_dictoffset)]
-
-                | test arg2, arg2
-                // je -> tp_dictoffset == 0
-                // tp_dict_offset==0 implies dict_ptr==NULL implies dict version (either split keys or not) is 0
-                // Also, fail the cache if dictoffset<0 rather than do the lengthier dict_ptr computation
-                // TODO some of the checks here might be redundant with the tp_version_tag check (specifies a class)
-                // and the fact that we successfully wrote the cache the first time.
-                if (version_zero) {
-                    // offset==0 => automatic version check success
-                    | je >2
-                    // offset<0 => failure
-                    | js >1
-                } else {
-                    // automatic failure if dict_offset is zero or if it is negative
-                    | jle >1
+                if (opcode == LOAD_METHOD) {
+                    CallMethodHint* hint = Dst->call_method_hints;
+                    if (hint) {
+                        hint->type = la->type;
+                        hint->attr = la->u.value_cache.obj;
+                        hint->meth_found = la->meth_found;
+                    }
                 }
+            } else {
+                // PyTypeObject *arg2 = Py_TYPE(obj)
+                | mov arg2, [arg1 + offsetof(PyObject, ob_type)]
+                | type_version_check, arg2, la->type_ver, >1
 
-                // Now loadAttrCache splits into two cases, but the first step on both
-                // is to load the dict pointer and check if it's null
+                if (la->cache_type == LA_CACHE_DATA_DESCR) {
+                    // save the obj so we can access it after the call
+                    | mov tmp_preserved_reg, arg1
 
-                // arg2 = *(obj + dictoffset)
-                | mov arg2, [arg1 + arg2]
-                | test arg2, arg2
-                if (version_zero) {
-                    // null dict is always a cache hit
-                    | jz >2
+                    PyObject* descr = la->u.descr_cache.descr;
+                    emit_mov_imm(Dst, tmp_idx, (unsigned long)descr);
+                    | mov arg2, [tmp + offsetof(PyObject, ob_type)]
+                    | type_version_check, arg2, la->u.descr_cache.descr_type_ver, >1
+
+                    // res = descr->ob_type->tp_descr_get(descr, owner, (PyObject *)owner->ob_type);
+                    | mov arg1, tmp
+                    | mov arg2, tmp_preserved_reg
+                    | mov arg3, [tmp_preserved_reg + offsetof(PyObject, ob_type)]
+                    emit_call_ext_func(Dst, descr->ob_type->tp_descr_get);
+                    | mov arg1, tmp_preserved_reg // restore the obj so that the decref code works
+                    // attr can be NULL
+                    | test res, res
+                    | jz >3
+                    emit_load_attr_res_0_helper = 1; // makes sure we emit label 3
+                } else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
+                    // nothing todo
                 } else {
-                    // null dict is always a cache miss
-                    | jz >1
+                    // _PyObject_GetDictPtr
+                    // arg2 = PyType(obj)->tp_dictoffset
+                    | mov arg2, [arg2 + offsetof(PyTypeObject, tp_dictoffset)]
+
+                    | test arg2, arg2
+                    // je -> tp_dictoffset == 0
+                    // tp_dict_offset==0 implies dict_ptr==NULL implies dict version (either split keys or not) is 0
+                    // Also, fail the cache if dictoffset<0 rather than do the lengthier dict_ptr computation
+                    // TODO some of the checks here might be redundant with the tp_version_tag check (specifies a class)
+                    // and the fact that we successfully wrote the cache the first time.
+                    if (version_zero) {
+                        // offset==0 => automatic version check success
+                        | je >2
+                        // offset<0 => failure
+                        | js >1
+                    } else {
+                        // automatic failure if dict_offset is zero or if it is negative
+                        | jle >1
+                    }
+
+                    // Now loadAttrCache splits into two cases, but the first step on both
+                    // is to load the dict pointer and check if it's null
+
+                    // arg2 = *(obj + dictoffset)
+                    | mov arg2, [arg1 + arg2]
+                    | test arg2, arg2
+                    if (version_zero) {
+                        // null dict is always a cache hit
+                        | jz >2
+                    } else {
+                        // null dict is always a cache miss
+                        | jz >1
+                    }
                 }
             }
 
@@ -1592,7 +1654,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 // instead jump to the slow path
                 | jz >1
                 emit_incref(Dst, res_idx);
-            } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
+            } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT || la->cache_type == LA_CACHE_BUILTIN) {
                 if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
                     | cmp_imm_mem [arg2 + offsetof(PyDictObject, ma_values)], 0
                     | je >1 // fail if dict->ma_values == NULL
@@ -1601,9 +1663,11 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                     | mov arg3, [arg2 + offsetof(PyDictObject, ma_keys)]
                     | cmp_imm_mem [arg3 + offsetof(PyDictKeysObject, dk_version_tag)], la->u.value_cache.dict_ver
                     | jne >1
-                } else {
+                } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT) {
                     | cmp_imm_mem [arg2 + offsetof(PyDictObject, ma_version_tag)], la->u.value_cache.dict_ver
                     | jne >1
+                } else {
+                    // Already guarded
                 }
                 | 2:
                 PyObject* r = la->u.value_cache.obj;
@@ -1619,7 +1683,8 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                     | jne >1
                 }
 
-                emit_incref(Dst, res_idx);
+                if (!IS_IMMORTAL(r))
+                    emit_incref(Dst, res_idx);
             } else if (la->cache_type == LA_CACHE_IDX_SPLIT_DICT) {
                 // arg4 = dict->ma_values
                 | mov arg4, [arg2 + offsetof(PyDictObject, ma_values)]
@@ -1990,7 +2055,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             deferred_vs_apply(Dst);
             PyObject* obj = PyTuple_GET_ITEM(Dst->co_consts, oparg);
             emit_mov_imm(Dst, arg1_idx, (unsigned long)obj);
-            if (!is_immortal(obj))
+            if (!IS_IMMORTAL(obj))
                 emit_incref(Dst, arg1_idx);
             emit_push_v(Dst, arg1_idx);
 #endif
@@ -2247,6 +2312,135 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 deferred_vs_pop1_owned(Dst, arg4_idx);
             }
             deferred_vs_apply(Dst);
+
+            char wrote_inline_cache = 0;
+            if (opcode == CALL_METHOD) {
+                CallMethodHint* hint = Dst->call_method_hints;
+
+                // For proper bytecode there should be exactly
+                // one hint per hint-usage, but check for the existence
+                // of the hint just in case:
+                if (hint)
+                    Dst->call_method_hints = hint->next;
+
+                if (hint && hint->attr && hint->meth_found) {
+                    int num_args = oparg + hint->meth_found; // number of arguments to the function, including a potential "self"
+                    int num_vs_args = num_args + 1; // number of python values; one more than the number of arguments since it includes the callable
+
+                    if (hint->attr->ob_type == &PyMethodDescr_Type) {
+                        PyMethodDescrObject* method = (PyMethodDescrObject*)hint->attr;
+                        void* funcptr = method->d_method->ml_meth;
+
+                        if (funcptr && _PyObject_RealIsSubclass((PyObject*)hint->type, (PyObject *)PyDescr_TYPE(method))) {
+                            wrote_inline_cache = 1;
+
+                            // Strategy:
+                            // First guard on tstate->use_tracing == 0
+                            // It looks like we have to guard on this variable, even though we already
+                            // guarded on ceval->tracing_possible, because it looks like a profile
+                            // function will set use_tracing but not tracing_possible
+                            //
+                            // Then guard that meth != NULL.
+                            // We need this to verify that the object in the "self" stack slot
+                            // is actually the self object and not a non-method attribute.
+                            //
+                            // Then guard that self->ob_type == hint->type
+                            //
+                            // We skip the recursion check since we know we did one when
+                            // entering this python frame.
+
+                            JIT_ASSERT(sizeof(tstate->use_tracing) == 4, "");
+                            | cmp dword [tstate + offsetof(PyThreadState, use_tracing)], 0
+                            | jne >1
+
+                            | cmp qword [vsp - 8 * num_vs_args], 0 // callable
+                            | je >1
+
+                            | mov arg1, [vsp - 8 * num_args] // self
+                            | cmp_imm_mem [arg1 + offsetof(PyObject, ob_type)], hint->type
+                            | jne >1
+
+                            if (method->vectorcall == method_vectorcall_NOARGS && num_args == 1) {
+                                emit_call_ext_func(Dst, funcptr);
+
+                            } else if (method->vectorcall == method_vectorcall_O && num_args == 2) {
+                                | mov arg2, [vsp - 8 * num_args + 8] // first python arg
+                                emit_call_ext_func(Dst, funcptr);
+
+                            } else if (method->vectorcall == method_vectorcall_FASTCALL || method->vectorcall == method_vectorcall_FASTCALL_KEYWORDS) {
+                                | lea arg2, [vsp - 8 * num_args + 8]
+                                emit_mov_imm(Dst, arg3_idx, num_args - 1);
+                                if (method->vectorcall == method_vectorcall_FASTCALL_KEYWORDS)
+                                    emit_mov_imm(Dst, arg4_idx, 0); // kwnames
+                                emit_call_ext_func(Dst, funcptr);
+
+                            } else if (method->vectorcall == method_vectorcall_VARARGS || method->vectorcall == method_vectorcall_VARARGS_KEYWORDS) {
+                                // Convert stack to tuple:
+                                | lea arg1, [vsp - 8 * num_args + 8]
+                                emit_mov_imm(Dst, arg2_idx, num_args - 1);
+                                emit_call_ext_func(Dst, _PyTuple_FromArray_Borrowed);
+                                emit_if_res_0_error(Dst);
+                                | mov tmp_preserved_reg, res
+
+                                | mov arg1, [vsp - 8 * num_args] // self
+                                | mov arg2, res // args
+                                if (method->vectorcall == method_vectorcall_VARARGS_KEYWORDS)
+                                    emit_mov_imm(Dst, arg3_idx, 0); // kwargs
+                                emit_call_ext_func(Dst, funcptr);
+
+                                | mov arg1, tmp_preserved_reg
+                                | mov tmp_preserved_reg, res
+                                emit_call_ext_func(Dst, _PyTuple_Decref_Borrowed);
+                                | mov res, tmp_preserved_reg
+
+                            } else {
+                                // We assume that all cases are handled, that we don't need to keep track
+                                // of whether we were able to generate an IC or not.
+                                abort();
+                            }
+
+                            int num_decrefs = num_vs_args;
+                            if (IS_IMMORTAL(hint->attr))
+                                num_decrefs--;
+
+                            // Inlining the decrefs into the jitted code seems to help in some cases and hurt in others.
+                            // For now use the heuristic that we'll inline a small
+                            // number of decrefs into the jitted code.
+                            // This could use more research.
+                            int do_inline_decrefs = num_decrefs < 3;
+
+                            if (!do_inline_decrefs) {
+                                | mov tmp_preserved_reg, res
+                                | mov arg1, vsp
+                                if (num_decrefs == 3) {
+                                    emit_call_ext_func(Dst, decref_array3);
+                                } else if (num_decrefs == 4) {
+                                    emit_call_ext_func(Dst, decref_array4);
+                                } else {
+                                    emit_mov_imm(Dst, arg2_idx, num_decrefs);
+                                    emit_call_ext_func(Dst, decref_array);
+                                }
+                                | mov res, tmp_preserved_reg
+                            } else {
+                                for (int i = 0; i < num_decrefs; i++) {
+                                    | mov arg1, [vsp - (i + 1) * 8]
+                                    emit_decref(Dst, arg1_idx, 1 /* preserve res */);
+                                }
+                            }
+                            emit_adjust_vs(Dst, -num_vs_args);
+                            emit_if_res_0_error(Dst);
+                        }
+                    }
+                }
+
+                if (hint)
+                    free(hint);
+            }
+
+            if (wrote_inline_cache)
+                switch_section(Dst, SECTION_COLD);
+
+            |1:
             | mov arg1, tstate
 
             // arg2 = vsp
@@ -2269,6 +2463,13 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             emit_adjust_vs(Dst, -num_vs_args);
 
             emit_if_res_0_error(Dst);
+
+            if (wrote_inline_cache) {
+                | jmp >2
+                switch_section(Dst, SECTION_CODE);
+                |2:
+            }
+
             deferred_vs_push(Dst, REGISTER, res_idx);
             break;
 
@@ -2485,7 +2686,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 PyObject* empty_tuple = PyTuple_New(0);
                 deferred_vs_convert_reg_to_stack(Dst);
                 emit_mov_imm(Dst, res_idx, (unsigned long)empty_tuple);
-                if (!is_immortal(empty_tuple))
+                if (!IS_IMMORTAL(empty_tuple))
                     emit_incref(Dst, res_idx);
                 deferred_vs_push(Dst, REGISTER, res_idx);
                 Py_DECREF(empty_tuple);
@@ -2620,6 +2821,12 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                     co_opcache = &co->co_opcache[co_opt_offset - 1];
                     JIT_ASSERT(co_opcache != NULL, "");
                 }
+            }
+
+            if (opcode == LOAD_METHOD) {
+                CallMethodHint* hint = (CallMethodHint*)calloc(1, sizeof(CallMethodHint));
+                hint->next = Dst->call_method_hints;
+                Dst->call_method_hints = hint;
             }
 
             // try emitting a IC for the operation if possible
@@ -3135,6 +3342,18 @@ cleanup:
     Dst->is_jmp_target = NULL;
     free(Dst->known_defined);
     Dst->known_defined = NULL;
+
+    // For reasonable bytecode we won't have any hints
+    // left because we will have consumed them all. But
+    // for the sake of completeness free any that might
+    // be left due to weird bytecode:
+    CallMethodHint *hint = Dst->call_method_hints;
+    Dst->call_method_hints = NULL;
+    while (hint) {
+        CallMethodHint *new_hint = hint->next;
+        free(hint);
+        hint = new_hint;
+    }
 
     return success ? labels[lbl_entry] : NULL;
 }

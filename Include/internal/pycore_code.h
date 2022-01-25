@@ -57,9 +57,20 @@ enum _PyOpcache_LoadAttr_Types {
     // LA_CACHE_DATA_DESCR works too but is slower because it needs extra guarding
     // and emits a call to the decriptor function
     LA_CACHE_SLOT_CACHE = 5,
+
+    // This works similarly to LA_CACHE_VALUE_CACHE_DICT but is specifically
+    // for immutable types, such as the builtins.
+    // This lets us include the type in the cache entry instead of the tp_version_tag
+    // (for two reasons: first we know that the type will stay alive so it's safe to
+    // store a borrowed reference, and second we know the tp_version_tag won't change.)
+    // This lets us constant-fold a number of the checks when we jit this load.
+    LA_CACHE_BUILTIN = 6,
 };
 typedef struct {
-    uint64_t type_ver;  /* tp_version_tag of type */
+    union {
+        uint64_t type_ver;  /* tp_version_tag of type. Used for everything other than cache type 6 */
+        PyTypeObject* type; /* type of the object. Only used for cache type 6 */
+    };
     union {
         struct {
             PyObject *obj;  /* Cached pointer (borrowed reference) */
