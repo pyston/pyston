@@ -630,8 +630,6 @@ static unsigned long jit_stat_load_attr_hit, jit_stat_load_attr_miss, jit_stat_l
 static unsigned long jit_stat_load_method_hit, jit_stat_load_method_miss, jit_stat_load_method_inline, jit_stat_load_method_total;
 static unsigned long jit_stat_load_global_hit, jit_stat_load_global_miss, jit_stat_load_global_inline, jit_stat_load_global_total;
 
-#define ENABLE_DEFERRED_LOAD_CONST 1
-#define ENABLE_DEFERRED_LOAD_FAST 1
 #define ENABLE_DEFERRED_RES_PUSH 1
 #define ENABLE_DEFINED_TRACKING 1
 #define ENABLE_AVOID_SIG_TRACE_CHECK 1
@@ -1808,17 +1806,13 @@ static void emit_instr_start(Jit* Dst, int inst_idx, int opcode, int oparg) {
         case DUP_TOP:
         case DUP_TOP_TWO:
         case LOAD_CLOSURE:
-#if ENABLE_DEFERRED_LOAD_CONST
         case LOAD_CONST:
-#endif
             return;
 
-#if ENABLE_DEFERRED_LOAD_FAST
         case LOAD_FAST:
             if (Dst->known_defined[oparg])
                 return; // don't do a sig check if we know the load can't throw
             break;
-#endif
 
 #endif // ENABLE_AVOID_SIG_TRACE_CHECK
     }
@@ -2020,7 +2014,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             break;
 
         case LOAD_FAST:
-#if ENABLE_DEFERRED_LOAD_FAST
             if (!Dst->known_defined[oparg] /* can be null */) {
                 | cmp qword [f + get_fastlocal_offset(oparg)], 0
                 | je >1
@@ -2035,39 +2028,10 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             }
 
             deferred_vs_push(Dst, FAST, oparg);
-#else
-            deferred_vs_apply(Dst);
-            if (!Dst->known_defined[oparg] /* can be null */) {
-                | mov arg2, [f + get_fastlocal_offset(oparg)]
-                | test arg2, arg2
-                | jz >1
-
-                switch_section(Dst, SECTION_COLD);
-                |1:
-                emit_mov_imm(Dst, arg1_idx, oparg); // need to copy it in arg1 because of unboundlocal_error
-                | jmp ->unboundlocal_error // arg1 must be oparg!
-                switch_section(Dst, SECTION_CODE);
-
-                Dst->known_defined[oparg] = 1;
-            } else {
-                | mov arg2, [f + get_fastlocal_offset(oparg)]
-            }
-            emit_incref(Dst, arg2_idx);
-            emit_push_v(Dst, arg2_idx);
-#endif
             break;
 
         case LOAD_CONST:
-#if ENABLE_DEFERRED_LOAD_CONST
             deferred_vs_push(Dst, CONST, oparg);
-#else
-            deferred_vs_apply(Dst);
-            PyObject* obj = PyTuple_GET_ITEM(Dst->co_consts, oparg);
-            emit_mov_imm(Dst, arg1_idx, (unsigned long)obj);
-            if (!IS_IMMORTAL(obj))
-                emit_incref(Dst, arg1_idx);
-            emit_push_v(Dst, arg1_idx);
-#endif
             break;
 
         case STORE_FAST:
