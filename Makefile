@@ -466,7 +466,7 @@ tests: $(patsubst %.py,%_unopt,$(TESTFILES))
 tests_dbg: $(patsubst %.py,%_dbg,$(TESTFILES))
 tests_opt: $(patsubst %.py,%_opt,$(TESTFILES))
 
-EXTERNAL_TESTSUITES:=django urllib3 setuptools six requests sqlalchemy pandas
+EXTERNAL_TESTSUITES:=django urllib3 setuptools six requests sqlalchemy pandas numpy
 testsuites: $(patsubst %,test_%,$(EXTERNAL_TESTSUITES))
 testsuites_dbg: $(patsubst %,testdbg_%,$(EXTERNAL_TESTSUITES))
 testsuites_opt: $(patsubst %,testopt_%,$(EXTERNAL_TESTSUITES))
@@ -483,19 +483,12 @@ _runtestsopt: tests_opt testsuites_opt cpython_testsuite_opt
 
 test: build/system_env/bin/python build/unopt_env/bin/python
 	rm -f $(wildcard pyston/test/external/*.output)
-	# Test mostly tests the CAPI so don't rerun it with different JIT_MIN_RUNS
-	# Note: test_numpy is internally parallel so we might have to re-separate it
-	# into a separate step
-	$(MAKE) _runtests test_numpy
+	$(MAKE) _runtests
 	JIT_MAX_MEM=50000 build/unopt_env/bin/python pyston/test/jit_limit.py
 	JIT_MAX_MEM=50000 build/unopt_env/bin/python pyston/test/jit_osr_limit.py
-	build/unopt_env/bin/python pyston/test/test_venvs.py
-	rm -f $(wildcard pyston/test/external/*.output)
-	JIT_MIN_RUNS=0 $(MAKE) _runtests
-	rm -f $(wildcard pyston/test/external/*.output)
-	JIT_MIN_RUNS=50 $(MAKE) _runtests
-	rm -f $(wildcard pyston/test/external/*.output)
-	JIT_MIN_RUNS=9999999999 $(MAKE) _runtests
+	JIT_MIN_RUNS=0 $(MAKE) tests cpython_testsuite
+	JIT_MIN_RUNS=50 $(MAKE) tests cpython_testsuite
+	JIT_MIN_RUNS=9999999999 $(MAKE) tests cpython_testsuite
 	rm -f $(wildcard pyston/test/external/*.output)
 
 stocktest: build/stockunopt_build/python
