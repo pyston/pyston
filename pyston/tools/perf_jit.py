@@ -107,7 +107,7 @@ def replaceInst(inst):
     if m:
         n = int(m.group(1), 16)
         if n and lookupAsSymbol(n):
-            return inst.replace(m.group(1), lookupAsSymbol(n))
+            return inst + " <" + lookupAsSymbol(n) + ">"
     return inst
 
 if __name__ == "__main__":
@@ -115,7 +115,7 @@ if __name__ == "__main__":
         objdump = get_objdump(sys.argv[1:])
         for l in objdump.split('\n')[7:]:
             l = replaceInst(l)
-            
+
             # check if we have opcode info string for current address
             addr = getAddressOfInst(l)
             if addr:
