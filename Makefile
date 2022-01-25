@@ -9,6 +9,10 @@ LLVM_PROFDATA:=$(shell which llvm-profdata)
 MERGE_FDATA:=$(shell which merge-fdata)
 PERF2BOLT:=$(shell which perf2bolt)
 RELEASE:=
+
+ifeq ($(LLVM_LINK),)
+$(error "Please install the llvm toolchain")
+endif
 else
 BOLT:=$(abspath build/bolt/bin/llvm-bolt)
 CLANG:=$(abspath build/Release/llvm/bin/clang)
