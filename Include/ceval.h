@@ -99,14 +99,24 @@ PyAPI_DATA(int) _Py_CheckRecursionLimit;
 
 static inline void* _stack_pointer(void) {
     void* sp;
-    __asm( "mov %%rsp, %0" : "=rm" ( sp ));
+// TODO these variables aren't actually defined
+#if ARCH == X86
+    __asm( "mov %%sp, %0" : "=rm" ( sp ));
+#elif ARCH == AARCH64
+    // TODO: this works on GCC but sometimes throws an error on clang
+    __asm( "mov %0, sp" : "=rm" ( sp ));
+#else
+#error
+#endif
     return sp;
 }
 // This could also be defined as __builtin_frame_address(0) for a
 // bit better portability. But that uses rbp, which means that
 // any code calling EnterRecursiveCall will end up saving rbp,
 // and so using rsp frees up the rbp register
-#define frame_address() _stack_pointer()
+//#define frame_address() _stack_pointer()
+// TODO: just use the builtin for now, but it'd be nice to come back and optimize this more
+#define frame_address() __builtin_frame_address(0)
 
 #ifdef USE_STACKCHECK
 /* With USE_STACKCHECK, trigger stack checks in _Py_CheckRecursiveCall()
