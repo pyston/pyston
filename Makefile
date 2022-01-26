@@ -33,6 +33,8 @@ PYSTON_MINOR:=3
 
 RELEASE_PREFIX?=/usr
 
+ARCH:=$(shell uname -m)
+
 -include Makefile.local
 
 .PHONY: all
@@ -263,7 +265,7 @@ $(call make_cpython_build,stockdbg,CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLA
 define combine_builds
 $(eval
 build/$(1)_install$(2)/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0: build/$(1)shared_install$(2)/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0 | build/$(1)_install$(2)/bin/python3
-	bash -c "cp build/$(1){shared,}_install$(2)/lib/python$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR)/_sysconfigdata_$(if $(findstring dbg,$(1)),d,)_linux_x86_64-linux-gnu.py"
+	bash -c "cp build/$(1){shared,}_install$(2)/lib/python$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR)/_sysconfigdata_$(if $(findstring dbg,$(1)),d,)_linux_$(ARCH)-linux-gnu.py"
 	bash -c "cp build/$(1){shared,}_install$(2)/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR)$(if $(findstring dbg,$(1)),d,).so.1.0"
 	bash -c "cp -P build/$(1){shared,}_install$(2)/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR)$(if $(findstring dbg,$(1)),d,).so"
 build/$(1)_env/bin/python: build/$(1)_install$(2)/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0
