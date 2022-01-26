@@ -702,6 +702,11 @@ class ProcessTestCase(BaseTestCase):
 
         def is_env_var_to_ignore(n):
             """Determine if an environment variable is under our control."""
+
+            # Pyston change: we set this variable on purpose
+            if 'SETUPTOOLS_USE_DISTUTILS' in n:
+                return True
+
             # This excludes some __CF_* and VERSIONER_* keys MacOS insists
             # on adding even when the environment in exec is empty.
             # Gentoo sandboxes also force LD_PRELOAD and SANDBOX_* to exist.
