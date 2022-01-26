@@ -56,7 +56,7 @@ function make_release {
     DIST=$1
 
     echo "Creating $DIST release"
-    docker build -f pyston/Dockerfile.$DIST -t pyston-build:$DIST .
+    docker build -f pyston/Dockerfile.$DIST -t pyston-build:$DIST . --no-cache
     docker run -iv${PWD}/release/$VERSION:/host-volume --rm --cap-add SYS_ADMIN pyston-build:$DIST sh -s <<EOF
 set -ex
 ln -sf /usr/lib/linux-tools/*/perf /usr/bin/perf
