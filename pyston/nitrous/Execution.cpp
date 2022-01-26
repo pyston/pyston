@@ -1177,13 +1177,13 @@ void Interpreter::visitCallSite(CallSite CS) {
       return;
 
     case Intrinsic::frameaddress: {
-      fprintf(stderr, "We don't support frameaddress() currently\n");
-      abort();
+      //fprintf(stderr, "We don't support frameaddress() currently\n");
+      //abort();
       // To return a very high value for this intrinsic you could do:
-      //GenericValue val;
-      //val.PointerVal = PointerTy(0xffffffffffffffffL);
-      //SetValue(CS.getInstruction(), val, SF);
-      //return;
+      GenericValue val;
+      val.PointerVal = PointerTy(0xffffffffffffffffL);
+      SetValue(CS.getInstruction(), val, SF);
+      return;
     }
 
     default:
