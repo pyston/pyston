@@ -1,3 +1,8 @@
+pyston (2.3.2) unstable; urgency=medium
+
+  * Fix a memory leak, and setuptools 60.0 support
+
+ -- Kevin Modzelewski <kevmod@gmail.com>  Wed, 26 Jan 2021 17:46:12 +0200
 pyston (2.3.1) unstable; urgency=medium
 
   * Compatibility and packaging improvements

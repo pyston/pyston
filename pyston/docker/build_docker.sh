@@ -2,7 +2,7 @@
 
 set -eux
 
-BUILD_NAME=2.3.1
+BUILD_NAME=2.3.2
 DIR=$(dirname $0)
 
 docker build -t pyston/pyston:latest -t pyston/pyston:${BUILD_NAME} -f ${DIR}/Dockerfile ${DIR}

@@ -2,7 +2,7 @@
 
 set -eu
 
-VERSION=2.3.1
+VERSION=2.3.2
 OUTPUT_DIR=${PWD}/release/${VERSION}
 
 PARALLEL=
