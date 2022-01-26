@@ -630,8 +630,6 @@ static unsigned long jit_stat_load_attr_hit, jit_stat_load_attr_miss, jit_stat_l
 static unsigned long jit_stat_load_method_hit, jit_stat_load_method_miss, jit_stat_load_method_inline, jit_stat_load_method_total;
 static unsigned long jit_stat_load_global_hit, jit_stat_load_global_miss, jit_stat_load_global_inline, jit_stat_load_global_total;
 
-#define ENABLE_DEFERRED_LOAD_CONST 1
-#define ENABLE_DEFERRED_LOAD_FAST 1
 #define ENABLE_DEFERRED_RES_PUSH 1
 #define ENABLE_DEFINED_TRACKING 1
 #define ENABLE_AVOID_SIG_TRACE_CHECK 1
@@ -644,56 +642,50 @@ static unsigned long jit_stat_load_global_hit, jit_stat_load_global_miss, jit_st
 ////////////////////////////////
 // REGISTER DEFINITIONS
 
+|.macro define_reg, name, name_idx, reg_amd64, reg_amd64_idx
+|.define name, reg_amd64
+|| #define name_idx reg_amd64_idx
+|.endmacro
+
 // all this values are in callee saved registers
 // NOTE: r13 and rbp need 1 byte more to encode a direct memory access without offset
 // e.g. mov rax, [rbp] is encoded as mov rax, [rbp + 0]
-|.define f, r13 // PyFrameObject*
+| define_reg f, f_idx, r13, 13 // PyFrameObject*
 
 // this register gets used when we have to make a call but preserve a value across it.
 // It can never get used in the deferred_vs / will never get used across bytecode instructions
 // One has to manually check the surrounding code if it's safe to use this register.
 // This register will not automatically get xdecrefed on error / return
 // so no need to clear it after use.
-|.define tmp_preserved_reg, rbp
-#define tmp_preserved_reg_idx 5
+| define_reg tmp_preserved_reg, tmp_preserved_reg_idx, rbp, 5 // PyFrameObject*
 
 // this register gets mainly used by deferred_vs when we have to make a call
 // but preserve a value which is inside the 'res' register (same as stack slot entry but faster).
 // Code needs to always check Dst->deferred_vs_preserved_reg_used to see if it's available.
 // On error or return we will always xdecref this register which means that
 // code must manually clear the register if it does not want the decref.
-|.define vs_preserved_reg, r14
-#define vs_preserved_reg_idx 14
+| define_reg vs_preserved_reg, vs_preserved_reg_idx, r14, 14 // PyFrameObject*
 
-|.define tstate, r15 // PyThreadState*
-|.define vsp, r12 // PyObject** - python value stack pointer
+| define_reg tstate, tstate_idx, r15, 15 // PyThreadState*
+| define_reg vsp, vsp_idx, r12, 12 // PyObject** - python value stack pointer
 
 // pointer to ceval->tracing_possible
-|.define interrupt, rbx // if you change this you may have to adjust jmp_to_inst_idx
-#define interrupt_idx 3
+| define_reg interrupt, interrupt_idx, rbx, 3 // if you change this you may have to adjust jmp_to_inst_idx
 
 
 // follow AMD64 calling convention
 // instruction indices can be found here: https://corsix.github.io/dynasm-doc/instructions.html
 // function arguments
-|.define arg1, rdi
-#define arg1_idx 7
-|.define arg2, rsi
-#define arg2_idx 6
-|.define arg3, rdx
-#define arg3_idx 2
-|.define arg4, rcx
-#define arg4_idx 1
-|.define arg5, r8
-#define arg5_idx 8
-|.define arg6, r9  // careful same as register 'tmp'
-#define arg6_idx 9
+| define_reg arg1, arg1_idx, rdi, 7
+| define_reg arg2, arg2_idx, rsi, 6
+| define_reg arg3, arg3_idx, rdx, 2
+| define_reg arg4, arg4_idx, rcx, 1
+| define_reg arg5, arg5_idx, r8,  8
+| define_reg arg6, arg6_idx, r9,  9 // careful same as register 'tmp'
 
 // return values
-|.define res, rax
-#define res_idx 0
-|.define res2, rdx // second return value
-|.define res_32b, eax
+| define_reg res,  res_idx,  rax, 0
+| define_reg res2, res2_idx, rdx, 2 // second return value
 
 // will be used by macros
 |.define tmp, arg6
@@ -807,7 +799,7 @@ static void emit_if_res_0_error(Jit* Dst) {
 
 static void emit_if_res_32b_not_0_error(Jit* Dst) {
     JIT_ASSERT(Dst->deferred_vs_res_used == 0, "error this would not get decrefed");
-    | test res_32b, res_32b
+    | test Rd(res_idx), Rd(res_idx)
     | jnz ->error
 }
 
@@ -1410,7 +1402,7 @@ static void emit_jump_if_false(Jit* Dst, int oparg, RefStatus ref_status) {
     |1:
     void* func = jit_use_aot ? PyObject_IsTrueProfile : PyObject_IsTrue;
     emit_call_decref_args1(Dst, func, arg1_idx, &ref_status);
-    | cmp res_32b, 0
+    | cmp Rd(res_idx), 0
     emit_je_to_bytecode_n(Dst, oparg);
     | jl ->error
     | jmp >3
@@ -1430,7 +1422,7 @@ static void emit_jump_if_true(Jit* Dst, int oparg, RefStatus ref_status) {
     |1:
     void* func = jit_use_aot ? PyObject_IsTrueProfile : PyObject_IsTrue;
     emit_call_decref_args1(Dst, func, arg1_idx, &ref_status);
-    | cmp res_32b, 0
+    | cmp Rd(res_idx), 0
     emit_jg_to_bytecode_n(Dst, oparg);
     | jl ->error
     | jmp >3
@@ -1814,17 +1806,13 @@ static void emit_instr_start(Jit* Dst, int inst_idx, int opcode, int oparg) {
         case DUP_TOP:
         case DUP_TOP_TWO:
         case LOAD_CLOSURE:
-#if ENABLE_DEFERRED_LOAD_CONST
         case LOAD_CONST:
-#endif
             return;
 
-#if ENABLE_DEFERRED_LOAD_FAST
         case LOAD_FAST:
             if (Dst->known_defined[oparg])
                 return; // don't do a sig check if we know the load can't throw
             break;
-#endif
 
 #endif // ENABLE_AVOID_SIG_TRACE_CHECK
     }
@@ -2026,7 +2014,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             break;
 
         case LOAD_FAST:
-#if ENABLE_DEFERRED_LOAD_FAST
             if (!Dst->known_defined[oparg] /* can be null */) {
                 | cmp qword [f + get_fastlocal_offset(oparg)], 0
                 | je >1
@@ -2041,39 +2028,10 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             }
 
             deferred_vs_push(Dst, FAST, oparg);
-#else
-            deferred_vs_apply(Dst);
-            if (!Dst->known_defined[oparg] /* can be null */) {
-                | mov arg2, [f + get_fastlocal_offset(oparg)]
-                | test arg2, arg2
-                | jz >1
-
-                switch_section(Dst, SECTION_COLD);
-                |1:
-                emit_mov_imm(Dst, arg1_idx, oparg); // need to copy it in arg1 because of unboundlocal_error
-                | jmp ->unboundlocal_error // arg1 must be oparg!
-                switch_section(Dst, SECTION_CODE);
-
-                Dst->known_defined[oparg] = 1;
-            } else {
-                | mov arg2, [f + get_fastlocal_offset(oparg)]
-            }
-            emit_incref(Dst, arg2_idx);
-            emit_push_v(Dst, arg2_idx);
-#endif
             break;
 
         case LOAD_CONST:
-#if ENABLE_DEFERRED_LOAD_CONST
             deferred_vs_push(Dst, CONST, oparg);
-#else
-            deferred_vs_apply(Dst);
-            PyObject* obj = PyTuple_GET_ITEM(Dst->co_consts, oparg);
-            emit_mov_imm(Dst, arg1_idx, (unsigned long)obj);
-            if (!IS_IMMORTAL(obj))
-                emit_incref(Dst, arg1_idx);
-            emit_push_v(Dst, arg1_idx);
-#endif
             break;
 
         case STORE_FAST:
@@ -3096,7 +3054,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     // we have to preserve res because it's used by our deferred stack optimizations
     | mov tmp_preserved_reg, res
     emit_call_ext_func(Dst, eval_breaker_jit_helper);
-    | test res_32b, res_32b
+    | test Rd(res_idx), Rd(res_idx)
     // on error we have to decref 'res' (which is now in 'tmp_preserved_reg')
     | jnz ->error_decref_tmp_preserved_reg
     // no error, restore 'res' and continue executing
