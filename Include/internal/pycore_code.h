@@ -14,7 +14,6 @@ typedef struct {
 // and thus the builtins version doesn't matter.
 #define LOADGLOBAL_WAS_GLOBAL UINT64_MAX
 
-#ifndef PYSTON_CLEANUP
 #if PYSTON_SPEEDUPS
 struct PyDictKeysObject;
 
@@ -110,28 +109,19 @@ _Static_assert(sizeof(_PyOpcache_LoadMethod) <= 32,  "_data[32] needs to be upda
 _Static_assert(sizeof(_PyOpcache_LoadAttr) <= 32,  "_data[32] needs to be updated");
 _Static_assert(sizeof(_PyOpcache_StoreAttr) <= 32,  "_data[32] needs to be updated");
 #endif
-#endif
 
 struct _PyOpcache {
     union {
         _PyOpcache_LoadGlobal lg;
 #if PYSTON_SPEEDUPS
-#ifndef PYSTON_CLEANUP
         _PyOpcache_LoadMethod lm;
         _PyOpcache_LoadAttr la;
         _PyOpcache_StoreAttr sa;
-#else
-        char _data[32];
-#endif
 #endif
     } u;
     char optimized;
 #if PYSTON_SPEEDUPS
-#ifndef PYSTON_CLEANUP
     char num_failed;
-#else
-    char _data2;
-#endif
 #endif
 };
 

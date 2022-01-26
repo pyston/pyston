@@ -28,19 +28,16 @@ PyAPI_DATA(PyTypeObject) PyTupleIter_Type;
 #define PyTuple_CheckExact(op) (Py_TYPE(op) == &PyTuple_Type)
 
 PyAPI_FUNC(PyObject *) PyTuple_New(Py_ssize_t size);
-#ifndef PYSTON_CLEANUP
 #if PYSTON_SPEEDUPS
 PyAPI_FUNC(PyObject *) PyTuple_New_Nonzeroed(Py_ssize_t size);
 #else
 #define PyTuple_New_Nonzeroed PyTuple_New
-#endif
 #endif
 PyAPI_FUNC(Py_ssize_t) PyTuple_Size(PyObject *);
 PyAPI_FUNC(PyObject *) PyTuple_GetItem(PyObject *, Py_ssize_t);
 PyAPI_FUNC(int) PyTuple_SetItem(PyObject *, Py_ssize_t, PyObject *);
 PyAPI_FUNC(PyObject *) PyTuple_GetSlice(PyObject *, Py_ssize_t, Py_ssize_t);
 PyAPI_FUNC(PyObject *) PyTuple_Pack(Py_ssize_t, ...);
-#ifndef PYSTON_CLEANUP
 #if PYSTON_SPEEDUPS
 // Because PyTuple_Pack does no C-type-checking of its arguments,
 // wrap the new Pack functions in macros that do auto-casting:
@@ -54,7 +51,6 @@ PyAPI_FUNC(PyObject *) _PyTuple_Pack3(PyObject *, PyObject *, PyObject *);
 #define PyTuple_Pack1(el0) PyTuple_Pack(1, (el0))
 #define PyTuple_Pack2(el0, el1) PyTuple_Pack(2, (el0), (el1))
 #define PyTuple_Pack3(el0, el1, el2) PyTuple_Pack(3, (el0), (el1), (el2))
-#endif
 #endif
 
 PyAPI_FUNC(int) PyTuple_ClearFreeList(void);

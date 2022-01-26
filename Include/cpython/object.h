@@ -296,16 +296,12 @@ typedef struct _heaptypeobject {
     PyObject *ht_name, *ht_slots, *ht_qualname;
     struct _dictkeysobject *ht_cached_keys;
 #if PYSTON_SPEEDUPS
-#ifndef PYSTON_CLEANUP
     struct {
         PyObject* init_cache;
         PyObject* subscript_cache;
         PyObject* str_cache;
         PyObject* contains_cache;
     } ht_slot_cache;
-#else
-    void* _data[4];
-#endif
 #endif
     /* here are optional user slots, followed by the members. */
 } PyHeapTypeObject;

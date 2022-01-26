@@ -768,14 +768,12 @@ PyAPI_FUNC(void) _PyTrash_thread_destroy_chain(void);
 #  undef Py_CPYTHON_OBJECT_H
 #endif
 
-#ifndef PYSTON_CLEANUP
 #if PYSTON_SPEEDUPS
 // A struct for caching results of dict lookups.
 typedef struct {
     uint64_t tag;
     PyObject* obj;
 } DictCache;
-#endif
 #endif
 
 #ifdef __cplusplus

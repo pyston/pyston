@@ -12,7 +12,6 @@ extern "C" {
 
 #define _PyTuple_ITEMS(op) (_PyTuple_CAST(op)->ob_item)
 PyAPI_FUNC(PyObject *) _PyTuple_FromArray(PyObject *const *, Py_ssize_t);
-#ifndef PYSTON_CLEANUP
 #if PYSTON_SPEEDUPS
 // Similar to _PyTuple_FromArray but does not incref the tuple contents
 PyAPI_FUNC(PyObject *) _PyTuple_FromArray_Borrowed(PyObject *const *, Py_ssize_t);
@@ -21,7 +20,6 @@ PyAPI_FUNC(void) _PyTuple_Decref_Borrowed(PyObject *);
 #else
 #define _PyTuple_FromArray_Borrowed _PyTuple_FromArray
 #define _PyTuple_Decref_Borrowed Py_DECREF
-#endif
 #endif
 
 #ifdef __cplusplus

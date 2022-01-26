@@ -1589,8 +1589,6 @@ inclinstall:
 		$(INSTALL_DATA) $$i $(DESTDIR)$(INCLUDEPY)/internal; \
 	done
 	$(INSTALL_DATA) pyconfig.h $(DESTDIR)$(CONFINCLUDEPY)/pyconfig.h
-	python3 ../../pyston/tools/header_cleanup.py --dir $(DESTDIR)$(INCLUDEPY)
-	python3 ../../pyston/tools/header_cleanup.py --dir $(DESTDIR)$(CONFINCLUDEPY)
 
 # Install the library and miscellaneous stuff needed for extending/embedding
 # This goes into $(exec_prefix)
