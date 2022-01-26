@@ -1443,15 +1443,15 @@ LIBSUBDIRS=	tkinter tkinter/test tkinter/test/test_tkinter \
 		venv venv/scripts venv/scripts/common venv/scripts/posix \
 		curses pydoc_data
 libinstall:	build_all $(srcdir)/Modules/xxmodule.c
-	@for i in $(SCRIPTDIR) $(LIBDEST); \
+	for i in $(SCRIPTDIR) $(LIBDEST); \
 	do \
 		if test ! -d $(DESTDIR)$$i; then \
-			echo "Creating directory $$i"; \
+			# echo "Creating directory $$i"; \
 			$(INSTALL) -d -m $(DIRMODE) $(DESTDIR)$$i; \
 		else	true; \
 		fi; \
 	done
-	@for d in $(LIBSUBDIRS); \
+	for d in $(LIBSUBDIRS); \
 	do \
 		a=$(srcdir)/Lib/$$d; \
 		if test ! -d $$a; then continue; else true; fi; \
@@ -1462,17 +1462,17 @@ libinstall:	build_all $(srcdir)/Modules/xxmodule.c
 		else	true; \
 		fi; \
 	done
-	@for i in $(srcdir)/Lib/*.py; \
+	for i in $(srcdir)/Lib/*.py; \
 	do \
 		if test -x $$i; then \
 			$(INSTALL_SCRIPT) $$i $(DESTDIR)$(LIBDEST); \
-			echo $(INSTALL_SCRIPT) $$i $(LIBDEST); \
+			# echo $(INSTALL_SCRIPT) $$i $(LIBDEST); \
 		else \
 			$(INSTALL_DATA) $$i $(DESTDIR)$(LIBDEST); \
-			echo $(INSTALL_DATA) $$i $(LIBDEST); \
+			# echo $(INSTALL_DATA) $$i $(LIBDEST); \
 		fi; \
 	done
-	@for d in $(LIBSUBDIRS); \
+	for d in $(LIBSUBDIRS); \
 	do \
 		a=$(srcdir)/Lib/$$d; \
 		if test ! -d $$a; then continue; else true; fi; \
@@ -1488,10 +1488,10 @@ libinstall:	build_all $(srcdir)/Modules/xxmodule.c
 			*) \
 				if test -d $$i; then continue; fi; \
 				if test -x $$i; then \
-				    echo $(INSTALL_SCRIPT) $$i $$b; \
+				    # echo $(INSTALL_SCRIPT) $$i $$b; \
 				    $(INSTALL_SCRIPT) $$i $(DESTDIR)$$b; \
 				else \
-				    echo $(INSTALL_DATA) $$i $$b; \
+				    # echo $(INSTALL_DATA) $$i $$b; \
 				    $(INSTALL_DATA) $$i $(DESTDIR)$$b; \
 				fi;; \
 			esac; \
@@ -1505,30 +1505,30 @@ libinstall:	build_all $(srcdir)/Modules/xxmodule.c
 			$(DESTDIR)$(LIBDEST)/distutils/tests ; \
 	fi
 	-PYTHONPATH=$(DESTDIR)$(LIBDEST)  $(RUNSHARED) \
-		$(PYTHON_FOR_BUILD) -Wi $(DESTDIR)$(LIBDEST)/compileall.py \
+		$(PYTHON_FOR_BUILD) -Wi $(DESTDIR)$(LIBDEST)/compileall.py -q \
 		-j0 -d $(LIBDEST) -f \
 		-x 'bad_coding|badsyntax|site-packages|lib2to3/tests/data' \
 		$(DESTDIR)$(LIBDEST)
 	-PYTHONPATH=$(DESTDIR)$(LIBDEST) $(RUNSHARED) \
-		$(PYTHON_FOR_BUILD) -Wi -O $(DESTDIR)$(LIBDEST)/compileall.py \
+		$(PYTHON_FOR_BUILD) -Wi -O $(DESTDIR)$(LIBDEST)/compileall.py -q \
 		-j0 -d $(LIBDEST) -f \
 		-x 'bad_coding|badsyntax|site-packages|lib2to3/tests/data' \
 		$(DESTDIR)$(LIBDEST)
 	-PYTHONPATH=$(DESTDIR)$(LIBDEST) $(RUNSHARED) \
-		$(PYTHON_FOR_BUILD) -Wi -OO $(DESTDIR)$(LIBDEST)/compileall.py \
+		$(PYTHON_FOR_BUILD) -Wi -OO $(DESTDIR)$(LIBDEST)/compileall.py -q \
 		-j0 -d $(LIBDEST) -f \
 		-x 'bad_coding|badsyntax|site-packages|lib2to3/tests/data' \
 		$(DESTDIR)$(LIBDEST)
 	-PYTHONPATH=$(DESTDIR)$(LIBDEST) $(RUNSHARED) \
-		$(PYTHON_FOR_BUILD) -Wi $(DESTDIR)$(LIBDEST)/compileall.py \
+		$(PYTHON_FOR_BUILD) -Wi $(DESTDIR)$(LIBDEST)/compileall.py -q \
 		-j0 -d $(LIBDEST)/site-packages -f \
 		-x badsyntax $(DESTDIR)$(LIBDEST)/site-packages
 	-PYTHONPATH=$(DESTDIR)$(LIBDEST) $(RUNSHARED) \
-		$(PYTHON_FOR_BUILD) -Wi -O $(DESTDIR)$(LIBDEST)/compileall.py \
+		$(PYTHON_FOR_BUILD) -Wi -O $(DESTDIR)$(LIBDEST)/compileall.py -q \
 		-j0 -d $(LIBDEST)/site-packages -f \
 		-x badsyntax $(DESTDIR)$(LIBDEST)/site-packages
 	-PYTHONPATH=$(DESTDIR)$(LIBDEST) $(RUNSHARED) \
-		$(PYTHON_FOR_BUILD) -Wi -OO $(DESTDIR)$(LIBDEST)/compileall.py \
+		$(PYTHON_FOR_BUILD) -Wi -OO $(DESTDIR)$(LIBDEST)/compileall.py -q \
 		-j0 -d $(LIBDEST)/site-packages -f \
 		-x badsyntax $(DESTDIR)$(LIBDEST)/site-packages
 	-PYTHONPATH=$(DESTDIR)$(LIBDEST) $(RUNSHARED) \
@@ -1573,19 +1573,19 @@ inclinstall:
 		$(INSTALL) -d -m $(DIRMODE) $(DESTDIR)$(INCLUDEPY)/internal; \
 	else	true; \
 	fi
-	@for i in $(srcdir)/Include/*.h; \
+	for i in $(srcdir)/Include/*.h; \
 	do \
-		echo $(INSTALL_DATA) $$i $(INCLUDEPY); \
+		# echo $(INSTALL_DATA) $$i $(INCLUDEPY); \
 		$(INSTALL_DATA) $$i $(DESTDIR)$(INCLUDEPY); \
 	done
-	@for i in $(srcdir)/Include/cpython/*.h; \
+	for i in $(srcdir)/Include/cpython/*.h; \
 	do \
-		echo $(INSTALL_DATA) $$i $(INCLUDEPY)/cpython; \
+		# echo $(INSTALL_DATA) $$i $(INCLUDEPY)/cpython; \
 		$(INSTALL_DATA) $$i $(DESTDIR)$(INCLUDEPY)/cpython; \
 	done
-	@for i in $(srcdir)/Include/internal/*.h; \
+	for i in $(srcdir)/Include/internal/*.h; \
 	do \
-		echo $(INSTALL_DATA) $$i $(INCLUDEPY)/internal; \
+		# echo $(INSTALL_DATA) $$i $(INCLUDEPY)/internal; \
 		$(INSTALL_DATA) $$i $(DESTDIR)$(INCLUDEPY)/internal; \
 	done
 	$(INSTALL_DATA) pyconfig.h $(DESTDIR)$(CONFINCLUDEPY)/pyconfig.h
