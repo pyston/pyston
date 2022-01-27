@@ -5231,7 +5231,7 @@ cmp_outcome(PyThreadState *tstate, int op, PyObject *v, PyObject *w)
         return PyObject_RichCompare(v, w, op);
     }
     v = res ? Py_True : Py_False;
-    Py_INCREF(v);
+    Py_INCREF_IMMORTAL(v);
     return v;
 }
 
