@@ -1442,16 +1442,18 @@ LIBSUBDIRS=	tkinter tkinter/test tkinter/test/test_tkinter \
 		unittest unittest/test unittest/test/testmock \
 		venv venv/scripts venv/scripts/common venv/scripts/posix \
 		curses pydoc_data
-libinstall:	build_all $(srcdir)/Modules/xxmodule.c
-	@for i in $(SCRIPTDIR) $(LIBDEST); \
+libinstall1: build_all $(srcdir)/Modules/xxmodule.c
+	for i in $(SCRIPTDIR) $(LIBDEST); \
 	do \
 		if test ! -d $(DESTDIR)$$i; then \
-			echo "Creating directory $$i"; \
+			# echo "Creating directory $$i"; \
 			$(INSTALL) -d -m $(DIRMODE) $(DESTDIR)$$i; \
 		else	true; \
 		fi; \
 	done
-	@for d in $(LIBSUBDIRS); \
+
+libinstall2: build_all $(srcdir)/Modules/xxmodule.c
+	for d in $(LIBSUBDIRS); \
 	do \
 		a=$(srcdir)/Lib/$$d; \
 		if test ! -d $$a; then continue; else true; fi; \
@@ -1462,17 +1464,23 @@ libinstall:	build_all $(srcdir)/Modules/xxmodule.c
 		else	true; \
 		fi; \
 	done
-	@for i in $(srcdir)/Lib/*.py; \
+
+libinstall3: libinstall1 libinstall2
+	for i in $(srcdir)/Lib/*.py; \
 	do \
 		if test -x $$i; then \
 			$(INSTALL_SCRIPT) $$i $(DESTDIR)$(LIBDEST); \
-			echo $(INSTALL_SCRIPT) $$i $(LIBDEST); \
+			# echo $(INSTALL_SCRIPT) $$i $(LIBDEST); \
 		else \
 			$(INSTALL_DATA) $$i $(DESTDIR)$(LIBDEST); \
-			echo $(INSTALL_DATA) $$i $(LIBDEST); \
+			# echo $(INSTALL_DATA) $$i $(LIBDEST); \
 		fi; \
 	done
-	@for d in $(LIBSUBDIRS); \
+
+libinstall4: libinstall1 libinstall2
+	# Pyston change: this rule internally uses unbounded parallelism,
+	# which makes it much faster but could potentially be worse on some machines.
+	for d in $(LIBSUBDIRS); \
 	do \
 		a=$(srcdir)/Lib/$$d; \
 		if test ! -d $$a; then continue; else true; fi; \
@@ -1488,15 +1496,16 @@ libinstall:	build_all $(srcdir)/Modules/xxmodule.c
 			*) \
 				if test -d $$i; then continue; fi; \
 				if test -x $$i; then \
-				    echo $(INSTALL_SCRIPT) $$i $$b; \
+				    # echo $(INSTALL_SCRIPT) $$i $$b; \
 				    $(INSTALL_SCRIPT) $$i $(DESTDIR)$$b; \
 				else \
-				    echo $(INSTALL_DATA) $$i $$b; \
+				    # echo $(INSTALL_DATA) $$i $$b; \
 				    $(INSTALL_DATA) $$i $(DESTDIR)$$b; \
 				fi;; \
 			esac; \
-		done; \
-	done
+		done & \
+	done; \
+	wait
 	$(INSTALL_DATA) `cat pybuilddir.txt`/_sysconfigdata_$(ABIFLAGS)_$(MACHDEP)_$(MULTIARCH).py \
 		$(DESTDIR)$(LIBDEST); \
 	$(INSTALL_DATA) $(srcdir)/LICENSE $(DESTDIR)$(LIBDEST)/LICENSE.txt
@@ -1504,37 +1513,48 @@ libinstall:	build_all $(srcdir)/Modules/xxmodule.c
 		$(INSTALL_DATA) $(srcdir)/Modules/xxmodule.c \
 			$(DESTDIR)$(LIBDEST)/distutils/tests ; \
 	fi
+
+libinstall5: libinstall1 libinstall2 libinstall3 libinstall4
 	-PYTHONPATH=$(DESTDIR)$(LIBDEST)  $(RUNSHARED) \
-		$(PYTHON_FOR_BUILD) -Wi $(DESTDIR)$(LIBDEST)/compileall.py \
+		$(PYTHON_FOR_BUILD) -Wi $(DESTDIR)$(LIBDEST)/compileall.py -q \
 		-j0 -d $(LIBDEST) -f \
 		-x 'bad_coding|badsyntax|site-packages|lib2to3/tests/data' \
 		$(DESTDIR)$(LIBDEST)
+libinstall6: libinstall1 libinstall2 libinstall3 libinstall4
 	-PYTHONPATH=$(DESTDIR)$(LIBDEST) $(RUNSHARED) \
-		$(PYTHON_FOR_BUILD) -Wi -O $(DESTDIR)$(LIBDEST)/compileall.py \
+		$(PYTHON_FOR_BUILD) -Wi -O $(DESTDIR)$(LIBDEST)/compileall.py -q \
 		-j0 -d $(LIBDEST) -f \
 		-x 'bad_coding|badsyntax|site-packages|lib2to3/tests/data' \
 		$(DESTDIR)$(LIBDEST)
+libinstall7: libinstall1 libinstall2 libinstall3 libinstall4
 	-PYTHONPATH=$(DESTDIR)$(LIBDEST) $(RUNSHARED) \
-		$(PYTHON_FOR_BUILD) -Wi -OO $(DESTDIR)$(LIBDEST)/compileall.py \
+		$(PYTHON_FOR_BUILD) -Wi -OO $(DESTDIR)$(LIBDEST)/compileall.py -q \
 		-j0 -d $(LIBDEST) -f \
 		-x 'bad_coding|badsyntax|site-packages|lib2to3/tests/data' \
 		$(DESTDIR)$(LIBDEST)
+libinstall8: libinstall1 libinstall2 libinstall3 libinstall4
 	-PYTHONPATH=$(DESTDIR)$(LIBDEST) $(RUNSHARED) \
-		$(PYTHON_FOR_BUILD) -Wi $(DESTDIR)$(LIBDEST)/compileall.py \
+		$(PYTHON_FOR_BUILD) -Wi $(DESTDIR)$(LIBDEST)/compileall.py -q \
 		-j0 -d $(LIBDEST)/site-packages -f \
 		-x badsyntax $(DESTDIR)$(LIBDEST)/site-packages
+libinstall9: libinstall1 libinstall2 libinstall3 libinstall4
 	-PYTHONPATH=$(DESTDIR)$(LIBDEST) $(RUNSHARED) \
-		$(PYTHON_FOR_BUILD) -Wi -O $(DESTDIR)$(LIBDEST)/compileall.py \
+		$(PYTHON_FOR_BUILD) -Wi -O $(DESTDIR)$(LIBDEST)/compileall.py -q \
 		-j0 -d $(LIBDEST)/site-packages -f \
 		-x badsyntax $(DESTDIR)$(LIBDEST)/site-packages
+libinstall10: libinstall1 libinstall2 libinstall3 libinstall4
 	-PYTHONPATH=$(DESTDIR)$(LIBDEST) $(RUNSHARED) \
-		$(PYTHON_FOR_BUILD) -Wi -OO $(DESTDIR)$(LIBDEST)/compileall.py \
+		$(PYTHON_FOR_BUILD) -Wi -OO $(DESTDIR)$(LIBDEST)/compileall.py -q \
 		-j0 -d $(LIBDEST)/site-packages -f \
 		-x badsyntax $(DESTDIR)$(LIBDEST)/site-packages
+libinstall11: libinstall1 libinstall2 libinstall3 libinstall4
 	-PYTHONPATH=$(DESTDIR)$(LIBDEST) $(RUNSHARED) \
 		$(PYTHON_FOR_BUILD) -m lib2to3.pgen2.driver $(DESTDIR)$(LIBDEST)/lib2to3/Grammar.txt
 	-PYTHONPATH=$(DESTDIR)$(LIBDEST) $(RUNSHARED) \
 		$(PYTHON_FOR_BUILD) -m lib2to3.pgen2.driver $(DESTDIR)$(LIBDEST)/lib2to3/PatternGrammar.txt
+
+# Pyston change: we split this target into many subtargets so that they can be run in parallel
+libinstall:	libinstall1 libinstall2 libinstall3 libinstall4 libinstall5 libinstall6 libinstall7 libinstall8 libinstall9 libinstall10 libinstall11
 
 # bpo-21536: Misc/python-config.sh is generated in the build directory
 # from $(srcdir)Misc/python-config.sh.in.
@@ -1573,24 +1593,22 @@ inclinstall:
 		$(INSTALL) -d -m $(DIRMODE) $(DESTDIR)$(INCLUDEPY)/internal; \
 	else	true; \
 	fi
-	@for i in $(srcdir)/Include/*.h; \
+	for i in $(srcdir)/Include/*.h; \
 	do \
-		echo $(INSTALL_DATA) $$i $(INCLUDEPY); \
+		# echo $(INSTALL_DATA) $$i $(INCLUDEPY); \
 		$(INSTALL_DATA) $$i $(DESTDIR)$(INCLUDEPY); \
 	done
-	@for i in $(srcdir)/Include/cpython/*.h; \
+	for i in $(srcdir)/Include/cpython/*.h; \
 	do \
-		echo $(INSTALL_DATA) $$i $(INCLUDEPY)/cpython; \
+		# echo $(INSTALL_DATA) $$i $(INCLUDEPY)/cpython; \
 		$(INSTALL_DATA) $$i $(DESTDIR)$(INCLUDEPY)/cpython; \
 	done
-	@for i in $(srcdir)/Include/internal/*.h; \
+	for i in $(srcdir)/Include/internal/*.h; \
 	do \
-		echo $(INSTALL_DATA) $$i $(INCLUDEPY)/internal; \
+		# echo $(INSTALL_DATA) $$i $(INCLUDEPY)/internal; \
 		$(INSTALL_DATA) $$i $(DESTDIR)$(INCLUDEPY)/internal; \
 	done
 	$(INSTALL_DATA) pyconfig.h $(DESTDIR)$(CONFINCLUDEPY)/pyconfig.h
-	python3 ../../pyston/tools/header_cleanup.py --dir $(DESTDIR)$(INCLUDEPY)
-	python3 ../../pyston/tools/header_cleanup.py --dir $(DESTDIR)$(CONFINCLUDEPY)
 
 # Install the library and miscellaneous stuff needed for extending/embedding
 # This goes into $(exec_prefix)

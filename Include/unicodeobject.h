@@ -815,14 +815,12 @@ PyAPI_FUNC(PyObject*) PyUnicode_Concat(
     PyObject *right             /* Right string */
     );
 
-#ifndef PYSTON_CLEANUP
 #if PYSTON_SPEEDUPS
 PyAPI_FUNC(PyObject*) PyUnicode_Concat3(
     PyObject *s1,
     PyObject *s2,
     PyObject *s3
     );
-#endif
 #endif
 
 /* Concat two strings and put the result in *pleft

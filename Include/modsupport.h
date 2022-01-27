@@ -46,7 +46,6 @@ PyAPI_FUNC(int) PyArg_VaParseTupleAndKeywords(PyObject *, PyObject *,
 #endif
 PyAPI_FUNC(int) PyArg_ValidateKeywordArguments(PyObject *);
 PyAPI_FUNC(int) PyArg_UnpackTuple(PyObject *, const char *, Py_ssize_t, Py_ssize_t, ...);
-#ifndef PYSTON_CLEANUP
 #if PYSTON_SPEEDUPS
 // Because PyArg_UnpackTuple does no C-type-checking of its arguments,
 // wrap the new UnpackTuple functions in macros that do auto-casting:
@@ -60,7 +59,6 @@ PyAPI_FUNC(int) _PyArg_UnpackTuple3(PyObject *, const char *, Py_ssize_t, Py_ssi
 #define PyArg_UnpackTuple1 PyArg_UnpackTuple
 #define PyArg_UnpackTuple2 PyArg_UnpackTuple
 #define PyArg_UnpackTuple3 PyArg_UnpackTuple
-#endif
 #endif
 PyAPI_FUNC(PyObject *) Py_BuildValue(const char *, ...);
 PyAPI_FUNC(PyObject *) _Py_BuildValue_SizeT(const char *, ...);
