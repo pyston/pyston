@@ -21,7 +21,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$RELEASES" ]; then
-    RELEASES="16.04 18.04 20.04"
+    RELEASES="18.04 20.04"
 
     if [ -d $OUTPUT_DIR ]
     then
@@ -83,6 +83,6 @@ do
 done
 wait
 
-ln -sf --relative $OUTPUT_DIR/pyston_${VERSION}_16.04.tar.gz $OUTPUT_DIR/pyston_${VERSION}_portable.tar.gz
+ln -sf --relative $OUTPUT_DIR/pyston_${VERSION}_18.04.tar.gz $OUTPUT_DIR/pyston_${VERSION}_portable.tar.gz
 
 echo "FINISHED: wrote release to $OUTPUT_DIR"
