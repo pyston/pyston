@@ -25,7 +25,7 @@
 
 #define PYSTON_MAJOR_VERSION        2
 #define PYSTON_MINOR_VERSION        3
-#define PYSTON_MICRO_VERSION        1
+#define PYSTON_MICRO_VERSION        2
 
 /* Version as a string */
 #define PY_VERSION              "3.8.12"

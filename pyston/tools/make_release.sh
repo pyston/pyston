@@ -2,7 +2,7 @@
 
 set -eu
 
-VERSION=2.3.1
+VERSION=2.3.2
 OUTPUT_DIR=${PWD}/release/${VERSION}
 
 PARALLEL=
@@ -21,7 +21,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$RELEASES" ]; then
-    RELEASES="16.04 18.04 20.04"
+    RELEASES="18.04 20.04"
 
     if [ -d $OUTPUT_DIR ]
     then
@@ -56,7 +56,7 @@ function make_release {
     DIST=$1
 
     echo "Creating $DIST release"
-    docker build -f pyston/Dockerfile.$DIST -t pyston-build:$DIST .
+    docker build -f pyston/Dockerfile.$DIST -t pyston-build:$DIST . --no-cache
     docker run -iv${PWD}/release/$VERSION:/host-volume --rm --cap-add SYS_ADMIN pyston-build:$DIST sh -s <<EOF
 set -ex
 ln -sf /usr/lib/linux-tools/*/perf /usr/bin/perf
@@ -83,6 +83,6 @@ do
 done
 wait
 
-ln -sf --relative $OUTPUT_DIR/pyston_${VERSION}_16.04.tar.gz $OUTPUT_DIR/pyston_${VERSION}_portable.tar.gz
+ln -sf --relative $OUTPUT_DIR/pyston_${VERSION}_18.04.tar.gz $OUTPUT_DIR/pyston_${VERSION}_portable.tar.gz
 
 echo "FINISHED: wrote release to $OUTPUT_DIR"
