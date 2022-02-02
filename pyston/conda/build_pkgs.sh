@@ -1,6 +1,11 @@
 #!/bin/bash
 set -eux
 
+if [ ! -d "pyston/conda" ]; then
+    echo "Please run from the top level pyston/ directory"
+    exit 1
+fi
+
 PYSTON_PKG_VER="3.8.12 *_23_pyston"
 OUTPUT_DIR=${PWD}/release/conda_pkgs
 
