@@ -108,6 +108,7 @@ make script_opt
 6. update the include directory in pyston/pystol/CMakeLists.txt
 7. update pyston/debian/pyston.{install,links,postinst,prerm}
 8. update pyston/docker/Dockerfile and pyston/docker/build_docker.sh
+9. update pyston/conda/{pyston,python}/meta.yaml
 
 ## Release packaging
 We use a script which builds automatically packages for all supported distributions via docker (will take several hours):
