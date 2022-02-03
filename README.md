@@ -112,7 +112,6 @@ make script_opt
 
 ## Release packaging
 We use a script which builds automatically packages for all supported distributions via docker (will take several hours):
-NOTE: our release build process requires hardware with LBR (last branch record) support (=non virtualized Intel CPU).
 1. make sure your repos do not contain unwanted changes because they will get used to build the packages
 2. execute `$ pyston/tools/make_release.sh`
 3. output debian packages are now in `release/<version>/`.
