@@ -14,7 +14,7 @@ results:
 pypy-benchmarks: 
 	hg clone https://foss.heptapod.net/pypy/benchmarks $@
 
-BUILDS:=opt system pypy
+BUILDS:=system systempyston
 
 ENV_DIR:=../../../build/
 
