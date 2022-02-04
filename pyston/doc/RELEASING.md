@@ -17,6 +17,8 @@ We use a script which builds automatically packages for all supported distributi
    Inside this directory are also different "portable dir" releases made from the different distibution deb packages.
    Decide on which portable dir to use - the oldest version will run with most dists but will also bundle the oldes libs.
 4. execute `$ make tune; pyston/tools/bench_release.sh` to generate benchmark results.
+5. Generate new docker images using pyston/docker/build_docker.sh
+6. Generate new conda packages using pyston/conda/build_pkgs.sh
 
 ## Testing a release
 1. Build the release as above
