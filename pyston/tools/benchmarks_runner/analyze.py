@@ -170,7 +170,7 @@ if __name__ == "__main__":
     for bench in benches:
         print(bench)
         normalized = bench in ("pylint_bench", "mypy_bench", "pycparser_bench")
-        p99 = bench in ("flaskblogging", "djangocms")
+        p99 = bench in ("flaskblogging", "djangocms", "kinto")
         all_quantiles[bench] = analyze(bench, normalized=normalized, p99=p99)
         print()
     # plotLatencyHistogram("flaskblogging", "pypy")
