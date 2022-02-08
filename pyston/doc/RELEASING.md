@@ -6,7 +6,7 @@
 5. update `PYSTON_MINOR` and similar inside Makefile
 6. update the include directory in pyston/pystol/CMakeLists.txt
 7. update pyston/debian/pyston.{install,links,postinst,prerm}
-8. update pyston/docker/Dockerfile and pyston/docker/build_docker.sh
+8. update pyston/docker/Dockerfile\* and pyston/docker/build_docker.sh
 9. update pyston/conda/{pyston,python,python_abi}/meta.yaml and update build_num if necessary
 
 ## Release packaging
