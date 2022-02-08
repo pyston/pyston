@@ -619,6 +619,7 @@ def loadCases():
     # we try to specialice on the 2. argument and generate a special version for tuples with a single fixed type
     # this are all types where PyType_FastSubclass() checks exist except BaseException
     for name, example in {  # name: (args to isinstance)
+                            "": (1.0, float), # non type specialized isinstance case. note this needs to go first
                             "Long": (1, int),
                             "List" : ([1], list),
                             "Tuple": ((1,), tuple),
@@ -626,7 +627,6 @@ def loadCases():
                             "Unicode": ("str", str),
                             "Dict": (dict(), dict),
                             "Type": (int, type),
-                            "": (1.0, float), # non type specialized isinstance case
                             }.items():
         def createIsInstanceSignature(name, arg1, arg2):
             classes = []
@@ -670,13 +670,15 @@ def loadCases():
         return Signature(classes, always_trace=[f"builtin_{func_name}"], guard_fail_fn_name=guard_fail_fn_name)
 
     def addBuiltinCFunction1ArgSignatures(func_name, func, spec_dict):
-        # Argument type specific versions
-        for name, example in spec_dict.items():
-            call_signatures.append(createBuiltinCFunction1ArgSignature(func_name, func, name, [example]))
         # Generic non arg type specific version only assuming the function is the same.
         # Creates a trace supporting all types.
         # If a type guard inside a type specific version fails we will use this trace.
+        # Note: this needs to go before the specialized versions
         call_signatures.append(createBuiltinCFunction1ArgSignature(func_name, func, "", list(spec_dict.values())))
+
+        # Argument type specific versions
+        for name, example in spec_dict.items():
+            call_signatures.append(createBuiltinCFunction1ArgSignature(func_name, func, name, [example]))
 
     # builtin len()
     len_specs = {
