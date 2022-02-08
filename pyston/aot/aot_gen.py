@@ -563,7 +563,7 @@ def loadCases():
                            ]
 
     f = 4.4584
-    types = {"Long": (0, 1, 4200, -42222),
+    types = {"Long": (0, 1, 420, -322),
              "Float": (f,),
              "Unicode": ('string', '', ' alaslas' * 20, 'a'),
              "List": ([1, 2, 3], list(range(100)),),
