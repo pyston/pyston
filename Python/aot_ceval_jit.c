@@ -3331,6 +3331,8 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         }
     }
 
+    __builtin___clear_cache((char*)mem, &((char*)mem)[size]);
+
     ++jit_num_funcs;
     success = 1;
 
