@@ -630,7 +630,7 @@ static int8_t* mem_chunk = NULL;
 static size_t mem_chunk_bytes_remaining = 0;
 static long mem_bytes_allocated = 0, mem_bytes_used = 0;
 static long mem_bytes_used_max = 100*1000*1000; // will stop emitting code after that many bytes
-static int jit_num_funcs = 0;
+static int jit_num_funcs = 0, jit_num_failed = 0;
 
 static int jit_stats_enabled = 0;
 static unsigned long jit_stat_load_attr_hit, jit_stat_load_attr_miss, jit_stat_load_attr_inline, jit_stat_load_attr_total;
@@ -3215,15 +3215,22 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 #endif
 
 #ifdef DASM_CHECKS
-    int dasm_err = dasm_checkstep(Dst, -1);
-    if (dasm_err) {
-        fprintf(stderr, "dynasm returned error %d", dasm_err);
+    int dasm_checkstep_err = dasm_checkstep(Dst, -1);
+    if (dasm_checkstep_err) {
+        fprintf(stderr, "dasm_checkstep returned error %x", dasm_checkstep_err);
         JIT_ASSERT(0, "");
     }
 #endif
 
     size_t size;
-    dasm_link(Dst, &size);
+    int dasm_link_err = dasm_link(Dst, &size);
+    if (dasm_link_err) {
+#if JIT_DEBUG
+        fprintf(stderr, "dynasm_link() returned error %x", dasm_link_err);
+        JIT_ASSERT(0, "");
+#endif
+        goto failed;
+    }
 
     // Align code regions to cache line boundaries.
     // I don't know concretely that this is important but seems like
@@ -3235,10 +3242,14 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         mem_chunk_bytes_remaining = size > (1<<18) ? size : (1<<18);
 
         // allocate memory which address fits inside a 32bit pointer (makes sure we can use 32bit rip relative addressing)
-        void* new_chunk = mem_chunk = mmap(0, mem_chunk_bytes_remaining, PROT_READ | PROT_WRITE, MAP_32BIT | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-        if (mem_chunk == MAP_FAILED) {
+        void* new_chunk = mmap(0, mem_chunk_bytes_remaining, PROT_READ | PROT_WRITE, MAP_32BIT | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (new_chunk == MAP_FAILED || !IS_32BIT_VAL(new_chunk)) {
+#if JIT_DEBUG
+            fprintf(stderr, "mmap returned error %d", errno);
+            JIT_ASSERT(0, "MAP_FAILED");
+#endif
             mem_chunk_bytes_remaining = 0;
-            goto cleanup;
+            goto failed;
         }
         mem_chunk = new_chunk;
 
@@ -3253,7 +3264,14 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     mem_chunk_bytes_remaining -= size;
     mem_bytes_used += size;
 
-    dasm_encode(Dst, mem);
+    int dasm_encode_err = dasm_encode(Dst, mem);
+    if (dasm_encode_err) {
+#if JIT_DEBUG
+        fprintf(stderr, "dynasm_encode() returned error %x", dasm_encode_err);
+        JIT_ASSERT(0, "");
+#endif
+        goto failed;
+    }
 
     // fill in the table of bytecode index -> IP
     for (int inst_idx=0; inst_idx < Dst->num_opcodes; ++inst_idx) {
@@ -3336,10 +3354,15 @@ cleanup:
     }
 
     return success ? labels[lbl_entry] : NULL;
+
+
+failed:
+    ++jit_num_failed;
+    goto cleanup;
 }
 
 void show_jit_stats() {
-    fprintf(stderr, "jit: compiled %d functions\n", jit_num_funcs);
+    fprintf(stderr, "jit: successfully compiled %d functions, failed to compile %d functions\n", jit_num_funcs, jit_num_failed);
     fprintf(stderr, "jit: %ld bytes used (%.1f%% of allocated)\n", mem_bytes_used, 100.0 * mem_bytes_used / mem_bytes_allocated);
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_ATTR caches: %lu hits %lu misses\n", jit_stat_load_attr_inline, jit_stat_load_attr_total, jit_stat_load_attr_hit, jit_stat_load_attr_miss);
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_METHOD caches: %lu hits %lu misses\n", jit_stat_load_method_inline, jit_stat_load_method_total, jit_stat_load_method_hit, jit_stat_load_method_miss);
