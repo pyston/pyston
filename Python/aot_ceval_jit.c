@@ -149,6 +149,8 @@ typedef struct CallMethodHint {
 
 typedef struct Jit {
     struct dasm_State* d;
+    char failed;
+
     PyCodeObject* co;
     PyObject* co_consts;
     PyObject* co_names;
@@ -1225,6 +1227,13 @@ static void emit_tracing_possible_check(Jit* Dst) {
 // emits: d->f_lasti = val
 // Always emits instructions using the same number of bytes.
 static void emit_update_f_lasti(Jit* Dst, long val) {
+    if (!IS_32BIT_VAL(val)) {
+        // the mov can't encode this immediate, we would have to use multiple instructions
+        // but because our interrupt and tracing code requires a fixed instruction sequence
+        // we just abort compiling this function
+        Dst->failed = 1;
+        return;
+    }
     // inst is 8 bytes long
     | mov dword [f + offsetof(PyFrameObject, f_lasti)], val
 }
@@ -2085,7 +2094,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
     // this is used for the special EXTENDED_ARG opcode
     int oldoparg = 0;
-    for (int inst_idx = 0; inst_idx < Dst->num_opcodes; ++inst_idx) {
+    for (int inst_idx = 0; inst_idx < Dst->num_opcodes && !Dst->failed; ++inst_idx) {
         _Py_CODEUNIT word = Dst->first_instr[inst_idx];
         int opcode = _Py_OPCODE(word);
         int oparg = _Py_OPARG(word);
@@ -2115,6 +2124,8 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
         // emits f->f_lasti update, signal and trace check
         emit_instr_start(Dst, inst_idx, opcode, oparg);
+        if (Dst->failed)
+            goto failed;
 
         switch(opcode) {
         case NOP:
@@ -3323,6 +3334,9 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         emit_32bit_value(Dst, jit.is_jmp_target[i]);
     }
 #endif
+
+    if (Dst->failed)
+        goto failed;
 
 #ifdef DASM_CHECKS
     int dasm_checkstep_err = dasm_checkstep(Dst, -1);
