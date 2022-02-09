@@ -80,11 +80,11 @@
 
 #if JIT_DEBUG
 #define DASM_CHECKS 1
-#define JIT_ASSERT(x, m) do { if (!(x)) {                       \
-                                fprintf(stderr, "%s\n", m);     \
-                                assert(0);                      \
-                                abort();                        \
-                              }                                 \
+#define JIT_ASSERT(x, m) do { if (!(x)) {                                            \
+                                fprintf(stderr, "\nline: %d\n%s\n", __LINE__, m);    \
+                                assert(0);                                           \
+                                abort();                                             \
+                              }                                                      \
                          } while(0)
 
 #else
@@ -191,6 +191,13 @@ typedef struct Jit {
 
 #include <dynasm/dasm_proto.h>
 #include <dynasm/dasm_x86.h>
+
+#if JIT_DEBUG
+// checks after every instruction sequence emitted if a DynASM error got generated
+// helps with catching operands which are out of range for the specified instruction.
+#define dasm_put(...) do { dasm_put(__VA_ARGS__); JIT_ASSERT(Dst_REF->status == DASM_S_OK, "dasm check failed"); } while (0)
+#endif
+
 
 #include <sys/mman.h>
 #include <ctype.h>
