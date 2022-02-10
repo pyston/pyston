@@ -756,6 +756,11 @@ static void switch_section(Jit* Dst, Section new_section) {
     | jg dst
 |.endmacro
 
+// writes 32bit value to executable memory
+static void emit_32bit_value(Jit* Dst, long value) {
+    |.long value // this is called long but actually emits a 32bit value
+}
+
 // emits: $r_dst = $r_src
 static void emit_mov64_reg(Jit* Dst, int r_dst, int r_src) {
     if (r_dst == r_src)
@@ -1173,11 +1178,11 @@ static void emit_jmp_to_lasti(Jit* Dst) {
 
 #if JIT_DEBUG
     // generate code to check that the instruction we jump to had 'is_jmp_target' set
-    | mov tmp, arg1
-    | shr tmp, 1 // divide by 2, because f_lasti is offset into bytecode array and every bytecode is 2bytes
+    // every entry in the is_jmp_target array is 4 bytes long. 'lasti / 2' is the index
     | lea arg2, [->is_jmp_target]
-    | cmp byte [tmp + arg2], 0
-    | jne >9
+    | cmp dword [arg2 + arg1*2], 0
+
+    | branch_ne >9
     | mov arg1, f
     emit_call_ext_func(Dst, debug_error_not_a_jump_target);
 
@@ -3299,13 +3304,16 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     // will fill in the actual address after dasm_link
     switch_section(Dst, SECTION_OPCODE_ADDR);
     |->opcode_addr_begin:
-    |.space Dst->num_opcodes * 4, 255 // fill all bytes with this value to catch bugs
+    for (int i=0; i<Dst->num_opcodes; ++i) {
+        // fill all bytes with this value to catch bugs
+        emit_32bit_value(Dst, UINT_MAX);
+    }
 
 
 #if JIT_DEBUG
     |->is_jmp_target:
     for (int i=0; i<Dst->num_opcodes; ++i) {
-        |.byte jit.is_jmp_target[i]
+        emit_32bit_value(Dst, jit.is_jmp_target[i]);
     }
 #endif
 
