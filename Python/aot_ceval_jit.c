@@ -214,7 +214,7 @@ struct PerfMapEntry {
     long func_size;
 } *perf_map_funcs;
 
-static int jit_use_aot = 1;
+static int jit_use_aot = 1, jit_use_ics = 1;
 
 static PyObject* cmp_outcomePyCmp_BAD(PyObject *v, PyObject *w) {
   return cmp_outcome(NULL, PyCmp_BAD, v, w);
@@ -1461,7 +1461,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
     |  jne false_branch
     |.endmacro
 
-    if (co_opcache == NULL)
+    if (co_opcache == NULL || !jit_use_ics)
         return 1;
 
     // do we have a valid cache entry?
@@ -2303,7 +2303,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 if (hint)
                     Dst->call_method_hints = hint->next;
 
-                if (hint && hint->attr && hint->meth_found) {
+                if (hint && hint->attr && hint->meth_found && jit_use_ics) {
                     int num_args = oparg + hint->meth_found; // number of arguments to the function, including a potential "self"
                     int num_vs_args = num_args + 1; // number of python values; one more than the number of arguments since it includes the callable
 
@@ -3388,16 +3388,22 @@ void jit_start() {
         perf_map_opcode_map = fopen("/tmp/perf_map/opcode_map.txt", "w");
     }
     char* val = getenv("JIT_MAX_MEM");
-    if (val) {
+    if (val)
         mem_bytes_used_max = atol(val);
-    }
-    val = getenv("SHOW_JIT_STATS");
-    jit_stats_enabled = val && atoi(val);
+
+    val = getenv("SHOW_JIT_STATS"); // legacy name
+    if (!val)
+        val = getenv("JIT_SHOW_STATS");
+    if (val)
+        jit_stats_enabled = atoi(val);
 
     val = getenv("JIT_USE_AOT");
-    if (val) {
+    if (val)
         jit_use_aot = atoi(val);
-    }
+
+    val = getenv("JIT_USE_ICS");
+    if (val)
+        jit_use_ics = atoi(val);
 }
 
 void jit_finish() {
