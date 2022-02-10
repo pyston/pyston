@@ -189,8 +189,12 @@ typedef struct Jit {
 #define Dst_DECL Jit* Dst
 #define Dst_REF Dst->d
 
+// ignore this false warning
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
 #include <dynasm/dasm_proto.h>
 #include <dynasm/dasm_x86.h>
+#pragma GCC diagnostic pop
 
 #if JIT_DEBUG
 // checks after every instruction sequence emitted if a DynASM error got generated
@@ -871,6 +875,7 @@ static void emit_write_vs(Jit* Dst, int r_idx, int stack_offset) {
     emit_store64_mem(Dst, r_idx, vsp_idx, -8*stack_offset);
 }
 
+#ifdef Py_REF_DEBUG
 static void emit_dec_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
     // the JIT always emits code to address which fit into 32bit
     // but if PIC is enabled non JIT code may use a larger address space.
@@ -891,6 +896,8 @@ static void emit_dec_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
         }
     }
 }
+#endif
+
 static void emit_inc_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
     if (IS_32BIT_VAL(ptr)) {
         | add qword [ptr], 1
@@ -1549,7 +1556,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
     // Same as cmp_imm, but if r is a memory expression we need to specify the size of the load.
     |.macro cmp_imm_mem, r, addr
     || if (IS_32BIT_VAL(addr)) {
-    |       cmp qword r, (unsigned int)addr
+    |       cmp qword r, (unsigned int)(unsigned long)addr
     || } else {
     |       mov64 tmp, (unsigned long)addr
     |       cmp r, tmp

@@ -1776,7 +1776,7 @@ Python/aot_ceval.o: Python/aot_ceval.c $(AOT_DIR)/aot.h
 
 Python/aot_ceval_jit.o: Python/aot_ceval_jit.c
 	luajit ../../pyston/LuaJIT/dynasm/dynasm.lua  -o Python/aot_ceval_jit.gen.c $<
-	$(CC) -c $(PY_CORE_CFLAGS) -I../../pyston/LuaJIT/ -Wno-address -Wno-pointer-to-int-cast -o $@ Python/aot_ceval_jit.gen.c
+	$(CC) -c $(PY_CORE_CFLAGS) -I../../pyston/LuaJIT/ -Wno-address -Wpointer-to-int-cast -o $@ Python/aot_ceval_jit.gen.c
 
 ifneq (,$(findstring Ubuntu 7.,$(shell $(CC) --version)))
 FCF_FLAG:=
