@@ -80,15 +80,18 @@
 
 #if JIT_DEBUG
 #define DASM_CHECKS 1
-#define JIT_ASSERT(x, m) do { if (!(x)) {                                            \
-                                fprintf(stderr, "\nline: %d\n%s\n", __LINE__, m);    \
-                                assert(0);                                           \
-                                abort();                                             \
-                              }                                                      \
-                         } while(0)
-
+#define _STRINGIFY(N) #N
+#define STRINGIFY(N) _STRINGIFY(N)
+#define JIT_ASSERT(condition, fmt, ...)                                                                             \
+    do {                                                                                                            \
+        if (!(condition)) {                                                                                         \
+            fprintf(stderr, __FILE__ ":" STRINGIFY(__LINE__) ": %s: Assertion `" #condition "' failed: " fmt "\n",  \
+                      __PRETTY_FUNCTION__, ##__VA_ARGS__);                                                          \
+            abort();                                                                                                \
+        }                                                                                                           \
+    } while (0)
 #else
-#define JIT_ASSERT(x, m) assert(x)
+#define JIT_ASSERT(x, m, ...) assert(x)
 #endif
 
 #define DEFERRED_VS_MAX         16 /* used by STORE_SUBSCR */
@@ -201,7 +204,7 @@ typedef struct Jit {
 #if JIT_DEBUG
 // checks after every instruction sequence emitted if a DynASM error got generated
 // helps with catching operands which are out of range for the specified instruction.
-#define dasm_put(...) do { dasm_put(__VA_ARGS__); JIT_ASSERT(Dst_REF->status == DASM_S_OK, "dasm check failed"); } while (0)
+#define dasm_put(...) do { dasm_put(__VA_ARGS__); JIT_ASSERT(Dst_REF->status == DASM_S_OK, "dasm check failed %x", Dst_REF->status); } while (0)
 #endif
 
 
@@ -749,9 +752,15 @@ static void switch_section(Jit* Dst, Section new_section) {
 |.macro branch_eq, dst
     | je dst
 |.endmacro
+|.macro branch_z, dst
+    | branch_eq dst
+|.endmacro
 
 |.macro branch_ne, dst
     | jne dst
+|.endmacro
+|.macro branch_nz, dst
+    | branch_ne dst
 |.endmacro
 
 |.macro branch_lt, dst
@@ -813,7 +822,7 @@ static void emit_load32_mem(Jit* Dst, int r_dst, int r_mem, long offset_in_bytes
     | mov Rd(r_dst), [Rq(r_mem)+ offset_in_bytes]
 }
 
-// emits: *(long*)((char*)$r_mem[offset_in_bytes])
+// emits: $r_dst = *(long*)((char*)$r_mem[offset_in_bytes])
 static void emit_load64_mem(Jit* Dst, int r_dst, int r_mem, long offset_in_bytes) {
     | mov Rq(r_dst), [Rq(r_mem)+ offset_in_bytes]
 }
@@ -1020,9 +1029,9 @@ static void emit_decref(Jit* Dst, int r_idx, int preserve_res) {
     // we have to instead emit it inline
     int use_inline_decref = Dst->current_section == SECTION_COLD;
     if (use_inline_decref) {
-        | branch_ne >8 // this is same as 'branch if not zero'
+        | branch_nz >8
     } else {
-        | branch_eq >8 // this is same as 'branch if zero'
+        | branch_z >8
         switch_section(Dst, SECTION_COLD);
         |8:
     }
@@ -1176,8 +1185,7 @@ static void emit_jmp_to_inst_idx(Jit* Dst, int r_idx) {
 
 #if JIT_DEBUG
 static void debug_error_not_a_jump_target(PyFrameObject* f) {
-    fprintf(stderr, "ERROR: jit entry points to f->f_lasti %d which is not a jump target\n", f->f_lasti);
-    JIT_ASSERT(0, "");
+    JIT_ASSERT(0, "ERROR: jit entry points to f->f_lasti %d which is not a jump target", f->f_lasti);
 }
 #endif
 
@@ -3341,8 +3349,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 #ifdef DASM_CHECKS
     int dasm_checkstep_err = dasm_checkstep(Dst, -1);
     if (dasm_checkstep_err) {
-        fprintf(stderr, "dasm_checkstep returned error %x", dasm_checkstep_err);
-        JIT_ASSERT(0, "");
+        JIT_ASSERT(0, "dasm_checkstep returned error %x", dasm_checkstep_err);
     }
 #endif
 
@@ -3350,8 +3357,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     int dasm_link_err = dasm_link(Dst, &size);
     if (dasm_link_err) {
 #if JIT_DEBUG
-        fprintf(stderr, "dynasm_link() returned error %x", dasm_link_err);
-        JIT_ASSERT(0, "");
+        JIT_ASSERT(0, "dynasm_link() returned error %x", dasm_link_err);
 #endif
         goto failed;
     }
@@ -3369,8 +3375,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         void* new_chunk = mmap(0, mem_chunk_bytes_remaining, PROT_READ | PROT_WRITE, MAP_32BIT | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (new_chunk == MAP_FAILED || !IS_32BIT_VAL(new_chunk)) {
 #if JIT_DEBUG
-            fprintf(stderr, "mmap returned error %d", errno);
-            JIT_ASSERT(0, "MAP_FAILED");
+            JIT_ASSERT(0, "mmap() returned error %d", errno);
 #endif
             mem_chunk_bytes_remaining = 0;
             goto failed;
@@ -3391,8 +3396,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     int dasm_encode_err = dasm_encode(Dst, mem);
     if (dasm_encode_err) {
 #if JIT_DEBUG
-        fprintf(stderr, "dynasm_encode() returned error %x", dasm_encode_err);
-        JIT_ASSERT(0, "");
+        JIT_ASSERT(0, "dynasm_encode() returned error %x", dasm_encode_err);
 #endif
         goto failed;
     }
@@ -3404,7 +3408,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         unsigned int* opcode_addr_begin = (unsigned int*)labels[lbl_opcode_addr_begin];
         int offset = dasm_getpclabel(Dst, inst_idx);
         unsigned long addr = (unsigned long)mem + (unsigned long)offset;
-        JIT_ASSERT(IS_32BIT_VAL(addr), "");
+        JIT_ASSERT(IS_32BIT_VAL(addr), "%lx", addr);
         opcode_addr_begin[inst_idx] = (unsigned int)addr;
     }
 
