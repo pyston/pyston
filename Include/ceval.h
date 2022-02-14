@@ -98,9 +98,15 @@ PyAPI_FUNC(int) _Py_CheckRecursiveCall(const char *where);
 PyAPI_DATA(int) _Py_CheckRecursionLimit;
 
 static inline void* _stack_pointer(void) {
-    void* sp;
-    __asm( "mov %%rsp, %0" : "=rm" ( sp ));
-    return sp;
+    void* stackpointer;
+#ifdef __x86_64__
+    __asm( "mov %%rsp, %0" : "=r" ( stackpointer ));
+#elif defined(__aarch64__)
+    __asm( "mov %0, sp" : "=r" ( stackpointer ));
+#else
+#error unknown architecture
+#endif
+    return stackpointer;
 }
 // This could also be defined as __builtin_frame_address(0) for a
 // bit better portability. But that uses rbp, which means that
