@@ -1774,7 +1774,10 @@ Python/dtoa.o: Python/dtoa.c
 Python/aot_ceval.o: Python/aot_ceval.c $(AOT_DIR)/aot.h
 	$(CC) -c $(PY_CORE_CFLAGS) -Wno-unused-label -o $@ $<
 
-Python/aot_ceval_jit.o: Python/aot_ceval_jit.c
+Python/aot_ceval_jit.prep.c: Python/aot_ceval_jit.c ../../pyston/tools/dynasm_preprocess.py
+	../../pyston/tools/dynasm_preprocess.py $< $@
+
+Python/aot_ceval_jit.o: Python/aot_ceval_jit.prep.c
 	luajit ../../pyston/LuaJIT/dynasm/dynasm.lua  -o Python/aot_ceval_jit.gen.c $<
 	$(CC) -c $(PY_CORE_CFLAGS) -I../../pyston/LuaJIT/ -Wno-address -Wpointer-to-int-cast -o $@ Python/aot_ceval_jit.gen.c
 
