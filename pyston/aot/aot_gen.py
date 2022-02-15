@@ -1001,6 +1001,23 @@ def print_helper_funcs(f):
     print(f"PyObject* call_function_ceval_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg, PyObject* kwnames);", file=f)
 
     print("/* this directly modifies the destination of the jit generated call instruction */\\", file=f)
+    print("#if __aarch64__", file=f)
+    print("#define SET_JIT_AOT_FUNC(dst_addr) do { \\", file=f)
+    print("    /* retrieve address of the instruction following the call instruction */\\", file=f)
+    print("    unsigned int* ret_addr = (unsigned int*)__builtin_extract_return_addr(__builtin_return_address(0));\\", file=f)
+    print("    /* if (ret_addr[-1] != 0xD63F00C0) abort(); *//* blr x6 */\\", file=f)
+    print("    /* we generated one 'mov' followed by 1 or 3 'movk' - look for the mov */\\", file=f)
+    print("    unsigned int instr = (ret_addr[-3] & 0xFF000000) >> 24;\\", file=f)
+    print("    int is32bit = instr == 0x52 /* mov w6, #<num> */ || instr == 0xD2 /* mov x6, #<num> */;\\", file=f)
+    print("    ret_addr[is32bit ? -3 : -5] = 0xD2800006 | ((unsigned long)dst_addr&0xFFFF)<<5;\\", file=f)
+    print("    ret_addr[is32bit ? -2 : -4] = 0xF2A00006 | (((unsigned long)dst_addr>>16)&0xFFFF)<<5;\\", file=f)
+    print("    if (!is32bit) {\\", file=f)
+    print("        ret_addr[-3] = 0xF2C00006 | (((unsigned long)dst_addr>>32)&0xFFFF)<<5;\\", file=f)
+    print("        ret_addr[-2] = 0xF2E00006 | (((unsigned long)dst_addr>>48)&0xFFFF)<<5;\\", file=f)
+    print("    }\\", file=f)
+    print("    __builtin___clear_cache(&ret_addr[is32bit ? -3 : -5], &ret_addr[-1]);\\", file=f)
+    print("} while(0)", file=f)
+    print("#else", file=f)
     print("#define SET_JIT_AOT_FUNC(dst_addr) do { \\", file=f)
     print("    /* retrieve address of the instruction following the call instruction */\\", file=f)
     print("    unsigned char* ret_addr = (unsigned char*)__builtin_extract_return_addr(__builtin_return_address(0));\\", file=f)
@@ -1014,6 +1031,7 @@ def print_helper_funcs(f):
     print("        *call_imm = (unsigned int)(unsigned long)(dst_addr) - (unsigned int)(unsigned long)ret_addr;\\", file=f)
     print("    } \\", file=f)
     print("} while(0)", file=f)
+    print("#endif", file=f)
 
 
 def create_pre_traced_funcs(output_file):

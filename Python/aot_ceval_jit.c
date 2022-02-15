@@ -22,7 +22,7 @@
 //    - main task is creating the python value stack for the interpreter to continue
 //
 // Some assumptions:
-//   - we currently only support amd64 systems with SystemV calling convention
+//   - we currently only support amd64 systems with SystemV calling convention and AArch64
 //   - code gets emitted into memory area which fits into 32bit address
 //     - makes sure we can use relative addressing most of the time
 //     - saves some space
@@ -30,9 +30,9 @@
 //     - args get past/returned following the SystemV calling convention
 //     - in addition we have the following often used values in fixed callee saved registers
 //       (which means we can call normal C function without changes because have to save them):
-//       - r12 - PyObject** python value stack pointer
-//       - r13 - PyFrameObject* frame object of currently executing function
-//       - r15 - PyThreadState* tstate of currently executing thread
+//       - r12/x23 - PyObject** python value stack pointer
+//       - r13/x19 - PyFrameObject* frame object of currently executing function
+//       - r15/x22 - PyThreadState* tstate of currently executing thread
 //     - code inside aot_ceval_jit_helper.c is using this special convention
 //       via gcc global register variable extension
 //       (which prevents us from using LTO on that translation unit)
@@ -198,7 +198,11 @@ typedef struct Jit {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Warray-bounds"
 #include <dynasm/dasm_proto.h>
+#ifdef __aarch64__
+#include <dynasm/dasm_arm64.h>
+#else
 #include <dynasm/dasm_x86.h>
+#endif
 #pragma GCC diagnostic pop
 
 #if JIT_DEBUG
@@ -650,72 +654,86 @@ static unsigned long jit_stat_load_global_hit, jit_stat_load_global_miss, jit_st
 #define ENABLE_DEFINED_TRACKING 1
 #define ENABLE_AVOID_SIG_TRACE_CHECK 1
 
+@ARM|.arch arm64
+@X86|.arch x64
 
-|.arch x64
 // section layout is same as specified here from left to right
 |.section entry, code, cold, opcode_addr
 
 ////////////////////////////////
 // REGISTER DEFINITIONS
 
-|.macro define_reg, name, name_idx, reg_amd64, reg_amd64_idx
-|.define name, reg_amd64
-|| #define name_idx reg_amd64_idx
+|.macro define_reg, name, name_idx, reg_amd64, reg_amd64_idx, reg_arm64, reg_arm64_idx
+@ARM| .define name, reg_arm64
+@ARM|| #define name_idx reg_arm64_idx
+@X86| .define name, reg_amd64
+@X86|| #define name_idx reg_amd64_idx
 |.endmacro
 
 // all this values are in callee saved registers
 // NOTE: r13 and rbp need 1 byte more to encode a direct memory access without offset
 // e.g. mov rax, [rbp] is encoded as mov rax, [rbp + 0]
-| define_reg f, f_idx, r13, 13 // PyFrameObject*
+| define_reg f, f_idx, r13, 13, x19, 19 // PyFrameObject*
 
 // this register gets used when we have to make a call but preserve a value across it.
 // It can never get used in the deferred_vs / will never get used across bytecode instructions
 // One has to manually check the surrounding code if it's safe to use this register.
 // This register will not automatically get xdecrefed on error / return
 // so no need to clear it after use.
-| define_reg tmp_preserved_reg, tmp_preserved_reg_idx, rbp, 5 // PyFrameObject*
+| define_reg tmp_preserved_reg, tmp_preserved_reg_idx, rbp, 5, x20, 20 // PyFrameObject*
 
 // this register gets mainly used by deferred_vs when we have to make a call
 // but preserve a value which is inside the 'res' register (same as stack slot entry but faster).
 // Code needs to always check Dst->deferred_vs_preserved_reg_used to see if it's available.
 // On error or return we will always xdecref this register which means that
 // code must manually clear the register if it does not want the decref.
-| define_reg vs_preserved_reg, vs_preserved_reg_idx, r14, 14 // PyFrameObject*
+| define_reg vs_preserved_reg, vs_preserved_reg_idx, r14, 14, x21, 21 // PyFrameObject*
 
-| define_reg tstate, tstate_idx, r15, 15 // PyThreadState*
-| define_reg vsp, vsp_idx, r12, 12 // PyObject** - python value stack pointer
+| define_reg tstate, tstate_idx, r15, 15, x22, 22 // PyThreadState*
+| define_reg vsp, vsp_idx, r12, 12, x23, 23 // PyObject** - python value stack pointer
 
 // pointer to ceval->tracing_possible
-| define_reg interrupt, interrupt_idx, rbx, 3 // if you change this you may have to adjust jmp_to_inst_idx
+| define_reg interrupt, interrupt_idx, rbx, 3, x24, 24 // if you change this you may have to adjust jmp_to_inst_idx
 
 
 // follow AMD64 calling convention
 // instruction indices can be found here: https://corsix.github.io/dynasm-doc/instructions.html
 // function arguments
-| define_reg arg1, arg1_idx, rdi, 7
-| define_reg arg2, arg2_idx, rsi, 6
-| define_reg arg3, arg3_idx, rdx, 2
-| define_reg arg4, arg4_idx, rcx, 1
-| define_reg arg5, arg5_idx, r8,  8
-| define_reg arg6, arg6_idx, r9,  9 // careful same as register 'tmp'
+| define_reg arg1, arg1_idx, rdi, 7, x0, 0
+| define_reg arg2, arg2_idx, rsi, 6, x1, 1
+| define_reg arg3, arg3_idx, rdx, 2, x2, 2
+| define_reg arg4, arg4_idx, rcx, 1, x3, 3
+| define_reg arg5, arg5_idx, r8,  8, x4, 4
+| define_reg arg6, arg6_idx, r9,  9, x5, 5 // careful same as register 'tmp'
 
 // return values
-| define_reg res,  res_idx,  rax, 0
-| define_reg res2, res2_idx, rdx, 2 // second return value
+| define_reg res,  res_idx,  rax, 0, x7, 7 // on arm this is a dummy reg
+| define_reg res2, res2_idx, rdx, 2, x1, 1 // second return value
 
 // Our JIT code assumes that 'arg1' and 'res' are not the same but on ARM64 they are.
 // We can work around this by using a temporary register for 'res' and copying
 // the real return value of a call to it (and the value we like to return from compiled code).
 // This has the cost of a few unnecessary 'mov reg, regs' but they should be super cheap.
 // On x86 this is not needed and res and real_res will be the same.
-| define_reg real_res, real_res_idx, res, res_idx
+| define_reg real_res, real_res_idx, res, res_idx, x0, 0
 
 // will be used by macros
 |.define tmp, arg6
 #define tmp_idx arg6_idx
 
 // cpu stack pointer
-| define_reg sp_reg, sp_reg_idx, rsp, 4
+| define_reg sp_reg, sp_reg_idx, rsp, 4, sp, 31
+
+@ARM_START
+// ARM64 requires one more temporary reg because it needs an additional temporary for many operations
+// e.g. when comparing 64bit immediate with a memory location we need to load the imm into a reg and the
+// memory value in a different one and then compare it.
+|.define tmp2, x6
+#define tmp2_idx 6
+
+|.define zero_reg, xzr  // this register is always 0 - nice for clearing memory
+#define zero_reg_idx 31
+@ARM_END
 
 // GET_DEFERRED[-1] == top deferred stack entry
 // GET_DEFERRED[-2] == second deferred stack entry..
@@ -742,34 +760,51 @@ static void switch_section(Jit* Dst, Section new_section) {
 
 
 |.macro branch, dst
-    | jmp dst
+@ARM| b dst
+@X86| jmp dst
 |.endmacro
 
 |.macro branch_reg, dst
-    | jmp Rq(dst)
+@ARM| br Rx(dst)
+@X86| jmp Rq(dst)
 |.endmacro
 
 |.macro branch_eq, dst
-    | je dst
+@ARM| beq dst
+@X86| je dst
 |.endmacro
 |.macro branch_z, dst
     | branch_eq dst
 |.endmacro
 
 |.macro branch_ne, dst
-    | jne dst
+@ARM| bne dst
+@X86| jne dst
 |.endmacro
 |.macro branch_nz, dst
     | branch_ne dst
 |.endmacro
 
 |.macro branch_lt, dst
-    | jl dst
+@ARM| blt dst
+@X86| jl dst
 |.endmacro
 
 |.macro branch_gt, dst
-    | jg dst
+@ARM| bgt dst
+@X86| jg dst
 |.endmacro
+
+@ARM_START
+// both bounds are inclusive
+static int is_in_range(long val, long min_val, long max_val) {
+    return val >= min_val && val <= max_val;
+}
+// some ARM instructions (e.g. add/sub) support this kind of immediates
+static int fits_in_12bit_with_12bit_rshift(long val) {
+    return (val & 0xFFF) == 0 && is_in_range(val>>12, 0, 4095);
+}
+@ARM_END
 
 // writes 32bit value to executable memory
 static void emit_32bit_value(Jit* Dst, long value) {
@@ -780,11 +815,34 @@ static void emit_32bit_value(Jit* Dst, long value) {
 static void emit_mov64_reg(Jit* Dst, int r_dst, int r_src) {
     if (r_dst == r_src)
         return;
-    | mov Rq(r_dst), Rq(r_src)
+@ARM| mov Rx(r_dst), Rx(r_src)
+@X86| mov Rq(r_dst), Rq(r_src)
 }
+
+@ARM_START
+// returns reg 'tmp' if it's not already used else 'tmp2'
+static int get_tmp_reg(int r_idx) {
+    if (r_idx == tmp_idx)
+        return tmp2_idx;
+    return tmp_idx;
+}
+@ARM_END
 
 // emits: $r_dst = val
 static void emit_mov_imm(Jit* Dst, int r_idx, unsigned long val) {
+@ARM_START
+    | movz Rx(r_idx), #(val >>  0) & UINT16_MAX
+    if ((val >> 16) & UINT16_MAX) {
+        | movk Rx(r_idx), #(val >> 16) & UINT16_MAX, lsl #16
+    }
+    if ((val >> 32) & UINT16_MAX) {
+        | movk Rx(r_idx), #(val >> 32) & UINT16_MAX, lsl #32
+    }
+    if ((val >> 48) & UINT16_MAX) {
+        | movk Rx(r_idx), #(val >> 48) & UINT16_MAX, lsl #48
+    }
+@ARM_END
+@X86_START
     if (val == 0) {
         | xor Rd(r_idx), Rd(r_idx)
     } else if (IS_32BIT_VAL(val)) {
@@ -792,10 +850,20 @@ static void emit_mov_imm(Jit* Dst, int r_idx, unsigned long val) {
     } else {
         | mov64 Rq(r_idx), (unsigned long)val
     }
+@X86_END
 }
 
 // emits: (int)$r_idx == val
 static void emit_cmp32_imm(Jit* Dst, int r_idx, unsigned long val) {
+@ARM_START
+    if (is_in_range(val, -4095, 4095)) {
+        | cmp Rw(r_idx), #val /* this will automatically emit cmn for negative numbers*/
+    } else {
+        emit_mov_imm(Dst, get_tmp_reg(r_idx), val);
+        | cmp Rw(r_idx), Rw(get_tmp_reg(r_idx))
+    }
+@ARM_END
+@X86_START
     if (val == 0) {
         | test Rd(r_idx), Rd(r_idx)
     } else if (IS_32BIT_VAL(val)) {
@@ -803,10 +871,20 @@ static void emit_cmp32_imm(Jit* Dst, int r_idx, unsigned long val) {
     } else {
         JIT_ASSERT(0, "should not reach this");
     }
+@X86_END
 }
 
 // emits: (long)$r_idx == val
 static void emit_cmp64_imm(Jit* Dst, int r_idx, unsigned long val) {
+@ARM_START
+    if (is_in_range(val, -4095, 4095)) {
+        | cmp Rx(r_idx), #val /* this will automatically emit cmn for negative numbers*/
+    } else {
+        emit_mov_imm(Dst, get_tmp_reg(r_idx), val);
+        | cmp Rx(r_idx), Rx(get_tmp_reg(r_idx))
+    }
+@ARM_END
+@X86_START
     if (val == 0) {
         | test Rq(r_idx), Rq(r_idx)
     } else if (IS_32BIT_VAL(val)) {
@@ -815,52 +893,116 @@ static void emit_cmp64_imm(Jit* Dst, int r_idx, unsigned long val) {
         | mov64 tmp, (unsigned long)val
         | cmp Rq(r_idx), tmp
     }
+@X86_END
 }
 
 // emits: $r_dst = *(int*)((char*)$r_mem[offset_in_bytes])
 static void emit_load32_mem(Jit* Dst, int r_dst, int r_mem, long offset_in_bytes) {
-    | mov Rd(r_dst), [Rq(r_mem)+ offset_in_bytes]
+@ARM_START
+    if (is_in_range(offset_in_bytes, -256, 255) ||
+        (is_in_range(offset_in_bytes, 0, 32760) && offset_in_bytes % 8 == 0))  {
+        | ldr Rw(r_dst), [Rx(r_mem), #offset_in_bytes]
+    } else {
+        emit_mov_imm(Dst, get_tmp_reg(r_dst), offset_in_bytes);
+        | ldr Rw(r_dst), [Rx(r_mem), Rx(get_tmp_reg(r_dst))]
+    }
+@ARM_END
+@X86| mov Rd(r_dst), [Rq(r_mem)+ offset_in_bytes]
+
 }
 
 // emits: $r_dst = *(long*)((char*)$r_mem[offset_in_bytes])
 static void emit_load64_mem(Jit* Dst, int r_dst, int r_mem, long offset_in_bytes) {
-    | mov Rq(r_dst), [Rq(r_mem)+ offset_in_bytes]
+@ARM_START
+    if (is_in_range(offset_in_bytes, -256, 255) ||
+        (is_in_range(offset_in_bytes, 0, 32760) && offset_in_bytes % 8 == 0))  {
+        | ldr Rx(r_dst), [Rx(r_mem), #offset_in_bytes]
+    } else {
+        emit_mov_imm(Dst, get_tmp_reg(r_dst), offset_in_bytes);
+        | ldr Rx(r_dst), [Rx(r_mem), Rx(get_tmp_reg(r_dst))]
+    }
+@ARM_END
+@X86| mov Rq(r_dst), [Rq(r_mem)+ offset_in_bytes]
 }
 
 // emits: *(long*)((char*)$r_mem[offset_in_bytes]) = $r_val
 static void emit_store64_mem(Jit* Dst, int r_val, int r_mem, long offset_in_bytes) {
-    | mov [Rq(r_mem)+ offset_in_bytes], Rq(r_val)
+@ARM_START
+    if (is_in_range(offset_in_bytes, -256, 255) ||
+        (is_in_range(offset_in_bytes, 0, 32760) && offset_in_bytes % 8 == 0))  {
+        | str Rx(r_val), [Rx(r_mem), #offset_in_bytes]
+    } else {
+        emit_mov_imm(Dst, get_tmp_reg(r_val), offset_in_bytes);
+        | str Rx(r_val), [Rx(r_mem), Rx(get_tmp_reg(r_val))]
+    }
+@ARM_END
+@X86| mov [Rq(r_mem)+ offset_in_bytes], Rq(r_val)
 }
 
 // emits: *(long*)((char*)$r_mem[offset_in_bytes]) = val
 static void emit_store64_mem_imm(Jit* Dst, unsigned long val, int r_mem, long offset) {
+@ARM_START
+    int tmpreg = get_tmp_reg(r_mem);
+    if (val == 0) {
+        emit_store64_mem(Dst, zero_reg_idx, r_mem, offset);
+        return;
+    }
+@ARM_END
+@X86_START
+    int tmpreg = tmp_idx;
     if (IS_32BIT_VAL(val)) {
         | mov qword [Rq(r_mem)+ offset], (unsigned int)val
         return;
     }
-    emit_mov_imm(Dst, tmp_idx, val);
-    emit_store64_mem(Dst, tmp_idx, r_mem, offset);
+@X86_END
+    emit_mov_imm(Dst, tmpreg, val);
+    emit_store64_mem(Dst, tmpreg, r_mem, offset);
 }
 
 // emits: *(long*)((char*)$r_mem[offset_in_bytes]) == val
 static void emit_cmp64_mem_imm(Jit* Dst, int r_mem, long offset, unsigned long val) {
+@ARM_START
+    emit_load64_mem(Dst, get_tmp_reg(r_mem), r_mem, offset);
+    emit_cmp64_imm(Dst, get_tmp_reg(r_mem), val);
+@ARM_END
+@X86_START
     if (IS_32BIT_VAL(val)) {
         | cmp qword [Rq(r_mem)+ offset], (unsigned int)val
         return;
     }
     emit_mov_imm(Dst, tmp_idx, val);
     | cmp qword [Rq(r_mem)+ offset], tmp
+@X86_END
 }
 
 // moves the value stack pointer by num_values python objects
 static void emit_adjust_vs(Jit* Dst, int num_values) {
     if (num_values == 0)
         return;
+@ARM_START
+    int offset_abs = abs(8*num_values);
+    if (is_in_range(offset_abs, 0, 4095) || fits_in_12bit_with_12bit_rshift(offset_abs)) {
+        if (num_values > 0) {
+            | add vsp, vsp, #offset_abs
+        } else if (num_values < 0) {
+            | sub vsp, vsp, #offset_abs
+        }
+    } else {
+        emit_mov_imm(Dst, tmp_idx, offset_abs);
+        if (num_values > 0) {
+            | add vsp, vsp, tmp
+        } else {
+            | sub vsp, vsp, tmp
+        }
+    }
+@ARM_END
+@X86_START
     if (num_values > 0) {
         | add vsp, 8*num_values
     } else if (num_values < 0) {
         | sub vsp, 8*-num_values
     }
+@X86_END
 }
 
 static void emit_push_v(Jit* Dst, int r_idx) {
@@ -888,6 +1030,8 @@ static void emit_write_vs(Jit* Dst, int r_idx, int stack_offset) {
 
 #ifdef Py_REF_DEBUG
 static void emit_dec_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
+@ARMJIT_ASSERT(0, "");
+@X86_START
     // the JIT always emits code to address which fit into 32bit
     // but if PIC is enabled non JIT code may use a larger address space.
     // This causes issues because x86_64 rip memory access only use 32bit offsets.
@@ -906,10 +1050,13 @@ static void emit_dec_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
             | pop tmp
         }
     }
+@X86_END
 }
 #endif
 
 static void emit_inc_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
+@ARMJIT_ASSERT(0, "");
+@X86_START
     if (IS_32BIT_VAL(ptr)) {
         | add qword [ptr], 1
     } else {
@@ -922,6 +1069,7 @@ static void emit_inc_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
             | pop tmp
         }
     }
+@X86_END
 }
 
 static void emit_incref(Jit* Dst, int r_idx) {
@@ -931,7 +1079,11 @@ static void emit_incref(Jit* Dst, int r_idx) {
     _Static_assert(sizeof(_Py_RefTotal) == 8,  "adjust inc qword");
     emit_inc_qword_ptr(Dst, &_Py_RefTotal, 0 /*=can't use tmp_reg*/);
 #endif
-    | add qword [Rq(r_idx)], 1
+@ARM| ldr tmp2, [Rx(r_idx)]
+@ARM| add tmp2, tmp2, #1
+@ARM| str tmp2, [Rx(r_idx)]
+
+@X86| add qword [Rq(r_idx)], 1
 }
 
 // Loads a register `r_idx` with a value `addr`, potentially doing a lea
@@ -943,10 +1095,23 @@ static void emit_mov_imm_using_diff(Jit* Dst, int r_idx, int other_idx, void* ad
         return;
     }
 
+@ARM_START
+    long diff_abs = labs(diff);
+    if (is_in_range(diff_abs, 0, 4095) || fits_in_12bit_with_12bit_rshift(diff_abs)) {
+        if (addr > other_addr) {
+            | add Rx(r_idx), Rx(other_idx), #diff_abs
+        } else {
+            | sub Rx(r_idx), Rx(other_idx), #diff_abs
+        }
+        return;
+    }
+@ARM_END
+@X86_START
     if (!IS_32BIT_SIGNED_VAL((unsigned long)addr) && IS_32BIT_SIGNED_VAL(diff)) {
         | lea Rq(r_idx), [Rq(other_idx)+diff]
         return;
     }
+@X86_END
     emit_mov_imm(Dst, r_idx, (unsigned long)addr);
 }
 
@@ -999,6 +1164,29 @@ static void emit_jg_to_bytecode_n(Jit* Dst, int num_bytes) {
 
 static void emit_call_ext_func(Jit* Dst, void* addr) {
     // WARNING: if you modify this you have to adopt SET_JIT_AOT_FUNC
+@ARM_START
+    JIT_ASSERT(tmp2_idx == 6, "SET_JIT_AOT_FUNC needs to be adopted");
+    // we can't use 'emit_mov_imm' because we have to make sure
+    // that we always generate this 3/5 instruction sequence because SET_JIT_AOT_FUNC is patching it later.
+    // encodes as: 0x52800006 | (addr&0xFFFF)<<5 (=Rw(tmp2_idx)) or 0xD2800006 (=Rx(tmp2_idx))
+    // note: we use Rx() DynASM sometimes encodes the instruction as Rw() here
+    //       because the 32bit op clears the higher 32bit it does not change things.
+    | mov Rx(tmp2_idx), #(unsigned long)addr&UINT16_MAX
+    // encodes as: 0xF2A00006 | ((addr>>16)&0xFFFF)<<5
+    | movk Rx(tmp2_idx), #((unsigned long)addr>>16)&UINT16_MAX, lsl #16
+
+    if (!IS_32BIT_VAL((long)addr)) {
+        // encodes as: 0xF2C00006 | ((addr>>32)&0xFFFF)<<5
+        | movk Rx(tmp2_idx), #((unsigned long)addr>>32)&UINT16_MAX, lsl #32
+        // encodes as: 0xF2E00006 | ((addr>>48)&0xFFFF)<<5
+        | movk Rx(tmp2_idx), #((unsigned long)addr>>48)&UINT16_MAX, lsl #48
+    }
+
+    // encodes as: 0xD63F00C0
+    | blr tmp2
+    | mov res, real_res
+@ARM_END
+@X86_START
     if (IS_32BIT_SIGNED_VAL((long)addr)) {
         // This emits a relative call. The dynasm syntax is confusing
         // it will not actually take the address of addr (even though it says &addr).
@@ -1012,6 +1200,7 @@ static void emit_call_ext_func(Jit* Dst, void* addr) {
         | mov64 res, (unsigned long)addr
         | call res // compiles to: 0xff 0xd0
     }
+@X86_END
 }
 
 // r_idx contains the PyObject to decref
@@ -1024,7 +1213,13 @@ static void emit_decref(Jit* Dst, int r_idx, int preserve_res) {
 #ifdef Py_REF_DEBUG
     emit_dec_qword_ptr(Dst, &_Py_RefTotal, 1 /* can_use_tmp_reg  */);
 #endif
-    | add qword [Rq(r_idx)], -1
+
+@ARM| ldr tmp, [Rx(r_idx)]
+@ARM| subs tmp, tmp, #1    // must use instruction which sets the flags!
+@ARM| str tmp, [Rx(r_idx)]
+
+@X86| add qword [Rq(r_idx)], -1
+
     // normally we emit the dealloc call into the cold section but if we are already inside it
     // we have to instead emit it inline
     int use_inline_decref = Dst->current_section == SECTION_COLD;
@@ -1045,8 +1240,13 @@ static void emit_decref(Jit* Dst, int r_idx, int preserve_res) {
 
     // inline _Py_Dealloc
     //  call_ext_func _Py_Dealloc
-    | mov res, [arg1 + offsetof(PyObject, ob_type)]
-    | call qword [res + offsetof(PyTypeObject, tp_dealloc)]
+    emit_load64_mem(Dst, res_idx, arg1_idx, offsetof(PyObject, ob_type));
+
+@ARM| ldr tmp, [res, #offsetof(PyTypeObject, tp_dealloc)]
+@ARM| blr tmp
+@ARM// mov res, real_res // we don't need this here because the function returns void
+
+@X86| call qword [res + offsetof(PyTypeObject, tp_dealloc)]
 
     if (preserve_res) {
         | mov res, tmp_preserved_reg
@@ -1169,11 +1369,15 @@ static void* get_aot_func_addr(Jit* Dst, int opcode, int oparg, int opcache_avai
 }
 
 static void emit_mov_inst_addr_to_tmp(Jit* Dst, int r_inst_idx) {
-    // *2 instead of *4 because:
-    // entries are 4byte wide addresses but lasti needs to be divided by 2
-    // because it tracks offset in bytecode (2bytes long) array not the index
-    | lea tmp, [->opcode_addr_begin]
-    | mov Rd(tmp_idx), [tmp + Rq(r_inst_idx)*2]
+@ARM| adr tmp, ->opcode_addr_begin // can only address +-1MB
+@ARM| asr Rw(tmp2_idx), Rw(r_inst_idx), #1
+@ARM| ldrsw tmp, [tmp, tmp2, lsl #2]
+
+@X86// *2 instead of *4 because:
+@X86// entries are 4byte wide addresses but lasti needs to be divided by 2
+@X86// because it tracks offset in bytecode (2bytes long) array not the index
+@X86| lea tmp, [->opcode_addr_begin]
+@X86| mov Rd(tmp_idx), [tmp + Rq(r_inst_idx)*2]
 }
 
 static void emit_jmp_to_inst_idx(Jit* Dst, int r_idx) {
@@ -1196,8 +1400,14 @@ static void emit_jmp_to_lasti(Jit* Dst) {
 #if JIT_DEBUG
     // generate code to check that the instruction we jump to had 'is_jmp_target' set
     // every entry in the is_jmp_target array is 4 bytes long. 'lasti / 2' is the index
-    | lea arg2, [->is_jmp_target]
-    | cmp dword [arg2 + arg1*2], 0
+
+@ARM| adr arg2, ->is_jmp_target
+@ARM| lsl tmp, arg1, #1
+@ARM| ldr tmp, [arg2, tmp]
+@ARM| cmp tmp, #0
+
+@X86| lea arg2, [->is_jmp_target]
+@X86| cmp dword [arg2 + arg1*2], 0
 
     | branch_ne >9
     | mov arg1, f
@@ -1223,27 +1433,46 @@ static void emit_load_freevar(Jit* Dst, int r_idx, int num) {
 // compares ceval->tracing_possible == 0 and eval_breaker == 0 in one (64bit)
 // Always emits instructions using the same number of bytes.
 static void emit_tracing_possible_and_eval_breaker_check(Jit* Dst) {
-    | cmp qword [interrupt], 0 // inst is 4 bytes long
+    // the interpreter is using a '_Py_atomic_load_relaxed(eval_breaker)' check
+    // but on x86 and ARM64 this is just a normal load.
+
+@ARM// insts are 2*4=8 bytes long
+@ARM| ldr Rx(tmp_idx), [interrupt]
+@ARM| cmp Rx(tmp_idx), xzr
+
+@X86| cmp qword [interrupt], 0 // inst is 4 bytes long
 }
 
 // compares ceval->tracing_possible == 0 (32bit)
 // Always emits instructions using the same number of bytes.
 static void emit_tracing_possible_check(Jit* Dst) {
-    | cmp dword [interrupt], 0 // inst is 3 bytes long
+@ARM// insts are 2*4=8 bytes long
+@ARM| ldr Rw(tmp_idx), [interrupt]
+@ARM| cmp Rw(tmp_idx), wzr
+
+@X86| cmp dword [interrupt], 0 // inst is 3 bytes long
 }
 
 // emits: d->f_lasti = val
 // Always emits instructions using the same number of bytes.
 static void emit_update_f_lasti(Jit* Dst, long val) {
-    if (!IS_32BIT_VAL(val)) {
+    int can_encode = 1;
+@ARMif (val >= 32768) can_encode = 0;
+@X86if (!IS_32BIT_VAL(val)) can_encode = 0;
+    if (!can_encode) {
         // the mov can't encode this immediate, we would have to use multiple instructions
         // but because our interrupt and tracing code requires a fixed instruction sequence
         // we just abort compiling this function
         Dst->failed = 1;
         return;
     }
-    // inst is 8 bytes long
-    | mov dword [f + offsetof(PyFrameObject, f_lasti)], val
+
+@ARM// insts are 2*4=8 bytes long
+@ARM| mov tmp, #val
+@ARM| str Rw(tmp_idx), [f, #offsetof(PyFrameObject, f_lasti)]
+
+@X86// inst is 8 bytes long
+@X86| mov dword [f + offsetof(PyFrameObject, f_lasti)], val
 }
 
 //////////////////////////////////////////////////////////////
@@ -1570,6 +1799,7 @@ static void emit_jump_if_true(Jit* Dst, int oparg, RefStatus ref_status) {
 
 // returns 0 if IC generation succeeded
 static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opcache) {
+@X86_START
     // Same as cmp_imm, but if r is a memory expression we need to specify the size of the load.
     |.macro cmp_imm_mem, r, addr
     || if (IS_32BIT_VAL(addr)) {
@@ -1908,6 +2138,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             return 0;
         }
     }
+@X86_END
     return 1;
 }
 
@@ -2058,11 +2289,6 @@ static void emit_instr_start(Jit* Dst, int inst_idx, int opcode, int oparg) {
 __attribute__((optimize("-O0"))) // enable to make "source tools/dis_jit_gdb.py" work
 #endif
 void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
-#if __aarch64__
-    // disable JIT on ARM
-    return NULL;
-#endif
-
     if (mem_bytes_used_max <= mem_bytes_used) // stop emitting code we used up all memory
         return NULL;
 
@@ -2310,6 +2536,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         case RETURN_VALUE:
             deferred_vs_pop1_owned(Dst, res_idx);
             deferred_vs_apply(Dst);
+@ARM        | mov real_res, res
             | branch ->return
             break;
 
@@ -2366,9 +2593,11 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 emit_mov_imm2(Dst, res_idx, Py_True, tmp_idx, Py_False);
                 | cmp arg1, arg2
                 if (oparg == PyCmp_IS) {
-                    | cmovne Rq(res_idx), Rq(tmp_idx)
+@ARM                | csel res, res, tmp, eq
+@X86                | cmovne res, tmp
                 } else {
-                    | cmove Rq(res_idx), Rq(tmp_idx)
+@ARM                | csel res, res, tmp, ne
+@X86                | cmove res, tmp
                 }
                 // don't need to incref Py_True/Py_False because they are immortals
                 if (ref_status[0] == OWNED && ref_status[1] == OWNED)
@@ -2436,6 +2665,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                     Dst->call_method_hints = hint->next;
 
                 if (hint && hint->attr && hint->meth_found && jit_use_ics) {
+@X86_START
                     int num_args = oparg + hint->meth_found; // number of arguments to the function, including a potential "self"
                     int num_vs_args = num_args + 1; // number of python values; one more than the number of arguments since it includes the callable
 
@@ -2542,6 +2772,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                             emit_if_res_0_error(Dst);
                         }
                     }
+@X86_END
                 }
 
                 if (hint)
@@ -2564,11 +2795,14 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             if (opcode == CALL_METHOD) {
                 num_vs_args += 1;
 
-                // this is taken from clang:
-                // meth = PEEK(oparg + 2);
-                // arg3 = ((meth == 0) ? 0 : 1) + oparg
-                | cmp qword [vsp - (8*num_vs_args)], 1
-                | sbb arg3, -1
+@ARM            emit_cmp64_mem_imm(Dst, vsp_idx, -8*num_vs_args, 0 /* = value */);
+@ARM            | cinc arg3, arg3, ne
+
+@X86            // this is taken from clang:
+@X86            // meth = PEEK(oparg + 2);
+@X86            // arg3 = ((meth == 0) ? 0 : 1) + oparg
+@X86            | cmp qword [vsp - (8*num_vs_args)], 1
+@X86            | sbb arg3, -1
             }
             emit_call_ext_func(Dst, get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */));
             emit_adjust_vs(Dst, -num_vs_args);
@@ -2586,8 +2820,13 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
         case FOR_ITER:
             deferred_vs_peek_top_and_apply(Dst, arg1_idx);
-            | mov tmp, [arg1 + offsetof(PyObject, ob_type)]
-            | call qword [tmp + offsetof(PyTypeObject, tp_iternext)]
+            emit_load64_mem(Dst, tmp_idx, arg1_idx, offsetof(PyObject, ob_type));
+@ARM        | ldr tmp, [tmp, #offsetof(PyTypeObject, tp_iternext)]
+@ARM        | blr tmp
+@ARM        | mov res, real_res
+
+@X86        | call qword [tmp + offsetof(PyTypeObject, tp_iternext)]
+
             emit_cmp64_imm(Dst, res_idx, 0);
             | branch_eq >1
 
@@ -2612,12 +2851,18 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             void* func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
             emit_call_decref_args1(Dst, func, arg1_idx, &ref_status);
             if (opcode == UNARY_NOT) {
-                | mov Rd(arg1_idx), Rd(res_idx) // save result for comparison
-                emit_mov_imm2(Dst, res_idx, Py_True, tmp_idx, Py_False);
-                emit_cmp32_imm(Dst, arg1_idx, 0); // 32bit comparison!
-                | branch_lt ->error // < 0, means error
-                | cmovne Rq(res_idx), Rq(tmp_idx)
-                // don't need to incref these are immortals
+@ARM            emit_mov_imm2(Dst, arg3_idx, Py_True, arg4_idx, Py_False);
+@ARM            emit_cmp32_imm(Dst, res_idx, 0); // 32bit comparison!
+@ARM            | branch_lt ->error // < 0, means error
+@ARM            | csel res, arg3, arg4, eq
+
+@X86            | mov Rd(arg1_idx), Rd(res_idx) // save result for comparison
+@X86            emit_mov_imm2(Dst, res_idx, Py_True, tmp_idx, Py_False);
+@X86            emit_cmp32_imm(Dst, arg1_idx, 0); // 32bit comparison!
+@X86            | branch_lt ->error // < 0, means error
+@X86            | cmovne Rq(res_idx), Rq(tmp_idx)
+
+                // don't need to incref Py_True/Py_False are immortals
             } else {
                 emit_if_res_0_error(Dst);
             }
@@ -2893,6 +3138,17 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             emit_mov_imm(Dst, arg2_idx, SETUP_FINALLY);
             emit_mov_imm(Dst, arg3_idx, (inst_idx + 1)*2 + oparg);
             // STACK_LEVEL()
+@ARM_START
+            int src_idx = vsp_idx;
+            if (opcode == SETUP_ASYNC_WITH) {
+                | sub arg4, vsp, #8
+                src_idx = arg4_idx;
+            }
+            | ldr tmp, [f, #offsetof(PyFrameObject, f_valuestack)]
+            | sub arg4, Rx(src_idx), tmp
+            | asr arg4, arg4, #3
+@ARM_END
+@X86_START
             if (opcode == SETUP_ASYNC_WITH) {
                 // the interpreter pops the top value and pushes it afterwards
                 // we instead just calculate the stack level with the vsp minus one value.
@@ -2902,6 +3158,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             }
             | sub arg4, [f + offsetof(PyFrameObject, f_valuestack)]
             | sar arg4, 3 // divide by 8 = sizeof(void*)
+@X86_END
             emit_call_ext_func(Dst, PyFrame_BlockSetup);
             break;
 
@@ -3168,12 +3425,17 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
     ////////////////////////////////
     // CALCULATE NUMBER OF STACK VARIABLES
-    // stack must be aligned which means it must be a uneven number of slots!
+    // stack must be aligned which means it must be a uneven number of slots on X86
     // (because a call will push the return address to the stack which makes it aligned)
+    // and even on ARM64!
     unsigned long num_stack_slots = Dst->num_deferred_stack_slots + NUM_MANUAL_STACK_SLOTS;
+#ifdef __aarch64__
+    if ((num_stack_slots & 1) != 0)
+        ++num_stack_slots;
+#else
     if ((num_stack_slots & 1) == 0)
         ++num_stack_slots;
-
+#endif
 
     ////////////////////////////////
     // EPILOG OF EMITTED CODE: jump target to different exit path
@@ -3185,7 +3447,8 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
     |->exit_yielding:
     // to differentiate from a normal return we set the second lowest bit
-    | or real_res, 2
+@ARM| orr real_res, res, #2
+@X86| or real_res, 2
     | branch ->return
 
     |->handle_signal_res_in_use:
@@ -3205,10 +3468,12 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     // fall through
 
     |->handle_signal_jump_to_inst:
-    | mov Rd(arg1_idx), [f + offsetof(PyFrameObject, f_lasti)]
+    emit_load32_mem(Dst, arg1_idx, f_idx, offsetof(PyFrameObject, f_lasti));
     emit_mov_inst_addr_to_tmp(Dst, arg1_idx);
     // tmp points now to the beginning of the bytecode implementation
     // but we want to skip the signal check.
+@ARM| add tmp, tmp, #5 * 4 /*= num instructions * size of every instruction */
+@X86_START
     // We can't just directly jump after the signal check beause the jne instruction is variable size
     // so instead jump before the conditional jump and set the flags so that we don't jump
     // size of 'mov dword [lasti + offsetof(PyFrameObject, f_lasti)], inst_idx*2' = 8byte
@@ -3217,6 +3482,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     // the code mentioned above.
     | add tmp, 8 + 4
     | cmp tmp, tmp // dummy to set the flags for 'jne ...' to fail
+@X86_END
     | branch_reg tmp_idx
 
     |->handle_tracing_or_signal_no_deferred_stack:
@@ -3267,11 +3533,20 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     // second is the value stackpointer
     | mov res2, vsp
 
-
     // remove stack variable
-    | add rsp, num_stack_slots*8
+@ARMconst int num_callee_saved = 8;
+@ARM| add sp, sp, #(num_callee_saved+num_stack_slots)*8
+@X86| add rsp, num_stack_slots*8
 
     // restore callee saves
+@ARM_START
+    | ldp x29, x30, [sp, #-16]
+    | ldp vs_preserved_reg, tmp_preserved_reg, [sp, #-32]
+    | ldp f, tstate, [sp, #-48]
+    | ldp vsp, interrupt, [sp, #-64]
+    | ret
+@ARM_END
+@X86_START
     | pop interrupt
     | pop vsp
     | pop tstate
@@ -3279,6 +3554,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     | pop tmp_preserved_reg
     | pop vs_preserved_reg
     | ret
+@X86_END
 
 
     ////////////////////////////////
@@ -3286,13 +3562,22 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     switch_section(Dst, SECTION_ENTRY);
     |.align 16
     |->entry:
-    // callee saves
+
+    // callee saved
+@ARM_START
+    | stp x29, x30, [sp, #-16]
+    | stp vs_preserved_reg, tmp_preserved_reg, [sp, #-32]
+    | stp f, tstate, [sp, #-48]
+    | stp vsp, interrupt, [sp, #-64]
+@ARM_END
+@X86_START
     | push vs_preserved_reg
     | push tmp_preserved_reg
     | push f
     | push tstate
     | push vsp
     | push interrupt
+@X86_END
 
     // Signature:
     // (PyFrameObject* f, PyThread* tstate, PyObject** sp){
@@ -3301,7 +3586,9 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     | mov vsp, arg3
 
     // allocate stack variables
-    | sub rsp, num_stack_slots*8
+@ARM| sub sp, sp, #(num_callee_saved+num_stack_slots)*8
+@X86| sub rsp, num_stack_slots*8
+
 
     // We store the address of _PyRuntime.ceval.tracing_possible and eval_breaker inside a register
     // this makes it possible to compare this two 4 byte variables at the same time to 0
@@ -3378,11 +3665,19 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
         // allocate memory which address fits inside a 32bit pointer (makes sure we can use 32bit rip relative addressing)
 #ifdef MAP_32BIT
-        void* new_chunk = mmap(0, mem_chunk_bytes_remaining, PROT_READ | PROT_WRITE, MAP_32BIT | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        void* new_chunk = mmap(0, mem_chunk_bytes_remaining,
+                               PROT_READ | PROT_WRITE,
+                               MAP_32BIT | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 #else
-        // TODO: add workaround for missing 32bit allocs. Either switch to 64 support or use MAP_FIXED..
-        void* new_chunk = mem_chunk = mmap(0, mem_chunk_bytes_remaining, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-        abort();
+        // kernel does not provide away to allocate a 32bit address.
+        // So try to allocate at a fixed value and if it fails try a different one.
+        void* new_chunk = MAP_FAILED;
+        char* start_addr = (char*)0x40000000;
+        for (int i=0; i<8 && new_chunk == MAP_FAILED; ++i, start_addr += 0x10000000) {
+            new_chunk = mmap(start_addr + mem_bytes_allocated, mem_chunk_bytes_remaining,
+                             PROT_READ | PROT_WRITE,
+                             MAP_FIXED_NOREPLACE | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        }
 #endif
         if (new_chunk == MAP_FAILED || !IS_32BIT_VAL(new_chunk)) {
 #if JIT_DEBUG
