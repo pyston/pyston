@@ -9,12 +9,14 @@
 
 #include "llvm/AsmParser/Parser.h"
 #include "llvm/Bitcode/BitcodeReader.h"
+#include "llvm/ExecutionEngine/Orc/ThreadSafeModule.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/GetElementPtrTypeIterator.h"
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/MDBuilder.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/Cloning.h"
@@ -45,7 +47,7 @@ void* findAddressForName(const string& name) {
     return symbol_finder->lookupSymbol(name);
 }
 
-static LLVMContext context;
+static orc::ThreadSafeContext context;
 static const DataLayout* data_layout;
 
 const DataLayout* getDataLayout() {
@@ -53,7 +55,7 @@ const DataLayout* getDataLayout() {
 }
 
 LLVMContext& getContext() {
-    return context;
+    return *context.getContext();
 }
 
 // Copied in from llvms ExternalFunctions.cpp
@@ -137,19 +139,8 @@ static pair<unique_ptr<Module>, unique_ptr<MemoryBuffer>> loadBitcodeFile(const 
         errorOrToExpected(MemoryBuffer::getFileOrSTDIN(filename)));
 
     unique_ptr<Module> module;
-    if (filename[len - 1] == 'l') {
-        SMDiagnostic Err;
-        bool DisableVerify = false;
-        auto ModuleAndIndex = parseAssemblyFileWithIndex(
-            filename, Err, context, nullptr, !DisableVerify);
-        module = std::move(ModuleAndIndex.Mod);
-        if (!module.get()) {
-            Err.print("", errs());
-            abort();
-        }
-    } else {
-        module = ExitOnErr(getLazyBitcodeModule(*MB, context));
-    }
+    module = ExitOnErr(getLazyBitcodeModule(*MB, getContext()));
+
     return make_pair(move(module), move(MB));
 }
 
@@ -169,12 +160,12 @@ public:
 
         for (auto& func : *module) {
             if (!func.empty() || func.isMaterializable()) {
-                functions[func.getName()] = &func;
+                functions[func.getName().str()] = &func;
             }
         }
 
         for (auto& gv : module->globals()) {
-            global_variables[gv.getName()] = &gv;
+            global_variables[gv.getName().str()] = &gv;
         }
         /*
         for (auto& gv : module->global_objects()) {
@@ -237,7 +228,7 @@ public:
         return false;
     }
 
-    bool shouldTraceInto(llvm::StringRef function_name) {
+    bool shouldTraceInto(const string& function_name) {
         if (do_not_trace.count(function_name))
             return false;
 
@@ -303,7 +294,7 @@ public:
         if (function_name == "_PyEval_EvalFrameDefault")
             return false;
 
-        if (function_name.startswith("PyMem_"))
+        if (function_name.rfind("PyMem_", 0) == 0)
             return false;
         if (function_name == "PyObject_LengthHint")
             return false;
@@ -449,7 +440,7 @@ private:
         if (!st->getName().endswith("bject"))
             return false;
 
-        if (st->getNumElements() >= 2 && st->getElementType(0) == Type::getInt64Ty(context)) {
+        if (st->getNumElements() >= 2 && st->getElementType(0) == Type::getInt64Ty(getContext())) {
             auto el1 = dyn_cast<PointerType>(st->getElementType(1));
             if (el1) {
                 auto st1 = dyn_cast<StructType>(el1->getElementType());
@@ -518,7 +509,7 @@ public:
     }
 
     void *getPointerToFunction(Function *F) override {
-        return findAddressForName(F->getName());
+        return findAddressForName(F->getName().str());
     }
 
     void *getOrEmitGlobalVariable(const GlobalVariable *GV) override {
@@ -556,7 +547,7 @@ public:
             jit.addAllocation(unique_ptr<char[]>(newdata));
             ret = newdata;
         } else
-            ret = findAddressForName(GV->getName());
+            ret = findAddressForName(GV->getName().str());
 
         RELEASE_ASSERT(ret, "");
         addGlobalMapping(GV, ret);
@@ -582,15 +573,15 @@ public:
     // return true if we could sucessfully trace the function else return false
     bool traceCall(CallInst& call) {
         // don't trace intrinsics
-        if (isa<Function>(call.getCalledValue()) && cast<Function>(call.getCalledValue())->isIntrinsic())
+        if (isa<Function>(call.getCalledOperand()) && cast<Function>(call.getCalledOperand())->isIntrinsic())
             return false;
 
         long addr;
-        if (auto* GV = dyn_cast<GlobalValue>(call.getCalledValue()->stripPointerCasts())) {
-            addr = (long)findAddressForName(GV->getName());
+        if (auto* GV = dyn_cast<GlobalValue>(call.getCalledOperand()->stripPointerCasts())) {
+            addr = (long)findAddressForName(GV->getName().str());
         } else {
             auto& SF = getExecutionContext();
-            auto func = getOperandValue(call.getCalledValue(), SF);
+            auto func = getOperandValue(call.getCalledOperand(), SF);
             addr = (long)GVTOP(func);
         }
 
@@ -610,7 +601,7 @@ public:
 
         if (function->isVarArg())
             return false;
-        if (!TraceStrategy().shouldTraceInto(function->getName())) {
+        if (!TraceStrategy().shouldTraceInto(function->getName().str())) {
             if (nitrous_verbosity >= NITROUS_VERBOSITY_IR)
                 outs() << "Not inlining " << function->getName() << " due to policy\n";
             return false;
@@ -618,7 +609,7 @@ public:
 
         RELEASE_ASSERT(!function->empty(), "need to find the right function");
 
-        if (!isa<Constant>(call.getCalledValue())) {
+        if (!isa<Constant>(call.getCalledOperand())) {
             //return false; // disable funcptr tracing
 
             //outs() << "before splitting:\n";
@@ -627,14 +618,14 @@ public:
 
             auto next_bb = bb.splitBasicBlock(&call);
             auto fallback_bb = BasicBlock::Create(
-                context, "", bb.getParent());
+                getContext(), "", bb.getParent());
             auto inline_bb = BasicBlock::Create(
-                context, "", bb.getParent(), next_bb);
+                getContext(), "", bb.getParent(), next_bb);
 
             bb.getTerminator()->eraseFromParent();
-            auto i64 = Type::getInt64Ty(context);
+            auto i64 = Type::getInt64Ty(getContext());
             auto bitcast = new PtrToIntInst(
-                call.getCalledValue(),
+                call.getCalledOperand(),
                 i64, "", &bb);
                 /*
                 pointer cmp
@@ -655,7 +646,7 @@ public:
             auto guard_br = BranchInst::Create(
                 inline_bb, fallback_bb, cmp, &bb);
 
-            MDBuilder mdbuilder(context);
+            MDBuilder mdbuilder(getContext());
             guard_br->setMetadata(
                 "prof", mdbuilder.createBranchWeights(1000, 1));
 
@@ -717,18 +708,18 @@ public:
         return true;
     }
 
-    void visitCallSite(CallSite CS) override {
-        if (auto* call = dyn_cast<CallInst>(CS.getInstruction())) {
+    void visitCallBase(CallBase &I) override {
+        if (auto* call = dyn_cast<CallInst>(&I)) {
             if (traceCall(*call))
                 return;
         }
-        llvm_interp::Interpreter::visitCallSite(CS);
+        llvm_interp::Interpreter::visitCallBase(I);
     }
 
     void callFunction(uint64_t addr, ArrayRef<GenericValue> args) override {
         // we look at the callsite to figure out what types the arguments have.
         // imagine we call printf(str, arg1, arg2) if we only look at F(printf) we would not know what fields we set in the operand GVs
-        CallSite caller = getExecutionContext().Caller;
+        CallBase &caller = *getExecutionContext().Caller;
 
         // I think Fast is the same as C on x86_64, and almost the same
         // on x86_32?
@@ -827,7 +818,7 @@ public:
             idx++;
         }
 
-        MDBuilder mdbuilder(context);
+        MDBuilder mdbuilder(getContext());
         sw->setMetadata("prof", mdbuilder.createBranchWeights(weights));
     }
 
@@ -845,7 +836,7 @@ public:
         if (br->getMetadata("prof"))
             return;
 
-        MDBuilder mdbuilder(context);
+        MDBuilder mdbuilder(getContext());
         br->setMetadata("prof",
                         mdbuilder.createBranchWeights(1 + 999 * (dest == 0),
                                                       1 + 999 * (dest == 1)));
@@ -1086,6 +1077,8 @@ void initializeJIT(int verbosity, int pic) {
     //verbosity = 1;
     nitrous_verbosity = verbosity;
     nitrous_pic = pic;
+
+    nitrous::context = orc::ThreadSafeContext(make_unique<LLVMContext>());
 
     nitrous::symbol_finder.reset(new nitrous::SymbolFinder());
     nitrous::compiler.reset(new nitrous::LLVMCompiler(nitrous::symbol_finder.get()));

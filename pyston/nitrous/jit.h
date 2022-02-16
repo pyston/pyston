@@ -34,6 +34,9 @@ class Module;
 class Value;
 class TargetMachine;
 class Type;
+namespace orc {
+class ThreadSafeContext;
+}
 }
 
 namespace nitrous {
@@ -52,7 +55,7 @@ public:
     SymbolFinder* getSymbolFinder();
     llvm::TargetMachine& getTargetMachine();
 
-    void* compile(std::unique_ptr<llvm::Module> module, std::string funcname);
+    void* compile(std::unique_ptr<llvm::Module> module, llvm::orc::ThreadSafeContext context, const std::string& funcname);
 };
 
 class JitConsts {
@@ -81,7 +84,7 @@ public:
 
 class LLVMJit {
 private:
-    llvm::LLVMContext* llvm_context;
+    llvm::orc::ThreadSafeContext* llvm_context;
     LLVMCompiler* compiler;
 
     std::unique_ptr<llvm::Module> module;
@@ -109,7 +112,7 @@ private:
 
 public:
     LLVMJit(const llvm::Function* orig_function,
-            llvm::LLVMContext* llvm_context, LLVMCompiler* compiler,
+            llvm::orc::ThreadSafeContext* llvm_context, LLVMCompiler* compiler,
             JitConsts& consts);
 
     llvm::Function* getFunction() { return func; }

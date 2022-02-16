@@ -123,7 +123,7 @@ void SymbolFinder::addSymbolsFromFile(StringRef filename,
             if (address_symbols.count(addr))
                 address_symbols[addr] = MULTIPLY_DEFINED_STR;
             else
-                address_symbols[addr] = p.first();
+                address_symbols[addr] = p.first().str();
         }
     }
 }

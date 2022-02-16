@@ -1179,6 +1179,16 @@ void Interpreter::visitIntrinsicInst(IntrinsicInst &I) {
   }
 }
 
+long _min(long a, long b) {
+    return a < b ? a : b;
+}
+
+// clang converts this to a single SHLD instruction; gcc does not
+long fshl(long a, long b, long c) {
+    c = c % (8 * sizeof(a));
+    return ((unsigned long)a >> (8 * sizeof(a) - c)) | (b << c);
+}
+
 void Interpreter::visitCallBase(CallBase &I) {
   ExecutionContext &SF = ECStack.back();
 
@@ -1214,6 +1224,21 @@ void Interpreter::visitCallBase(CallBase &I) {
 
     case Intrinsic::fabs:
       func_addr = (uint64_t)fabs;
+      break;
+
+    case Intrinsic::abs:
+      // The extra cast is to select the right overload
+      func_addr = (uint64_t)(long (*)(long))abs;
+      break;
+
+    case Intrinsic::smin:
+      // TODO: check for variant
+      func_addr = (uint64_t)_min;
+      break;
+
+    case Intrinsic::fshl:
+      // TODO
+      func_addr = (uint64_t)fshl;
       break;
 
     // just ignore assumes lowering them would remove them
