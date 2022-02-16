@@ -311,7 +311,8 @@ void LLVMJit::cloneFunctionIntoAndRemap(Function* new_func,
     // This makes the generated IR easier to read, and may also improve compilation
     // speed a tiny amount
     //if (nitrous_verbosity < NITROUS_VERBOSITY_IR) {
-        //StripDebugInfo(*module);
+    if (getenv("STRIP_DEBUG_INFO"))
+         StripDebugInfo(*module);
     //}
 }
 
