@@ -1,20 +1,20 @@
-From eaa09b0ac70d1ebba29c4650cb5e5c14b9049499 Mon Sep 17 00:00:00 2001
+From fab7f16f1f1b764bbbdbbb3c135802762f61a99c Mon Sep 17 00:00:00 2001
 From: Nehal J Wani <nehaljw.kkd1@gmail.com>
 Date: Tue, 16 Oct 2018 21:23:44 -0500
-Subject: [PATCH 3/3] compiler-rt: Make 7.0.0 compatible with 10.9 SDK
+Subject: [PATCH 2/3] compiler-rt: Make 7.0.0 compatible with 10.9 SDK
 
 ---
- lib/xray/xray_buffer_queue.h |  7 +++++++
- lib/xray/xray_utils.h        | 30 ++++++++++++++++++++++++++++++
- 2 files changed, 37 insertions(+)
+ lib/xray/xray_buffer_queue.h |  7 +++++
+ lib/xray/xray_utils.h        | 33 ++++++++++++++++++++++++
+ 2 files changed, 40 insertions(+)
 
 diff --git a/lib/xray/xray_buffer_queue.h b/lib/xray/xray_buffer_queue.h
-index e76fa79..e20a69a 100644
+index e1739d050f3d..38288e35ae62 100644
 --- a/lib/xray/xray_buffer_queue.h
 +++ b/lib/xray/xray_buffer_queue.h
-@@ -20,6 +20,13 @@
- #include "sanitizer_common/sanitizer_mutex.h"
+@@ -21,6 +21,13 @@
  #include <cstddef>
+ #include <cstdint>
  
 +#include <sys/mman.h>
 +/* MAP_ANONYMOUS is MAP_ANON on some systems,
@@ -27,18 +27,28 @@ index e76fa79..e20a69a 100644
  
  /// BufferQueue implements a circular queue of fixed sized buffers (much like a
 diff --git a/lib/xray/xray_utils.h b/lib/xray/xray_utils.h
-index eafa16e..a8dad83 100644
+index 333826168c0d..637ab17f4805 100644
 --- a/lib/xray/xray_utils.h
 +++ b/lib/xray/xray_utils.h
-@@ -20,6 +20,36 @@
- #include <sys/types.h>
- #include <utility>
+@@ -24,6 +24,39 @@
+ #include <zircon/types.h>
+ #endif
  
 +#if defined __APPLE__
 +#include <time.h>
 +#include <mach/clock.h>
 +#include <mach/mach.h>
-+int alt_clock_gettime(int clock_id, timespec *ts) {
++
++#if defined __APPLE__ && __x86_64__ && __MAC_OS_X_VERSION_MIN_REQUIRED < 101200 // less than macOS 10.12
++  #define clock_gettime alt_clock_gettime
++#endif
++#if defined __APPLE__ && __MAC_OS_X_VERSION_MAX_ALLOWED < 101200
++  #define CLOCK_REALTIME CALENDAR_CLOCK
++  #define CLOCK_MONOTONIC SYSTEM_CLOCK
++  typedef int clockid_t;
++#endif
++
++int alt_clock_gettime(clockid_t clock_id, timespec *ts) {
 +  clock_serv_t cclock;
 +  mach_timespec_t mts;
 +  host_get_clock_service(mach_host_self(), clock_id, &cclock);
@@ -55,17 +65,11 @@ index eafa16e..a8dad83 100644
 +#define MAP_ANONYMOUS MAP_ANON
 +#endif
 +
-+#if defined __APPLE__ && __MAC_OS_X_VERSION_MIN_REQUIRED < 101200 // less than macOS 10.12
-+  #define clock_gettime alt_clock_gettime
-+  #define CLOCK_REALTIME CALENDAR_CLOCK
-+  #define CLOCK_MONOTONIC SYSTEM_CLOCK
-+  typedef int clockid_t;
-+#endif
-+
 +#endif
 +
  namespace __xray {
  
- // Default implementation of the reporting interface for sanitizer errors.
+ class LogWriter {
 -- 
-2.5.4 (Apple Git-61)
+2.32.0.windows.2
+
