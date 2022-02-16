@@ -9,6 +9,10 @@ LLVM_PROFDATA:=$(shell which llvm-profdata)
 MERGE_FDATA:=$(shell which merge-fdata)
 PERF2BOLT:=$(shell which perf2bolt)
 RELEASE:=
+
+ifeq ($(LLVM_LINK),)
+$(error "Please install the llvm toolchain")
+endif
 else
 BOLT:=$(abspath build/bolt/bin/llvm-bolt)
 CLANG:=$(abspath build/Release/llvm/bin/clang)
@@ -28,6 +32,8 @@ PYSTON_MAJOR:=2
 PYSTON_MINOR:=3
 
 RELEASE_PREFIX?=/usr
+
+ARCH:=$(shell uname -m)
 
 -include Makefile.local
 
@@ -238,19 +244,31 @@ cpython_testsuite_$(1): build/$(1)_build/pyston
 )
 endef
 
-COMMA:=,
-$(call make_cpython_build,unopt,CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../configure --prefix=$(abspath build/unopt_install/usr) --disable-debugging-features --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot/aot_all.bc,,)
-$(call make_cpython_build,unoptshared,CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../configure --prefix=$(abspath build/unoptshared_install/usr) --disable-debugging-features --enable-configure $(CONFIGURE_EXTRA_FLAGS) --enable-shared,build/aot_pic/aot_all.bc,,)
-$(call make_cpython_build,opt,PROFILE_TASK="$(PROFILE_TASK)" CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../configure --prefix=$(abspath build/opt_install/usr) --enable-optimizations --with-lto --disable-debugging-features --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot/aot_all.bc,,binary)
-$(call make_cpython_build,optshared,PROFILE_TASK="$(PROFILE_TASK)" CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../configure --prefix=$(abspath build/optshared_install/usr) --enable-optimizations --with-lto --disable-debugging-features --enable-shared --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot_pic/aot_all.bc,,so)
-$(call make_cpython_build,releaseunopt,PROFILE_TASK="$(PROFILE_TASK)" CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../configure --prefix=$(RELEASE_PREFIX) --disable-debugging-features --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot/aot_all.bc,$(abspath build/releaseunopt_install),,$(RELEASE_PREFIX))
-$(call make_cpython_build,releaseunoptshared,PROFILE_TASK="$(PROFILE_TASK)" CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../configure --prefix=$(RELEASE_PREFIX) --disable-debugging-features --enable-shared --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot_pic/aot_all.bc,$(abspath build/releaseunoptshared_install),,$(RELEASE_PREFIX))
-$(call make_cpython_build,release,      PROFILE_TASK="$(PROFILE_TASK)" CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../configure --prefix=$(RELEASE_PREFIX) --enable-optimizations --with-lto --disable-debugging-features --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot/aot_all.bc,$(abspath build/release_install),binary,$(RELEASE_PREFIX))
-$(call make_cpython_build,releaseshared,PROFILE_TASK="$(PROFILE_TASK)" CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../configure --prefix=$(RELEASE_PREFIX) --enable-optimizations --with-lto --disable-debugging-features --enable-shared --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot_pic/aot_all.bc,$(abspath build/releaseshared_install),so,$(RELEASE_PREFIX))
+
+# we only use BOLT on x86_64
+CPYTHON_EXTRA_CFLAGS_FOR_BOLT:=
+CPYTHON_EXTRA_LDFLAGS_FOR_BOLT:=
+BOLT_BINARY_ENABLE:=
+BOLT_SO_ENABLE:=
+ifeq ($(ARCH),x86_64)
+CPYTHON_EXTRA_CFLAGS_FOR_BOLT:=-fno-reorder-blocks-and-partition
+CPYTHON_EXTRA_LDFLAGS_FOR_BOLT:=-Wl,--emit-relocs
+BOLT_BINARY_ENABLE:=binary
+BOLT_SO_ENABLE:=so
+endif
+
+$(call make_cpython_build,unopt,CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) $(CPYTHON_EXTRA_CFLAGS_FOR_BOLT)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) $(CPYTHON_EXTRA_LDFLAGS_FOR_BOLT)" ../../configure --prefix=$(abspath build/unopt_install/usr) --disable-debugging-features --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot/aot_all.bc,,)
+$(call make_cpython_build,unoptshared,CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) $(CPYTHON_EXTRA_CFLAGS_FOR_BOLT)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) $(CPYTHON_EXTRA_LDFLAGS_FOR_BOLT)" ../../configure --prefix=$(abspath build/unoptshared_install/usr) --disable-debugging-features --enable-configure $(CONFIGURE_EXTRA_FLAGS) --enable-shared,build/aot_pic/aot_all.bc,,)
+$(call make_cpython_build,opt,PROFILE_TASK="$(PROFILE_TASK)" CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) $(CPYTHON_EXTRA_CFLAGS_FOR_BOLT)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) $(CPYTHON_EXTRA_LDFLAGS_FOR_BOLT)" ../../configure --prefix=$(abspath build/opt_install/usr) --enable-optimizations --with-lto --disable-debugging-features --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot/aot_all.bc,,$(BOLT_BINARY_ENABLE))
+$(call make_cpython_build,optshared,PROFILE_TASK="$(PROFILE_TASK)" CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) $(CPYTHON_EXTRA_CFLAGS_FOR_BOLT)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) $(CPYTHON_EXTRA_LDFLAGS_FOR_BOLT)" ../../configure --prefix=$(abspath build/optshared_install/usr) --enable-optimizations --with-lto --disable-debugging-features --enable-shared --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot_pic/aot_all.bc,,$(BOLT_SO_ENABLE))
+$(call make_cpython_build,releaseunopt,PROFILE_TASK="$(PROFILE_TASK)" CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) $(CPYTHON_EXTRA_CFLAGS_FOR_BOLT)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) $(CPYTHON_EXTRA_LDFLAGS_FOR_BOLT)" ../../configure --prefix=$(RELEASE_PREFIX) --disable-debugging-features --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot/aot_all.bc,$(abspath build/releaseunopt_install),,$(RELEASE_PREFIX))
+$(call make_cpython_build,releaseunoptshared,PROFILE_TASK="$(PROFILE_TASK)" CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) $(CPYTHON_EXTRA_CFLAGS_FOR_BOLT)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) $(CPYTHON_EXTRA_LDFLAGS_FOR_BOLT)" ../../configure --prefix=$(RELEASE_PREFIX) --disable-debugging-features --enable-shared --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot_pic/aot_all.bc,$(abspath build/releaseunoptshared_install),,$(RELEASE_PREFIX))
+$(call make_cpython_build,release,      PROFILE_TASK="$(PROFILE_TASK)" CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) $(CPYTHON_EXTRA_CFLAGS_FOR_BOLT)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) $(CPYTHON_EXTRA_LDFLAGS_FOR_BOLT)" ../../configure --prefix=$(RELEASE_PREFIX) --enable-optimizations --with-lto --disable-debugging-features --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot/aot_all.bc,$(abspath build/release_install),$(BOLT_BINARY_ENABLE),$(RELEASE_PREFIX))
+$(call make_cpython_build,releaseshared,PROFILE_TASK="$(PROFILE_TASK)" CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) $(CPYTHON_EXTRA_CFLAGS_FOR_BOLT)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) $(CPYTHON_EXTRA_LDFLAGS_FOR_BOLT)" ../../configure --prefix=$(RELEASE_PREFIX) --enable-optimizations --with-lto --disable-debugging-features --enable-shared --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot_pic/aot_all.bc,$(abspath build/releaseshared_install),$(BOLT_SO_ENABLE),$(RELEASE_PREFIX))
 # We have to --disable-debugging-features for consistency with the bc build
 # If we had a separate bc-dbg build then we could change this
-$(call make_cpython_build,dbg,CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../configure --prefix=$(abspath build/dbg_install/usr) --with-pydebug --disable-debugging-features --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot/aot_all.bc)
-$(call make_cpython_build,dbgshared,CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) -fno-reorder-blocks-and-partition" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) -Wl$(COMMA)--emit-relocs" ../../configure --prefix=$(abspath build/dbgshared_install/usr) --with-pydebug --disable-debugging-features --enable-shared --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot_pic/aot_all.bc)
+$(call make_cpython_build,dbg,CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) $(CPYTHON_EXTRA_CFLAGS_FOR_BOLT)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) $(CPYTHON_EXTRA_LDFLAGS_FOR_BOLT)" ../../configure --prefix=$(abspath build/dbg_install/usr) --with-pydebug --disable-debugging-features --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot/aot_all.bc)
+$(call make_cpython_build,dbgshared,CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) $(CPYTHON_EXTRA_CFLAGS_FOR_BOLT)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) $(CPYTHON_EXTRA_LDFLAGS_FOR_BOLT)" ../../configure --prefix=$(abspath build/dbgshared_install/usr) --with-pydebug --disable-debugging-features --enable-shared --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot_pic/aot_all.bc)
 $(call make_cpython_build,stock,PROFILE_TASK="$(PROFILE_TASK) || true" CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../configure --prefix=$(abspath build/stock_install/usr) --enable-optimizations --with-lto --disable-pyston --enable-configure $(CONFIGURE_EXTRA_FLAGS),)
 $(call make_cpython_build,stockunopt,CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../configure --prefix=$(abspath build/stockunopt_install/usr) --disable-pyston --enable-configure $(CONFIGURE_EXTRA_FLAGS),)
 $(call make_cpython_build,stockdbg,CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS)" ../../configure --prefix=$(abspath build/stockdbg_install/usr) --disable-pyston --with-pydebug --enable-configure $(CONFIGURE_EXTRA_FLAGS),)
@@ -259,7 +277,7 @@ $(call make_cpython_build,stockdbg,CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS)" LDFLA
 define combine_builds
 $(eval
 build/$(1)_install$(2)/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0: build/$(1)shared_install$(2)/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0 | build/$(1)_install$(2)/bin/python3
-	bash -c "cp build/$(1){shared,}_install$(2)/lib/python$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR)/_sysconfigdata_$(if $(findstring dbg,$(1)),d,)_linux_x86_64-linux-gnu.py"
+	bash -c "cp build/$(1){shared,}_install$(2)/lib/python$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR)/_sysconfigdata_$(if $(findstring dbg,$(1)),d,)_linux_$(ARCH)-linux-gnu.py"
 	bash -c "cp build/$(1){shared,}_install$(2)/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR)$(if $(findstring dbg,$(1)),d,).so.1.0"
 	bash -c "cp -P build/$(1){shared,}_install$(2)/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR)$(if $(findstring dbg,$(1)),d,).so"
 build/$(1)_env/bin/python: build/$(1)_install$(2)/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0

@@ -2058,6 +2058,11 @@ static void emit_instr_start(Jit* Dst, int inst_idx, int opcode, int oparg) {
 __attribute__((optimize("-O0"))) // enable to make "source tools/dis_jit_gdb.py" work
 #endif
 void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
+#if __aarch64__
+    // disable JIT on ARM
+    return NULL;
+#endif
+
     if (mem_bytes_used_max <= mem_bytes_used) // stop emitting code we used up all memory
         return NULL;
 
@@ -3372,7 +3377,13 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         mem_chunk_bytes_remaining = size > (1<<18) ? size : (1<<18);
 
         // allocate memory which address fits inside a 32bit pointer (makes sure we can use 32bit rip relative addressing)
+#ifdef MAP_32BIT
         void* new_chunk = mmap(0, mem_chunk_bytes_remaining, PROT_READ | PROT_WRITE, MAP_32BIT | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+#else
+        // TODO: add workaround for missing 32bit allocs. Either switch to 64 support or use MAP_FIXED..
+        void* new_chunk = mem_chunk = mmap(0, mem_chunk_bytes_remaining, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        abort();
+#endif
         if (new_chunk == MAP_FAILED || !IS_32BIT_VAL(new_chunk)) {
 #if JIT_DEBUG
             JIT_ASSERT(0, "mmap() returned error %d", errno);
