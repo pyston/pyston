@@ -986,17 +986,24 @@ public:
 
     Constant* GVToConst(const GenericValue& gv, Type* type) override {
         llvm::Constant* val;
-        if (type->isPointerTy()) {
-            void* ptr_val = (void*)GVToUInt64(gv, type);
-            if (ptr_val == nullptr)
+        if (type->isPointerTy() || type->isIntegerTy()) {
+            uint64_t ival = GVToUInt64(gv, type);
+            if (ival == 0)
                 return ConstantInt::getNullValue(type);
 
-            auto name = symbol_finder->lookupAddress(ptr_val);
+            auto name = symbol_finder->lookupAddress((void*)ival);
 
-            // There are several constants that don't have symbol names, such as string constants,
-            // type mros, etc
-            if (name.empty())
-                return nullptr;
+            if (type->isIntegerTy()) {
+                if (name.empty())
+                    return ConstantInt::get(type, ival);
+
+                RELEASE_ASSERT(ival > 0x400000, "this might not be a disguised pointer, worth a look: %ld", ival);
+            } else {
+                // There are several constants that don't have symbol names, such as string constants,
+                // type mros, etc
+                if (name.empty())
+                    return nullptr;
+            }
 
             GlobalValue* gv = bitcode_registry.findGlobalSymbol(name);
 
@@ -1016,22 +1023,23 @@ public:
              * a random offset inside the PyFloat_Type object and ends up resolving
              * to float_dealloc, which is not at all similar to the vectorcall type.
              */
-            if (0 && !typesAreSimilar(type, gv->getType())) {
-                outs() << "Looking for " << ptr_val << " of type " << *type << '\n';
-                outs() << "Found " << *gv << '\n';
-                RELEASE_ASSERT(false, "Type mismatch");
-            }
+            //RELEASE_ASSERT(typesAreSimilar(type, gv->getType()), "");
 
             RELEASE_ASSERT(gv, "Couldn't find %s", name.c_str());
             RELEASE_ASSERT(gv->getName() == name, "name mismatch");
             Constant* c = jit.addGlobalReference(gv);
 
-            if (c->getType() != type)
-                return ConstantExpr::getBitCast(c, type);
+            if (c->getType() != type) {
+                if (c->getType()->isPointerTy() && type->isPointerTy())
+                    return ConstantExpr::getBitCast(c, type);
+                else if (c->getType()->isPointerTy() && !type->isPointerTy())
+                    return ConstantExpr::getPtrToInt(c, type);
+                else if (!c->getType()->isPointerTy() && type->isPointerTy())
+                    return ConstantExpr::getIntToPtr(c, type);
+                RELEASE_ASSERT(0, "Don't know how to cast these");
+            }
             return c;
-        } else if (type->isIntegerTy())
-            val = ConstantInt::get(type, GVToUInt64(gv, type));
-        else if (type->isDoubleTy())
+        } else if (type->isDoubleTy())
             val = ConstantFP::get(type, gv.DoubleVal);
         else
             RELEASE_ASSERT(0, "type not implemented");
