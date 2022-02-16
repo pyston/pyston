@@ -1282,17 +1282,14 @@ void Interpreter::visitCallBase(CallBase &I) {
 
   if (I.isInlineAsm()) {
       InlineAsm *asm_op = cast<InlineAsm>(I.getCalledOperand());
-      if (asm_op->getAsmString() == "mov %rsp, $0") {
+      if (asm_op->getAsmString() == "mov %rsp, $0" || asm_op->getAsmString() == "mov $0, sp") {
           // We use rsp to see if the C stack has overflowed.
           // So to avoid those exceptions, just return the max value here, since
           // that's the smallest possible stack
+          RELEASE_ASSERT(I.getNumArgOperands() == 0, "");
           GenericValue val;
           val.PointerVal = PointerTy(0xffffffffffffffffL);
-
-          GenericValue ptr = getOperandValue(I.getArgOperand(0), SF);
-
-          StoreValueToMemory(val, (GenericValue *)GVTOP(ptr),
-                             I.getArgOperand(0)->getType());
+          SetValue(&I, val, SF);
           return;
       }
 
