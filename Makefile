@@ -45,7 +45,7 @@ pyston3: build/opt_env/bin/python
 
 .PHONY: clean
 clean:
-	rm -rf build/*_env build/*_build build/*_install build/aot*
+	rm -rf build/*_env build/*_build build/*_install build/aot* build/cpython_bc
 
 tune: build/system_env/bin/python
 	PYTHONPATH=pyston/tools build/system_env/bin/python -c "import tune; tune.tune()"

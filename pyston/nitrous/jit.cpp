@@ -245,6 +245,17 @@ class GVMaterializer : public ValueMaterializer {
 private:
     Module* module;
 
+    // global variables are allowed to reference themselves, which we
+    // would handle by trying to materialize their value, which would
+    // have themself as an operand, so we would end up materializing
+    // the value again in an infinite recursion.
+    //
+    // So instead of that, remember if there were any global variables
+    // with initializers that we remapped, and for non-initial requests
+    // to materialize them return the in-progress value from the first
+    // request.
+    llvm::ValueToValueMapTy gvs_with_ivs;
+
 public:
     GVMaterializer(Module* module) : module(module) {}
 
@@ -265,6 +276,10 @@ public:
         }
 
         if (GlobalVariable* gv = dyn_cast<GlobalVariable>(v)) {
+            auto it = gvs_with_ivs.find(gv);
+            if (it != gvs_with_ivs.end())
+                return it->second;
+
             Constant* new_constant = module->getOrInsertGlobal(
                 gv->getName(),
                 cast<PointerType>(gv->getType())->getElementType());
@@ -278,6 +293,7 @@ public:
                 new_gv->setConstant(gv->isConstant());
 
                 if (gv->isConstant() && gv->hasInitializer()) {
+                    gvs_with_ivs[gv] = new_gv;
                     llvm::ValueToValueMapTy vmap;
                     new_gv->setInitializer(MapValue(gv->getInitializer(), vmap,
                                                     RF_None, nullptr, this));
