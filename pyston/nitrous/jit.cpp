@@ -326,10 +326,8 @@ void LLVMJit::cloneFunctionIntoAndRemap(Function* new_func,
     // Uncomment this to strip debug metadata from the emitted code.
     // This makes the generated IR easier to read, and may also improve compilation
     // speed a tiny amount
-    //if (nitrous_verbosity < NITROUS_VERBOSITY_IR) {
     if (getenv("STRIP_DEBUG_INFO"))
          StripDebugInfo(*module);
-    //}
 }
 
 LLVMJit::LLVMJit(const Function* orig_function, orc::ThreadSafeContext* llvm_context,

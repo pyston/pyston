@@ -1189,6 +1189,12 @@ long fshl(long a, long b, long c) {
     return ((unsigned long)a >> (8 * sizeof(a) - c)) | (b << c);
 }
 
+void assertIsInt64(Type* t) {
+    IntegerType *i = dyn_cast<IntegerType>(t);
+    RELEASE_ASSERT(i, "");
+    RELEASE_ASSERT(i->getBitWidth() == 64, "");
+}
+
 void Interpreter::visitCallBase(CallBase &I) {
   ExecutionContext &SF = ECStack.back();
 
@@ -1227,17 +1233,18 @@ void Interpreter::visitCallBase(CallBase &I) {
       break;
 
     case Intrinsic::abs:
+      assertIsInt64(F->getFunctionType()->getParamType(0));
       // The extra cast is to select the right overload
       func_addr = (uint64_t)(long (*)(long))abs;
       break;
 
     case Intrinsic::smin:
-      // TODO: check for variant
+      assertIsInt64(F->getFunctionType()->getParamType(0));
       func_addr = (uint64_t)_min;
       break;
 
     case Intrinsic::fshl:
-      // TODO
+      assertIsInt64(F->getFunctionType()->getParamType(0));
       func_addr = (uint64_t)fshl;
       break;
 
