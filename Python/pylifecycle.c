@@ -987,6 +987,17 @@ pyinit_main(_PyRuntimeState *runtime, PyInterpreterState *interp)
         return status;
     }
 
+    // To immortalize ~everything at this point, uncomment the following line.
+    // Unfortunately this causes a number of test failures because it changes
+    // the way the system cleans itself up -- all the modules are kept alive,
+    // which means the primary cleanup mechanism to clean up global variables
+    // doesn't work, and the system falls back to the backup mechanism which
+    // has different behavior. (See PyImport_Cleanup() starting with the comment
+    // "Now, if there are any modules left alive").
+    // I tried un-immortalizing the modules dict but that was insufficient to
+    // avoid this behavior.
+    //_Py_Immortalize(PyImport_GetModuleDict());
+
     status = init_sys_streams(interp);
     if (_PyStatus_EXCEPTION(status)) {
         return status;

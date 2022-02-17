@@ -920,8 +920,12 @@ PyDescr_NewClassMethod(PyTypeObject *type, PyMethodDef *method)
 
     descr = (PyMethodDescrObject *)descr_new(&PyClassMethodDescr_Type,
                                              type, method->ml_name);
-    if (descr != NULL)
+    if (descr != NULL) {
         descr->d_method = method;
+
+        if (IS_IMMORTAL(type))
+            MAKE_IMMORTAL(descr);
+    }
     return (PyObject *)descr;
 }
 
@@ -932,8 +936,12 @@ PyDescr_NewMember(PyTypeObject *type, PyMemberDef *member)
 
     descr = (PyMemberDescrObject *)descr_new(&PyMemberDescr_Type,
                                              type, member->name);
-    if (descr != NULL)
+    if (descr != NULL) {
         descr->d_member = member;
+
+        if (IS_IMMORTAL(type))
+            MAKE_IMMORTAL(descr);
+    }
     return (PyObject *)descr;
 }
 
@@ -944,8 +952,12 @@ PyDescr_NewGetSet(PyTypeObject *type, PyGetSetDef *getset)
 
     descr = (PyGetSetDescrObject *)descr_new(&PyGetSetDescr_Type,
                                              type, getset->name);
-    if (descr != NULL)
+    if (descr != NULL) {
         descr->d_getset = getset;
+
+        if (IS_IMMORTAL(type))
+            MAKE_IMMORTAL(descr);
+    }
     return (PyObject *)descr;
 }
 
@@ -959,6 +971,9 @@ PyDescr_NewWrapper(PyTypeObject *type, struct wrapperbase *base, void *wrapped)
     if (descr != NULL) {
         descr->d_base = base;
         descr->d_wrapped = wrapped;
+
+        if (IS_IMMORTAL(type))
+            MAKE_IMMORTAL(descr);
     }
     return (PyObject *)descr;
 }
