@@ -109,6 +109,7 @@ class Signature(object):
         self.name = "".join([cls.name for cls in argument_classes]) + str(self.nargs)
         self.always_trace = list(always_trace)
         self.guard_fail_fn_name = guard_fail_fn_name
+        self.do_not_trace = []
 
     def getGuard(self, argument_names):
         names = list(argument_names)
@@ -200,6 +201,13 @@ class CompoundSignature(object):
             res.extend(s.always_trace)
         return res
 
+    @property
+    def do_not_trace(self):
+        res = []
+        for s in self.signatures:
+            res.extend(s.do_not_trace)
+        return res
+
 # add special cases for 'isinstance'
 # we add a fast PyType_FastSubclass() check which just checks tp_flags internally.
 class IsInstanceSignature(Signature):
@@ -250,7 +258,7 @@ class Handler(object):
     def setTracingOverwrites(self, signature):
         clearDoNotTrace()
         clearAlwaysTrace()
-        for name in self.do_not_trace:
+        for name in self.do_not_trace + signature.do_not_trace:
             addDoNotTrace(name.encode("ascii"))
         for name in self.always_trace + signature.always_trace:
             addAlwaysTrace(name.encode("ascii"))
@@ -700,16 +708,18 @@ def loadCases():
         classes.append(ObjectClass(arg1type_name, guard, arg1examples))
         return Signature(classes, always_trace=[f"builtin_{func_name}"], guard_fail_fn_name=guard_fail_fn_name)
 
-    def addBuiltinCFunction1ArgSignatures(func_name, func, spec_dict):
+    def getBuiltinCFunction1ArgSignatures(func_name, func, spec_dict):
+        signatures = []
         # Generic non arg type specific version only assuming the function is the same.
         # Creates a trace supporting all types.
         # If a type guard inside a type specific version fails we will use this trace.
         # Note: this needs to go before the specialized versions
-        call_signatures.append(createBuiltinCFunction1ArgSignature(func_name, func, "", list(spec_dict.values())))
+        signatures.append(createBuiltinCFunction1ArgSignature(func_name, func, "", list(spec_dict.values())))
 
         # Argument type specific versions
         for name, example in spec_dict.items():
-            call_signatures.append(createBuiltinCFunction1ArgSignature(func_name, func, name, [example]))
+            signatures.append(createBuiltinCFunction1ArgSignature(func_name, func, name, [example]))
+        return signatures
 
     # builtin len()
     len_specs = {
@@ -721,7 +731,9 @@ def loadCases():
         "Dict": dict(),
         "Set": set(),
     }
-    addBuiltinCFunction1ArgSignatures("len", len, len_specs)
+    len_signatures = getBuiltinCFunction1ArgSignatures("len", len, len_specs)
+    call_signatures += len_signatures
+    len_signatures[0].do_not_trace += ["bytearray_length", "unicode_length", "set_len", "bytes_length", "tuplelength", "list_length", "dict_length"]
 
     # builtin ord()
     ord_specs = {
@@ -729,7 +741,7 @@ def loadCases():
         "Bytes": b'c',
         "Unicode": "c",
     }
-    addBuiltinCFunction1ArgSignatures("ord", ord, ord_specs)
+    call_signatures += getBuiltinCFunction1ArgSignatures("ord", ord, ord_specs)
 
     for name, l in callables.items():
         signatures = {}
