@@ -227,6 +227,9 @@ build/$(1)_env/update.stamp: pyston/benchmark_requirements.txt pyston/benchmark_
 %_$(1): %.py build/$(1)_env/update.stamp
 	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath build/$(1)_install$(_PREFIX)/lib) time build/$(1)_env/bin/python3 $$< $$(ARGS)
 
+dbg_%_$(1): %.py build/$(1)_env/update.stamp
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath build/$(1)_install$(_PREFIX)/lib) gdb --args build/$(1)_env/bin/python3 $$< $$(ARGS)
+
 perf_%_$(1): %.py build/$(1)_env/update.stamp
 	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(abspath build/$(1)_install$(_PREFIX)/lib) JIT_PERF_MAP=1 perf record -g ./build/$(1)_env/bin/python3 $$< $$(ARGS)
 	$$(MAKE) perf_report
