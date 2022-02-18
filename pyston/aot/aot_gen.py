@@ -136,6 +136,25 @@ class Signature(object):
     def getSpecialTracingCode(self, argument_names):
         return ()
 
+    def getSpecializationLevel(self):
+        """
+        Gets a rough sense of the level of specialization this signature represents.
+
+        It's not very robust, and it only needs to be good enough to distinguish cases
+        that are clearly more-specialized than others:
+        - More specialized arguments is a higher value
+        - identity guards are more specialized than type guards
+        """
+
+        level = 0.0
+        for cls in self.argument_classes:
+            guard_cls = type(cls.guard)
+            if issubclass(guard_cls, IdentityGuard):
+                level += 3.0
+            elif issubclass(guard_cls, TypeGuard):
+                level += 1
+        return level
+
     def __repr__(self):
         return "<Signature %s>" % self.name
 
@@ -164,6 +183,9 @@ class CompoundSignature(object):
 
     def getSpecialTracingCode(self, argument_names):
         return ()
+
+    def getSpecializationLevel(self):
+        return self.signatures[0].getSpecializationLevel()
 
     @property
     def nargs(self):
@@ -429,6 +451,15 @@ class CallableHandler(Handler):
         print(f"{self._get_func_sig(f'{func}Profile')};", file=header_f)
         print(f"{self._get_func_sig(f'{func}Profile')}", "{", file=profile_f)
         print("PyObject* f = *(stack - oparg - 1);", file=profile_f)
+
+        # We want to make sure that we try more-specialized traces before trying
+        # the less-specialized ones. In the past we carefully ordered the creation
+        # of the traces so that they would be tested in the same order that they
+        # would were created, but now that there are some constraints around the
+        # order in which we can create them (have to create the less-specialized first),
+        # use an explicit measure of specialization to order them.
+        traced = list(traced)
+        traced.sort(key=lambda p: -p[0].getSpecializationLevel())
 
         pass_args = ", ".join(self._args_names())
         for signature, name in traced:
