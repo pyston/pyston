@@ -45,7 +45,7 @@ pyston3: build/opt_env/bin/python
 
 .PHONY: clean
 clean:
-	rm -rf build/*_env build/*_build build/*_install build/aot*
+	rm -rf build/*_env build/*_build build/*_install build/aot* build/cpython_bc
 
 tune: build/system_env/bin/python
 	PYTHONPATH=pyston/tools build/system_env/bin/python -c "import tune; tune.tune()"
@@ -346,6 +346,9 @@ aot_trace_only: build/aot_dev/all.bc build/aot_dev/aot_pre_trace.so pyston/aot/a
 
 dbg_aot_trace_only: build/aot_dev/all.bc build/aot_dev/aot_pre_trace.so pyston/aot/aot_gen.py build/bc_install/usr/bin/python3 build_dbg
 	cd build/aot_dev; LD_LIBRARY_PATH="`pwd`/../PartialDebug/nitrous/:`pwd`/../PartialDebug/pystol/" gdb --ex run --args ../bc_install/usr/bin/python3 ../../pyston/aot/aot_gen.py --action=trace -vv --only=$(ONLY)
+
+debug_aot_trace_only: build/aot_dev/all.bc build/aot_dev/aot_pre_trace.so pyston/aot/aot_gen.py build/bc_install/usr/bin/python3 build_debug
+	cd build/aot_dev; LD_LIBRARY_PATH="`pwd`/../Debug/nitrous/:`pwd`/../Debug/pystol/" gdb --ex run --args ../bc_install/usr/bin/python3 ../../pyston/aot/aot_gen.py --action=trace -vv --only=$(ONLY)
 
 PYPERF:=build/system_env/bin/pyperf command -w 0 -l 1 -p 1 -n $(or $(N),$(N),3) -v --affinity 0
 

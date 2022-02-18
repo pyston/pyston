@@ -262,8 +262,7 @@ bool PystolFactDeriver::deriveFacts(Value* v, FactSet& facts, LLVMEvaluator& eva
             } else if (name == "PyTuple_New" || name == "PyTuple_New_Nonzeroed") {
                 RELEASE_ASSERT(isPyObjectPtr(call->getType()), "");
 
-                Type* t = call->getType();
-                t = call->getParent()->getParent()->getParent()->getTypeByName("struct._typeobject")->getPointerTo();
+                Type* t = StructType::getTypeByName(getContext(), "struct._typeobject");
 
                 if (auto cint = dyn_cast<ConstantInt>(call->getOperand(0))) {
                     long val = cint->getSExtValue();

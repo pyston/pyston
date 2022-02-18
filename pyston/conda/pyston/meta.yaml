@@ -1,5 +1,5 @@
-{% set build_num = 9 %}
-{% set llvm_version = "10.0.1" %}
+{% set build_num = 10 %}
+{% set llvm_version = "13.0.1" %}
 {% set pyston_version = "2.3.2" %}
 {% set python_version = "3.8.12" %}
 {% set pyston_version2 = ".".join(pyston_version.split(".")[:2]) %}

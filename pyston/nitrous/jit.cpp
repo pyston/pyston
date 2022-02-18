@@ -13,8 +13,11 @@
 #include "llvm/ExecutionEngine/JITEventListener.h"
 #include "llvm/ExecutionEngine/JITSymbol.h"
 #include "llvm/ExecutionEngine/Orc/CompileUtils.h"
+#include "llvm/ExecutionEngine/Orc/Core.h"
+#include "llvm/ExecutionEngine/Orc/ExecutionUtils.h"
+#include "llvm/ExecutionEngine/Orc/ExecutorProcessControl.h"
 #include "llvm/ExecutionEngine/Orc/IRCompileLayer.h"
-#include "llvm/ExecutionEngine/Orc/LambdaResolver.h"
+#include "llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h"
 #include "llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h"
 #include "llvm/ExecutionEngine/RTDyldMemoryManager.h"
 #include "llvm/ExecutionEngine/SectionMemoryManager.h"
@@ -60,135 +63,106 @@ namespace nitrous {
 // from llvm/examples/Kaleidoscope/include/KaleidoscopeJIT.h
 class LLVMJitCompiler {
 private:
+    // An ORC definition generator that uses our SymbolFinder class to look up non-dynamic
+    // symbols from the current process.
+    class SFDefGenerator : public DefinitionGenerator {
+    public:
+        SymbolFinder* finder;
+
+        SFDefGenerator(SymbolFinder *finder) : finder(finder) {}
+
+        Error tryToGenerate(LookupState &LS, LookupKind K, JITDylib &JD,
+                JITDylibLookupFlags JDLookupFlags, const SymbolLookupSet &Symbols) override {
+            // Adapted from ExecutionUtils.cpp: DynamicLibrarySearchGenerator::tryToGenerate()
+            orc::SymbolMap NewSymbols;
+
+            for (auto &KV : Symbols) {
+              StringRef Name = *KV.first;
+
+              if (Name.empty())
+                continue;
+
+              void* Addr = finder->lookupSymbol(Name);
+              //printf("Looking up symbol %s: %p\n", Name.data(), Addr);
+
+              NewSymbols[KV.first] = JITEvaluatedSymbol(
+                      static_cast<JITTargetAddress>(reinterpret_cast<uintptr_t>(Addr)),
+                      JITSymbolFlags::Exported);
+            }
+
+            if (NewSymbols.empty())
+                return Error::success();
+
+            return JD.define(absoluteSymbols(std::move(NewSymbols)));
+        }
+    };
     SymbolFinder *finder;
 
 public:
-    using ObjLayerT = LegacyRTDyldObjectLinkingLayer;
-    using CompileLayerT = LegacyIRCompileLayer<ObjLayerT, SimpleCompiler>;
-
-    LLVMJitCompiler(SymbolFinder* _finder)
-        : finder(_finder),
-          Resolver(createLegacyLookupResolver(
-              ES,
-              [this](const std::string& Name) -> JITSymbol {
-                  // Adapted from
-                  // examples/Kaleidoscope/BuildingAJIT/Chapter4/KaleidoscopeJIT.h:
-                  if (auto sym = ObjectLayer.findSymbol(Name, true))
-                      return sym;
-
-                  //if (auto SymAddr
-                      //= RTDyldMemoryManager::getSymbolAddressInProcess(Name))
-                      //return JITSymbol(SymAddr, JITSymbolFlags::Exported);
-                  //return nullptr;
-
-                  return JITSymbol((intptr_t)finder->lookupSymbol(Name),
-                                   JITSymbolFlags::Exported);
-              },
-              [](Error Err) {
-                  cantFail(std::move(Err), "lookupFlags failed");
-              })),
-          TM(EngineBuilder().selectTarget()),
-          DL(TM->createDataLayout()),
-          ObjectLayer(AcknowledgeORCv1Deprecation, ES,
-                      [this](VModuleKey) {
-                          return ObjLayerT::Resources{
-                              std::make_shared<SectionMemoryManager>(), Resolver
-                          };
-                      },
-                      ObjLayerT::NotifyLoadedFtor(),
-                      [](uint64_t K, const object::ObjectFile& Obj,
-                         const RuntimeDyld::LoadedObjectInfo& L) {
-                          /* disabled because we don't link in perfjitevents if avialable
-                          static JITEventListener* jit_event
-                              = JITEventListener::createPerfJITEventListener();
-                          if (jit_event)
-                              jit_event->notifyObjectLoaded(K, Obj, L);
-                          */
-                      }),
-          CompileLayer(AcknowledgeORCv1Deprecation, ObjectLayer, SimpleCompiler(*TM)) {
-        llvm::sys::DynamicLibrary::LoadLibraryPermanently(nullptr);
-    }
+    LLVMJitCompiler(SymbolFinder* _finder, std::unique_ptr<ExecutionSession> ES,
+            JITTargetMachineBuilder JTMB, DataLayout DL)
+        : finder(_finder), ES(std::move(ES)), DL(std::move(DL)), Mangle(*this->ES, this->DL),
+        ObjectLayer(*this->ES,
+                []() { return std::make_unique<SectionMemoryManager>(); }),
+        CompileLayer(*this->ES, ObjectLayer,
+                std::make_unique<ConcurrentIRCompiler>(std::move(JTMB))),
+        MainJD(this->ES->createBareJITDylib("<main>")),
+        TM(EngineBuilder().selectTarget()) {
+            MainJD.addGenerator(
+                    cantFail(DynamicLibrarySearchGenerator::GetForCurrentProcess(
+                            DL.getGlobalPrefix())));
+            MainJD.addGenerator(make_unique<SFDefGenerator>(finder));
+        }
 
     TargetMachine& getTargetMachine() { return *TM; }
     SymbolFinder* getSymbolFinder() { return finder; }
 
-    VModuleKey addModule(std::unique_ptr<Module> M) {
-        auto K = ES.allocateVModule();
-        cantFail(CompileLayer.addModule(K, std::move(M)));
-        ModuleKeys.push_back(K);
-        return K;
+    ~LLVMJitCompiler() {
+        if (auto Err = ES->endSession())
+            ES->reportError(std::move(Err));
     }
 
-    void removeModule(VModuleKey K) {
-        ModuleKeys.erase(find(ModuleKeys, K));
-        cantFail(CompileLayer.removeModule(K));
+    static Expected<std::unique_ptr<LLVMJitCompiler>> Create(SymbolFinder* finder) {
+        auto EPC = SelfExecutorProcessControl::Create();
+        if (!EPC)
+            return EPC.takeError();
+
+        auto ES = std::make_unique<ExecutionSession>(std::move(*EPC));
+
+        JITTargetMachineBuilder JTMB(
+                ES->getExecutorProcessControl().getTargetTriple());
+
+        auto DL = JTMB.getDefaultDataLayoutForTarget();
+        if (!DL)
+            return DL.takeError();
+
+        return std::make_unique<LLVMJitCompiler>(finder, std::move(ES), std::move(JTMB),
+                std::move(*DL));
     }
 
-    JITSymbol findSymbol(const std::string Name) {
-        return findMangledSymbol(mangle(Name));
+    Error addModule(ThreadSafeModule TSM, ResourceTrackerSP RT = nullptr) {
+        if (!RT)
+            RT = MainJD.getDefaultResourceTracker();
+        return CompileLayer.add(RT, std::move(TSM));
+    }
+
+    Expected<JITEvaluatedSymbol> lookup(const string& Name) {
+        return ES->lookup({&MainJD}, Mangle(Name));
     }
 
 private:
-    std::string mangle(const std::string& Name) {
-        std::string MangledName;
-        {
-            raw_string_ostream MangledNameStream(MangledName);
-            Mangler::getNameWithPrefix(MangledNameStream, Name, DL);
-        }
-        return MangledName;
-    }
+    //std::shared_ptr<SymbolResolver> Resolver;
+    std::unique_ptr<ExecutionSession> ES;
 
-    JITSymbol findMangledSymbol(const std::string& Name) {
-#ifdef _WIN32
-        // The symbol lookup of ObjectLinkingLayer uses the
-        // SymbolRef::SF_Exported
-        // flag to decide whether a symbol will be visible or not, when we call
-        // IRCompileLayer::findSymbolIn with ExportedSymbolsOnly set to true.
-        //
-        // But for Windows COFF objects, this flag is currently never set.
-        // For a potential solution see: https://reviews.llvm.org/rL258665
-        // For now, we allow non-exported symbols on Windows as a workaround.
-        const bool ExportedSymbolsOnly = false;
-#else
-        const bool ExportedSymbolsOnly = true;
-#endif
-
-        // Search modules in reverse order: from last added to first added.
-        // This is the opposite of the usual search order for dlsym, but makes
-        // more
-        // sense in a REPL where we want to bind to the newest available
-        // definition.
-        for (auto H : make_range(ModuleKeys.rbegin(), ModuleKeys.rend()))
-            if (auto Sym
-                = CompileLayer.findSymbolIn(H, Name, ExportedSymbolsOnly))
-                return Sym;
-
-        // If we can't find the symbol in the JIT, try looking in the host
-        // process.
-        if (auto SymAddr = RTDyldMemoryManager::getSymbolAddressInProcess(Name))
-            return JITSymbol(SymAddr, JITSymbolFlags::Exported);
-
-#ifdef _WIN32
-        // For Windows retry without "_" at beginning, as RTDyldMemoryManager
-        // uses
-        // GetProcAddress and standard libraries like msvcrt.dll use names
-        // with and without "_" (for example "_itoa" but "sin").
-        if (Name.length() > 2 && Name[0] == '_')
-            if (auto SymAddr = RTDyldMemoryManager::getSymbolAddressInProcess(
-                    Name.substr(1)))
-                return JITSymbol(SymAddr, JITSymbolFlags::Exported);
-#endif
-
-        return nullptr;
-    }
-
-    ExecutionSession ES;
-    std::shared_ptr<SymbolResolver> Resolver;
-    std::unique_ptr<TargetMachine> TM;
     const DataLayout DL;
-    ObjLayerT ObjectLayer;
-    CompileLayerT CompileLayer;
-    std::vector<VModuleKey> ModuleKeys;
+    MangleAndInterner Mangle;
+
+    RTDyldObjectLinkingLayer ObjectLayer;
+    IRCompileLayer CompileLayer;
+
+    JITDylib &MainJD;
+
+    TargetMachine* TM;
 };
 
 
@@ -196,7 +170,7 @@ LLVMCompiler::LLVMCompiler(SymbolFinder* finder) {
     InitializeNativeTarget();
     InitializeNativeTargetAsmPrinter();
     InitializeNativeTargetAsmParser();
-    jit = std::make_unique<LLVMJitCompiler>(finder);
+    jit = ExitOnError()(LLVMJitCompiler::Create(finder));
 }
 
 LLVMCompiler::~LLVMCompiler() {
@@ -211,14 +185,17 @@ TargetMachine& LLVMCompiler::getTargetMachine() {
     return jit->getTargetMachine();
 }
 
-void* LLVMCompiler::compile(unique_ptr<Module> module, string funcname) {
-    jit->addModule(move(module));
-
-    auto r = jit->findSymbol(funcname);
-    RELEASE_ASSERT(r, "uh oh");
+void* LLVMCompiler::compile(unique_ptr<Module> module, ThreadSafeContext context, const string& funcname) {
     ExitOnError ExitOnErr;
-    return (void*)ExitOnErr(r.getAddress());
+
+    auto TSM = ThreadSafeModule(std::move(module), move(context));
+    ExitOnErr(jit->addModule(move(TSM)));
+
+    auto Sym = ExitOnErr(jit->lookup(funcname));
+    RELEASE_ASSERT(Sym, "uh oh");
+    return (void*)Sym.getAddress();
 }
+
 
 int JitConsts::getFlags(char* ptr, int load_size) {
     const int not_found_value = 0;
@@ -268,6 +245,17 @@ class GVMaterializer : public ValueMaterializer {
 private:
     Module* module;
 
+    // global variables are allowed to reference themselves, which we
+    // would handle by trying to materialize their value, which would
+    // have themself as an operand, so we would end up materializing
+    // the value again in an infinite recursion.
+    //
+    // So instead of that, remember if there were any global variables
+    // with initializers that we remapped, and for non-initial requests
+    // to materialize them return the in-progress value from the first
+    // request.
+    llvm::ValueToValueMapTy gvs_with_ivs;
+
 public:
     GVMaterializer(Module* module) : module(module) {}
 
@@ -288,6 +276,10 @@ public:
         }
 
         if (GlobalVariable* gv = dyn_cast<GlobalVariable>(v)) {
+            auto it = gvs_with_ivs.find(gv);
+            if (it != gvs_with_ivs.end())
+                return it->second;
+
             Constant* new_constant = module->getOrInsertGlobal(
                 gv->getName(),
                 cast<PointerType>(gv->getType())->getElementType());
@@ -301,6 +293,7 @@ public:
                 new_gv->setConstant(gv->isConstant());
 
                 if (gv->isConstant() && gv->hasInitializer()) {
+                    gvs_with_ivs[gv] = new_gv;
                     llvm::ValueToValueMapTy vmap;
                     new_gv->setInitializer(MapValue(gv->getInitializer(), vmap,
                                                     RF_None, nullptr, this));
@@ -327,22 +320,21 @@ void LLVMJit::cloneFunctionIntoAndRemap(Function* new_func,
 
     SmallVector<ReturnInst*, 4> returns;
     GVMaterializer materializer(module.get());
-    CloneFunctionInto(new_func, orig_func, vmap, true, returns, "", nullptr,
-                      nullptr, &materializer);
+    CloneFunctionInto(new_func, orig_func, vmap, CloneFunctionChangeType::DifferentModule, returns,
+            "", nullptr, nullptr, &materializer);
 
     // Uncomment this to strip debug metadata from the emitted code.
     // This makes the generated IR easier to read, and may also improve compilation
     // speed a tiny amount
-    //if (nitrous_verbosity < NITROUS_VERBOSITY_IR) {
-        //StripDebugInfo(*module);
-    //}
+    if (getenv("STRIP_DEBUG_INFO"))
+         StripDebugInfo(*module);
 }
 
-LLVMJit::LLVMJit(const Function* orig_function, LLVMContext* llvm_context,
+LLVMJit::LLVMJit(const Function* orig_function, orc::ThreadSafeContext* llvm_context,
                  LLVMCompiler* compiler, JitConsts& consts)
     : llvm_context(llvm_context),
       compiler(compiler),
-      module(new llvm::Module("module", *llvm_context)),
+      module(new llvm::Module("module", *llvm_context->getContext())),
       consts(consts) {
     module->setDataLayout(orig_function->getParent()->getDataLayout());
     module->setTargetTriple(orig_function->getParent()->getTargetTriple());
@@ -374,7 +366,7 @@ LLVMJit::InlineInfo LLVMJit::inlineFunction(CallInst* call,
     //outs() << "before inlining:\n";
     //outs() << *module << '\n';
     auto orig_ft = cast<FunctionType>(
-        cast<PointerType>(call->getCalledValue()->getType())->getElementType());
+        cast<PointerType>(call->getCalledOperand()->getType())->getElementType());
 
     auto new_ft = new_func->getFunctionType();
 
@@ -412,8 +404,8 @@ LLVMJit::InlineInfo LLVMJit::inlineFunction(CallInst* call,
     }
 
     InlineFunctionInfo ifi;
-    auto inline_result = InlineFunction(call, ifi);
-    RELEASE_ASSERT((bool)inline_result, "%s", inline_result.message);
+    auto inline_result = InlineFunction(*call, ifi);
+    RELEASE_ASSERT(inline_result.isSuccess(), "%s", inline_result.getFailureReason());
 
     new_func->eraseFromParent();
 
@@ -438,7 +430,7 @@ public:
                       AAQueryInfo& AAQI) {
         AliasResult base = AAResultBase::alias(LocA, LocB, AAQI);
 
-        if (base != MayAlias)
+        if (base != AliasResult::MayAlias)
             return base;
 
         auto&& extractAddrFromIntToPtr = [](const MemoryLocation& Loc, uint64_t& addr, uint64_t& size) {
@@ -458,16 +450,16 @@ public:
         uint64_t sizeA = 0, sizeB = 0;
         if (extractAddrFromIntToPtr(LocA, addrA, sizeA) && extractAddrFromIntToPtr(LocB, addrB, sizeB)) {
             if (addrA == addrB && sizeA == sizeB)
-                return MustAlias;
+                return AliasResult::MustAlias;
             else if (addrA < addrB && addrA + sizeA <= addrB)
-                return NoAlias;
+                return AliasResult::NoAlias;
             else if (addrB < addrA && addrB + sizeB <= addrA)
-                return NoAlias;
+                return AliasResult::NoAlias;
             else
-                return PartialAlias;
+                return AliasResult::PartialAlias;
         }
 
-        return MayAlias;
+        return AliasResult::MayAlias;
     }
 };
 
@@ -754,7 +746,10 @@ void LLVMJit::optimizeFunc(LLVMEvaluator& eval) {
             fpm.add(llvm::createInstructionCombiningPass());
         }
 
-        fpm.add(llvm::createLoopRerollPass());
+        // This pass seems to be buggy as of LLVM 13:
+        // https://github.com/llvm/llvm-project/issues/53736
+        //fpm.add(llvm::createLoopRerollPass());
+
         // fpm.add(llvm::createSLPVectorizerPass());   // Vectorize parallel scalar chains.
 
 
@@ -1120,7 +1115,7 @@ void* LLVMJit::finish(LLVMEvaluator& eval) {
     func->setName(func->getName().slice(0, func->getName().find("_traced")));
     std::error_code EC;
     std::string file_name = ("aot_module." + func->getName() + ".bc").str();
-    llvm::raw_fd_ostream OS(file_name, EC, llvm::sys::fs::F_None);
+    llvm::raw_fd_ostream OS(file_name, EC, llvm::sys::fs::OF_None);
     llvm::Module* mod = func->getParent();
     for (auto&& f : mod->globals()) {
         if (nitrous_pic)
@@ -1152,7 +1147,7 @@ void* LLVMJit::finish(LLVMEvaluator& eval) {
     struct timespec start, end;
     if (nitrous_verbosity >= NITROUS_VERBOSITY_STATS)
         clock_gettime(CLOCK_REALTIME, &start);
-    auto r = compiler->compile(move(module), func->getName());
+    auto r = compiler->compile(move(module), *llvm_context, func->getName().str());
 
     if (nitrous_verbosity >= NITROUS_VERBOSITY_STATS) {
         clock_gettime(CLOCK_REALTIME, &end);

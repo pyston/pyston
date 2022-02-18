@@ -1,0 +1,31 @@
+From c875dfed5452f1ea743881188c048590b37e7fc0 Mon Sep 17 00:00:00 2001
+From: Isuru Fernando <isuruf@gmail.com>
+Date: Wed, 14 Oct 2020 20:06:05 -0500
+Subject: [PATCH 3/3] set cmake paths
+
+---
+ cmake/Modules/CompilerRTUtils.cmake | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/cmake/Modules/CompilerRTUtils.cmake b/cmake/Modules/CompilerRTUtils.cmake
+index 5543e3c6afc6..988bf2ff1e0f 100644
+--- a/cmake/Modules/CompilerRTUtils.cmake
++++ b/cmake/Modules/CompilerRTUtils.cmake
+@@ -373,11 +373,12 @@ macro(load_llvm_config)
+       OUTPUT_VARIABLE CONFIG_OUTPUT)
+     if(NOT HAD_ERROR)
+       string(STRIP "${CONFIG_OUTPUT}" LLVM_CMAKE_PATH_FROM_LLVM_CONFIG)
+-      file(TO_CMAKE_PATH ${LLVM_CMAKE_PATH_FROM_LLVM_CONFIG} LLVM_CMAKE_PATH)
++      file(TO_CMAKE_PATH ${LLVM_CMAKE_PATH_FROM_LLVM_CONFIG} LLVM_CMAKE_PATH2)
+     else()
+       file(TO_CMAKE_PATH ${LLVM_BINARY_DIR} LLVM_BINARY_DIR_CMAKE_STYLE)
+-      set(LLVM_CMAKE_PATH "${LLVM_BINARY_DIR_CMAKE_STYLE}/lib${LLVM_LIBDIR_SUFFIX}/cmake/llvm")
++      set(LLVM_CMAKE_PATH2 "${LLVM_BINARY_DIR_CMAKE_STYLE}/lib${LLVM_LIBDIR_SUFFIX}/cmake/llvm")
+     endif()
++    set(LLVM_CMAKE_PATH ${LLVM_CMAKE_PATH2} CACHE STRING "Path to LLVM cmake files")
+ 
+     set(LLVM_CMAKE_INCLUDE_FILE "${LLVM_CMAKE_PATH}/LLVMConfig.cmake")
+     if (EXISTS "${LLVM_CMAKE_INCLUDE_FILE}")
+-- 
+2.32.0.windows.2
+

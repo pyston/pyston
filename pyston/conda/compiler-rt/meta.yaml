@@ -1,9 +1,9 @@
 # this recipe is taken from the main/compiler-rt because
 # it's currently not build for linux
 {% set name = "compiler-rt-packages" %}
-{% set version = "10.0.1" %}
+{% set version = "13.0.1" %}
 {% set build_number = 0 %}
-{% set sha256 = "d90dc8e121ca0271f0fd3d639d135bfaa4b6ed41e67bd6eb77808f72629658fa" %}
+{% set sha256 = "7b33955031f9a9c5d63077dedb0f99d77e4e7c996266952c1cec55626dca5dfc" %}
 
 package:
   name: {{ name }}
@@ -13,8 +13,9 @@ source:
   url: https://github.com/llvm/llvm-project/releases/download/llvmorg-{{ version }}/compiler-rt-{{ version }}.src.tar.xz
   sha256: {{ sha256 }}
   patches:
-    - no_codesign.diff
-    - macosx_10_9.patch
+    - patches/0001-no-code-sign.patch
+    - patches/0002-compiler-rt-Make-7.0.0-compatible-with-10.9-SDK.patch
+    - patches/0003-set-cmake-paths.patch
 
 build:
   number: {{ build_number }}

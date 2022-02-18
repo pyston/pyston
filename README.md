@@ -59,7 +59,7 @@ git submodule update --init pyston/llvm pyston/bolt pyston/LuaJIT pyston/macrobe
 Pyston has the following build dependencies:
 
 ```
-sudo apt-get install build-essential ninja-build git cmake clang libssl-dev libsqlite3-dev luajit python3.8 zlib1g-dev virtualenv libjpeg-dev linux-tools-common linux-tools-generic linux-tools-`uname -r`
+sudo apt-get install build-essential git cmake clang libssl-dev libsqlite3-dev luajit python3.8 zlib1g-dev virtualenv libjpeg-dev linux-tools-common linux-tools-generic linux-tools-`uname -r`
 ```
 
 Extra dependencies for running the test suite:
