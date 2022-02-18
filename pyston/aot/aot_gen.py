@@ -450,7 +450,7 @@ class CallableHandler(Handler):
 
     def _args(self):
         args = [("PyThreadState *", "tstate"),
-                ("PyObject **", "stack"),
+                ("PyObject ** restrict", "stack"),
                 ("Py_ssize_t", "oparg"),
         ]
         if self.has_kwnames:
