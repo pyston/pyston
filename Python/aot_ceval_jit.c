@@ -649,6 +649,8 @@ static int jit_stats_enabled = 0;
 static unsigned long jit_stat_load_attr_hit, jit_stat_load_attr_miss, jit_stat_load_attr_inline, jit_stat_load_attr_total;
 static unsigned long jit_stat_load_method_hit, jit_stat_load_method_miss, jit_stat_load_method_inline, jit_stat_load_method_total;
 static unsigned long jit_stat_load_global_hit, jit_stat_load_global_miss, jit_stat_load_global_inline, jit_stat_load_global_total;
+static unsigned long jit_stat_call_method_hit, jit_stat_call_method_miss, jit_stat_call_method_inline, jit_stat_call_method_total;
+
 
 #define ENABLE_DEFERRED_RES_PUSH 1
 #define ENABLE_DEFINED_TRACKING 1
@@ -2693,6 +2695,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
             char wrote_inline_cache = 0;
             if (opcode == CALL_METHOD) {
+                ++jit_stat_call_method_total;
                 CallMethodHint* hint = Dst->call_method_hints;
 
                 // For proper bytecode there should be exactly
@@ -2726,6 +2729,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                             //
                             // We skip the recursion check since we know we did one when
                             // entering this python frame.
+                            ++jit_stat_call_method_inline;
 
                             JIT_ASSERT(sizeof(tstate->use_tracing) == 4, "");
                             | cmp dword [tstate + offsetof(PyThreadState, use_tracing)], 0
@@ -2806,6 +2810,9 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                                 }
                             }
                             emit_adjust_vs(Dst, -num_vs_args);
+                            if (jit_stats_enabled) {
+                                emit_inc_qword_ptr(Dst, &jit_stat_call_method_hit, 1 /*=can use tmp_reg*/);
+                            }
                             emit_if_res_0_error(Dst);
                         }
                     }
@@ -2820,6 +2827,9 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 switch_section(Dst, SECTION_COLD);
 
             |1:
+            if (wrote_inline_cache && jit_stats_enabled) {
+                emit_inc_qword_ptr(Dst, &jit_stat_call_method_miss, 1 /*=can use tmp_reg*/);
+            }
             | mov arg1, tstate
 
             // arg2 = vsp
@@ -3842,6 +3852,7 @@ void show_jit_stats() {
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_ATTR caches: %lu hits %lu misses\n", jit_stat_load_attr_inline, jit_stat_load_attr_total, jit_stat_load_attr_hit, jit_stat_load_attr_miss);
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_METHOD caches: %lu hits %lu misses\n", jit_stat_load_method_inline, jit_stat_load_method_total, jit_stat_load_method_hit, jit_stat_load_method_miss);
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_GLOBAL caches: %lu hits %lu misses\n", jit_stat_load_global_inline, jit_stat_load_global_total, jit_stat_load_global_hit, jit_stat_load_global_miss);
+    fprintf(stderr, "jit: inlined %lu (of total %lu) CALL_METHOD caches: %lu hits %lu misses\n", jit_stat_call_method_inline, jit_stat_call_method_total, jit_stat_call_method_hit, jit_stat_call_method_miss);
 }
 
 void jit_start() {
