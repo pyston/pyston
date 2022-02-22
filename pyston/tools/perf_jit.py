@@ -5,6 +5,7 @@ import traceback
 import argparse
 import commands
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -23,7 +24,10 @@ def get_objdump(args):
                 continue
             addr, size, name = l
             if int(addr, 16) == start_addr:
-                p = subprocess.Popen(["objdump", "-b", "binary", "-m", "i386:x86-64", "-l", "-C", "-D", "/tmp/perf_map/" + name, "--adjust-vma=0x%s" % addr, "--no-show-raw"], stdout=subprocess.PIPE)
+                arch = platform.machine()
+                if arch == "x86_64":
+                    arch = "i386:x86-64"
+                p = subprocess.Popen(["objdump", "-b", "binary", "-m", arch, "-l", "-C", "-D", "/tmp/perf_map/" + name, "--adjust-vma=0x%s" % addr, "--no-show-raw"], stdout=subprocess.PIPE)
                 break
         else:
             raise Exception("Couldn't find address %s" % addr)
@@ -74,7 +78,7 @@ def addrToOpcodeName(opcode_addr):
             _opcode_map[addr].append(op)
     return _opcode_map.get(opcode_addr, None)
 
-def getCommentForInst(inst):
+def getCommentForInst(inst, index, insts):
     patterns = ["movabs \\$?0x([0-9a-f]+),",
                 "mov    \\$?0x([0-9a-f]+),",
                 "movq   \\$?0x([0-9a-f]+),",
@@ -89,6 +93,26 @@ def getCommentForInst(inst):
             n = int(m.group(1), 16)
             if n:
                 return lookupConstant(n)
+
+    # on ARM64 we need up to 4 instructions to load a 64bit immediate:
+    # mov to set the lowest 16bit and clear the top followed by movk instructions:
+    # mov   w1, #0x83d0
+    # movk  x1, #0xb38b, lsl #16
+    # movk  x1, #0xffff, lsl #32
+    mov = re.search(r"mov\s+[wx](\d{1,2}), #(0x[a-f0-9]+)", inst)
+    if mov:
+        n = int(mov.group(2), 16)
+        num_movk = 0
+        for l in lines[index+1:]:
+            movk = re.search(r"movk\s+x" + mov.group(1) + ", #(0x[a-f0-9]+), lsl #(\d\d)", l)
+            if not movk:
+                break
+            n += int(movk.group(1), 16) << int(movk.group(2))
+            num_movk += 1
+        if num_movk:
+            c = lookupConstant(n)
+            return c if c else "; " + hex(n)
+
     return None
 
 def getAddressOfInst(inst):
@@ -113,7 +137,9 @@ def replaceInst(inst):
 if __name__ == "__main__":
     try:
         objdump = get_objdump(sys.argv[1:])
-        for l in objdump.split('\n')[7:]:
+        lines = [l for l in objdump.split('\n')[7:]]
+
+        for i, l in enumerate(lines):
             l = replaceInst(l)
 
             # check if we have opcode info string for current address
@@ -125,7 +151,7 @@ if __name__ == "__main__":
                     for op in opcodes:
                         print "; ", op
 
-            extra = getCommentForInst(l) or ""
+            extra = getCommentForInst(l, i, lines) or ""
             print l.ljust(70), extra
     except:
         traceback.print_exc(file=open("/tmp/perf_jit_exc.txt", "w"))
