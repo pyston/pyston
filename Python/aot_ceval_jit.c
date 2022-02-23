@@ -644,6 +644,7 @@ static size_t mem_chunk_bytes_remaining = 0;
 static long mem_bytes_allocated = 0, mem_bytes_used = 0;
 static long mem_bytes_used_max = 100*1000*1000; // will stop emitting code after that many bytes
 static int jit_num_funcs = 0, jit_num_failed = 0;
+static long total_compilation_time_in_us = 0;
 
 static int jit_stats_enabled = 0;
 static unsigned long jit_stat_load_attr_hit, jit_stat_load_attr_miss, jit_stat_load_attr_inline, jit_stat_load_attr_total;
@@ -2333,6 +2334,10 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
     int success = 0;
 
+    struct timespec compilation_start;
+    if (jit_stats_enabled)
+        clock_gettime(CLOCK_MONOTONIC, &compilation_start);
+
     // setup jit context, will get accessed from all dynasm functions via the name 'Dst'
     Jit jit;
     memset(&jit, 0, sizeof(jit));
@@ -3838,16 +3843,29 @@ cleanup:
         hint = new_hint;
     }
 
+    if (jit_stats_enabled) {
+        struct timespec compilation_end;
+        clock_gettime(CLOCK_MONOTONIC, &compilation_end);
+        total_compilation_time_in_us += 1000000 * (compilation_end.tv_sec - compilation_start.tv_sec) + (compilation_end.tv_nsec - compilation_start.tv_nsec) / 1000;
+    }
+
     return success ? labels[lbl_entry] : NULL;
 
 
 failed:
+    if (jit_stats_enabled) {
+        fprintf(stderr, "Could not JIT compile %s:%d %s\n",
+                PyUnicode_AsUTF8(co->co_filename), co->co_firstlineno, PyUnicode_AsUTF8(co->co_name));
+        fprintf(stderr, "\tnumber of bytecode instructions: %d\n", Dst->num_opcodes);
+    }
+
     ++jit_num_failed;
     goto cleanup;
 }
 
 void show_jit_stats() {
     fprintf(stderr, "jit: successfully compiled %d functions, failed to compile %d functions\n", jit_num_funcs, jit_num_failed);
+    fprintf(stderr, "jit: took %ld ms to compile all functions\n", total_compilation_time_in_us/1000);
     fprintf(stderr, "jit: %ld bytes used (%.1f%% of allocated)\n", mem_bytes_used, 100.0 * mem_bytes_used / mem_bytes_allocated);
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_ATTR caches: %lu hits %lu misses\n", jit_stat_load_attr_inline, jit_stat_load_attr_total, jit_stat_load_attr_hit, jit_stat_load_attr_miss);
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_METHOD caches: %lu hits %lu misses\n", jit_stat_load_method_inline, jit_stat_load_method_total, jit_stat_load_method_hit, jit_stat_load_method_miss);
