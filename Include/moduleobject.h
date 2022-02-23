@@ -89,6 +89,9 @@ typedef struct PyModuleDef{
 PyAPI_FUNC(PyObject *) _PyModule_GetPath(PyObject *);
 // gets __spec__
 PyAPI_FUNC(PyObject *) _PyModule_GetSpec(PyObject *);
+
+// Immortalizes the given module as well as some immortal-looking attributes of it.
+PyAPI_FUNC(void) _PyModule_Immortalize(PyObject* m);
 #endif
 
 #ifdef __cplusplus

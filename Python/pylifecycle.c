@@ -716,6 +716,11 @@ pyinit_config(_PyRuntimeState *runtime,
         return status;
     }
 
+    // The normal "immortalize modules during startup" logic doesn't
+    // fully immortalize sys, because sys is initialized in multiple
+    // phases and the default logic only immortalizes the first phase.
+    _PyModule_Immortalize(sysmod);
+
     /* Only when we get here is the runtime core fully initialized */
     runtime->core_initialized = 1;
     return _PyStatus_OK();
@@ -997,6 +1002,9 @@ pyinit_main(_PyRuntimeState *runtime, PyInterpreterState *interp)
     // I tried un-immortalizing the modules dict but that was insufficient to
     // avoid this behavior.
     //_Py_Immortalize(PyImport_GetModuleDict());
+    //
+    // Another option is to iterate through the modules dict and call
+    // _PyModule_Immortalize on them, but this too immortalizes too many things.
 
     status = init_sys_streams(interp);
     if (_PyStatus_EXCEPTION(status)) {

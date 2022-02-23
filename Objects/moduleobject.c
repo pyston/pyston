@@ -183,6 +183,36 @@ PyModule_Create2(struct PyModuleDef* module, int module_api_version)
     return _PyModule_CreateInitialized(module, module_api_version);
 }
 
+void
+_PyModule_Immortalize(PyObject* _m) {
+    PyModuleObject* m = (PyModuleObject*)_m;
+
+    if (IS_IMMORTAL(m))
+        return;
+
+    MAKE_IMMORTAL(m);
+
+    PyObject *d = m->md_dict;
+
+    Py_ssize_t pos;
+    PyObject *key, *value;
+    pos = 0;
+    while (PyDict_Next(d, &pos, &key, &value)) {
+        _Py_Immortalize(key);
+
+        PyTypeObject* type = value->ob_type;
+        if (type == &PyModule_Type) {
+            _PyModule_Immortalize(value);
+        } else if (type == &PyCFunction_Type
+                || type == &PyUnicode_Type
+                || type == &PyLong_Type
+                || type == &PyFunction_Type
+            ) {
+            MAKE_IMMORTAL(value);
+        }
+    }
+}
+
 PyObject *
 _PyModule_CreateInitialized(struct PyModuleDef* module, int module_api_version)
 {
@@ -242,6 +272,9 @@ _PyModule_CreateInitialized(struct PyModuleDef* module, int module_api_version)
             return NULL;
         }
     }
+    if (!_PyRuntime.initialized)
+        _PyModule_Immortalize(m);
+
     m->md_def = module;
     return (PyObject*)m;
 }
