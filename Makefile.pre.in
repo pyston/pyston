@@ -1796,7 +1796,7 @@ aot_optimized.o: $(AOT_DIR)/aot_all.bc
 	then \
 		echo "traces are compiled with instrumentation"; \
 		rm -rf $(AOT_DIR)/aot_prof; \
-		$(CLANG) -c -O2 $(CFLAGSFORSHARED) -fprofile-generate=`realpath $(AOT_DIR)/aot_prof` -o $@ $(AOT_DIR)/aot_all.bc; \
+		$(CLANG) -c -O2 $(CFLAGSFORSHARED) -fprofile-generate=`realpath $(AOT_DIR)/aot_prof` -mllvm -vp-counters-per-site=2 -o $@ $(AOT_DIR)/aot_all.bc; \
 	elif [ -d $(AOT_DIR)/aot_prof ]; \
 	then \
 		echo "traces are using PGO"; \
