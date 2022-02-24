@@ -19,6 +19,8 @@ We use a script which builds automatically packages for all supported distributi
 4. execute `$ make tune; pyston/tools/bench_release.sh` to generate benchmark results.
 5. Generate new docker images using pyston/docker/build_docker.sh
 6. Generate new conda packages using pyston/conda/build_pkgs.sh
+7. Upload to github
+8. Update https://github.com/pyston/pyston/wiki/Using-conda
 
 ## Testing a release
 1. Build the release as above

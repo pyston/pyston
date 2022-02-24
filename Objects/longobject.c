@@ -51,7 +51,7 @@ get_small_int(sdigit ival)
     PyObject *v;
     assert(-NSMALLNEGINTS <= ival && ival < NSMALLPOSINTS);
     v = (PyObject *)&small_ints[ival + NSMALLNEGINTS];
-    Py_INCREF(v);
+    Py_INCREF_IMMORTAL(v);
 #ifdef COUNT_ALLOCS
     if (ival >= 0)
         _Py_quick_int_allocs++;

@@ -1841,10 +1841,10 @@ _PyTypes_Init(void)
 #if PYSTON_SPEEDUPS
 #define INIT_TYPE(TYPE, NAME) \
     do { \
-        MAKE_IMMORTAL((PyObject*)TYPE); \
         if (PyType_Ready(TYPE) < 0) { \
             return _PyStatus_ERR("Can't initialize " NAME " type"); \
         } \
+        _Py_Immortalize((PyObject*)TYPE); \
     } while (0)
 #else
 #define INIT_TYPE(TYPE, NAME) \
@@ -2292,6 +2292,43 @@ _Py_Dealloc(PyObject *op)
 #endif
     (*dealloc)(op);
 }
+
+#ifdef PYSTON_SPEEDUPS
+int type_traverse(PyTypeObject *type, visitproc visit, void *arg);
+
+// This function is the same as type_traverse except it is allowed on
+// non-heap types.
+static int
+_alltype_traverse(PyTypeObject *type, visitproc visit, void *arg)
+{
+    Py_VISIT(type->tp_dict);
+    Py_VISIT(type->tp_cache);
+    Py_VISIT(type->tp_mro);
+    Py_VISIT(type->tp_bases);
+    Py_VISIT(type->tp_base);
+
+    if (type->tp_flags & Py_TPFLAGS_HEAPTYPE)
+        Py_VISIT(((PyHeapTypeObject*)type)->ht_slots);
+
+    return 0;
+}
+
+void
+_Py_Immortalize(PyObject *op) {
+    if (IS_IMMORTAL(op))
+        return;
+
+    //fprintf(stderr, "Immortalizing a %s object\n", Py_TYPE(op)->tp_name);
+    MAKE_IMMORTAL(op);
+
+    traverseproc traverse = Py_TYPE(op)->tp_traverse;
+    if (traverse) {
+        if (traverse == type_traverse)
+            traverse = _alltype_traverse;
+        traverse(op, (visitproc)_Py_Immortalize, NULL);
+    }
+}
+#endif
 
 #ifdef __cplusplus
 }

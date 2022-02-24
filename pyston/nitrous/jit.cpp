@@ -323,9 +323,6 @@ void LLVMJit::cloneFunctionIntoAndRemap(Function* new_func,
     CloneFunctionInto(new_func, orig_func, vmap, CloneFunctionChangeType::DifferentModule, returns,
             "", nullptr, nullptr, &materializer);
 
-    // Uncomment this to strip debug metadata from the emitted code.
-    // This makes the generated IR easier to read, and may also improve compilation
-    // speed a tiny amount
     if (getenv("STRIP_DEBUG_INFO"))
          StripDebugInfo(*module);
 }

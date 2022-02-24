@@ -109,6 +109,7 @@ class Signature(object):
         self.name = "".join([cls.name for cls in argument_classes]) + str(self.nargs)
         self.always_trace = list(always_trace)
         self.guard_fail_fn_name = guard_fail_fn_name
+        self.do_not_trace = []
 
     def getGuard(self, argument_names):
         names = list(argument_names)
@@ -135,6 +136,25 @@ class Signature(object):
 
     def getSpecialTracingCode(self, argument_names):
         return ()
+
+    def getSpecializationLevel(self):
+        """
+        Gets a rough sense of the level of specialization this signature represents.
+
+        It's not very robust, and it only needs to be good enough to distinguish cases
+        that are clearly more-specialized than others:
+        - More specialized arguments is a higher value
+        - identity guards are more specialized than type guards
+        """
+
+        level = 0.0
+        for cls in self.argument_classes:
+            guard_cls = type(cls.guard)
+            if issubclass(guard_cls, IdentityGuard):
+                level += 3.0
+            elif issubclass(guard_cls, TypeGuard):
+                level += 1
+        return level
 
     def __repr__(self):
         return "<Signature %s>" % self.name
@@ -165,6 +185,9 @@ class CompoundSignature(object):
     def getSpecialTracingCode(self, argument_names):
         return ()
 
+    def getSpecializationLevel(self):
+        return self.signatures[0].getSpecializationLevel()
+
     @property
     def nargs(self):
         nargs = [s.nargs for s in self.signatures]
@@ -176,6 +199,13 @@ class CompoundSignature(object):
         res = []
         for s in self.signatures:
             res.extend(s.always_trace)
+        return res
+
+    @property
+    def do_not_trace(self):
+        res = []
+        for s in self.signatures:
+            res.extend(s.do_not_trace)
         return res
 
 # add special cases for 'isinstance'
@@ -228,7 +258,7 @@ class Handler(object):
     def setTracingOverwrites(self, signature):
         clearDoNotTrace()
         clearAlwaysTrace()
-        for name in self.do_not_trace:
+        for name in self.do_not_trace + signature.do_not_trace:
             addDoNotTrace(name.encode("ascii"))
         for name in self.always_trace + signature.always_trace:
             addAlwaysTrace(name.encode("ascii"))
@@ -430,6 +460,15 @@ class CallableHandler(Handler):
         print(f"{self._get_func_sig(f'{func}Profile')}", "{", file=profile_f)
         print("PyObject* f = *(stack - oparg - 1);", file=profile_f)
 
+        # We want to make sure that we try more-specialized traces before trying
+        # the less-specialized ones. In the past we carefully ordered the creation
+        # of the traces so that they would be tested in the same order that they
+        # would were created, but now that there are some constraints around the
+        # order in which we can create them (have to create the less-specialized first),
+        # use an explicit measure of specialization to order them.
+        traced = list(traced)
+        traced.sort(key=lambda p: -p[0].getSpecializationLevel())
+
         pass_args = ", ".join(self._args_names())
         for signature, name in traced:
             arg_names = ["f"] + [f"stack[-oparg+{i}]" for i in range(signature.nargs-1)]
@@ -450,7 +489,7 @@ class CallableHandler(Handler):
 
     def _args(self):
         args = [("PyThreadState *", "tstate"),
-                ("PyObject **", "stack"),
+                ("PyObject ** restrict", "stack"),
                 ("Py_ssize_t", "oparg"),
         ]
         if self.has_kwnames:
@@ -669,16 +708,18 @@ def loadCases():
         classes.append(ObjectClass(arg1type_name, guard, arg1examples))
         return Signature(classes, always_trace=[f"builtin_{func_name}"], guard_fail_fn_name=guard_fail_fn_name)
 
-    def addBuiltinCFunction1ArgSignatures(func_name, func, spec_dict):
+    def getBuiltinCFunction1ArgSignatures(func_name, func, spec_dict):
+        signatures = []
         # Generic non arg type specific version only assuming the function is the same.
         # Creates a trace supporting all types.
         # If a type guard inside a type specific version fails we will use this trace.
         # Note: this needs to go before the specialized versions
-        call_signatures.append(createBuiltinCFunction1ArgSignature(func_name, func, "", list(spec_dict.values())))
+        signatures.append(createBuiltinCFunction1ArgSignature(func_name, func, "", list(spec_dict.values())))
 
         # Argument type specific versions
         for name, example in spec_dict.items():
-            call_signatures.append(createBuiltinCFunction1ArgSignature(func_name, func, name, [example]))
+            signatures.append(createBuiltinCFunction1ArgSignature(func_name, func, name, [example]))
+        return signatures
 
     # builtin len()
     len_specs = {
@@ -690,7 +731,9 @@ def loadCases():
         "Dict": dict(),
         "Set": set(),
     }
-    addBuiltinCFunction1ArgSignatures("len", len, len_specs)
+    len_signatures = getBuiltinCFunction1ArgSignatures("len", len, len_specs)
+    call_signatures += len_signatures
+    len_signatures[0].do_not_trace += ["bytearray_length", "unicode_length", "set_len", "bytes_length", "tuplelength", "list_length", "dict_length"]
 
     # builtin ord()
     ord_specs = {
@@ -698,7 +741,7 @@ def loadCases():
         "Bytes": b'c',
         "Unicode": "c",
     }
-    addBuiltinCFunction1ArgSignatures("ord", ord, ord_specs)
+    call_signatures += getBuiltinCFunction1ArgSignatures("ord", ord, ord_specs)
 
     for name, l in callables.items():
         signatures = {}

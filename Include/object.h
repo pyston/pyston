@@ -572,6 +572,10 @@ PyAPI_DATA(PyObject) _Py_NoneStruct; /* Don't use this directly */
 #define IMMORTAL_REFCOUNT (1L<<60)
 #define MAKE_IMMORTAL(obj) (((PyObject*)obj)->ob_refcnt = IMMORTAL_REFCOUNT)
 #define IS_IMMORTAL(obj) (((PyObject*)obj)->ob_refcnt > IMMORTAL_REFCOUNT / 2)
+
+// Immortalize an object, and use tp_traverse to recursively immortalize
+// objects it references.
+PyAPI_FUNC(void) _Py_Immortalize(PyObject*);
 #else
 #define Py_INCREF_IMMORTAL(obj) Py_INCREF(obj)
 #define Py_XINCREF_IMMORTAL(obj) Py_XINCREF(obj)
@@ -579,6 +583,8 @@ PyAPI_DATA(PyObject) _Py_NoneStruct; /* Don't use this directly */
 #define Py_XDECREF_IMMORTAL(obj) Py_XDECREF(obj)
 #define MAKE_IMMORTAL(obj) ((void)obj)
 #define IS_IMMORTAL(obj) (0)
+
+#define _Py_Immortalize(obj) ((void)obj)
 #endif
 
 /* Macro for returning Py_None from a function */

@@ -1702,13 +1702,50 @@ static void deferred_vs_pop_n(Jit* Dst, int num, const int* const regs, RefStatu
     }
     deferred_vs_remove(Dst, num);
 }
+
 // returns one of BORROWED, OWNED, or IMMORTAL
-static int deferred_vs_pop1(Jit* Dst, int r_idx1) {
+static RefStatus deferred_vs_pop1(Jit* Dst, int r_idx1) {
     int regs[] = { r_idx1 };
     RefStatus ref_status;
     deferred_vs_pop_n(Dst, 1, regs, &ref_status);
     return ref_status;
 }
+
+typedef struct RegAndStatus {
+    int reg_idx;
+    RefStatus ref_status;
+} RegAndStatus;
+
+static RegAndStatus deferred_vs_pop1_anyreg(Jit* Dst, int only_if_owned) {
+    int reg_idx = arg1_idx;
+    if (Dst->deferred_vs_next > 0) {
+        int idx = Dst->deferred_vs_next - 1;
+        DeferredValueStackEntry* entry = &Dst->deferred_vs[idx];
+
+        if (only_if_owned && (entry->loc == FAST || entry->loc == CONST)) {
+            RegAndStatus r;
+            r.ref_status = BORROWED;
+            deferred_vs_remove(Dst, 1);
+            return r;
+        }
+
+        // Can't use vs_preserved_reg as a general-purpose reg because
+        // it has a special meaning on exit
+        if (entry->loc == REGISTER && entry->val != vs_preserved_reg_idx) {
+            reg_idx = entry->val;
+        }
+    }
+
+    int regs[] = { reg_idx };
+    RefStatus ref_status;
+    deferred_vs_pop_n(Dst, 1, regs, &ref_status);
+
+    RegAndStatus r;
+    r.reg_idx = reg_idx;
+    r.ref_status = ref_status;
+    return r;
+}
+
 static void deferred_vs_pop2(Jit* Dst, int r_idx1, int r_idx2, RefStatus out_ref_status[]) {
     int regs[] = { r_idx1, r_idx2 };
     deferred_vs_pop_n(Dst, 2, regs, out_ref_status);
@@ -2440,9 +2477,9 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
         case POP_TOP:
         {
-            RefStatus ref_status = deferred_vs_pop1(Dst, arg1_idx);
-            if (ref_status == OWNED) {
-                emit_decref(Dst, arg1_idx, Dst->deferred_vs_res_used /*= preserve res */);
+            RegAndStatus reg_and_status = deferred_vs_pop1_anyreg(Dst, 1 /* only_if_owned */);
+            if (reg_and_status.ref_status == OWNED) {
+                emit_decref(Dst, reg_and_status.reg_idx, Dst->deferred_vs_res_used /*= preserve res */);
             }
             break;
         }
