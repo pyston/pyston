@@ -1330,8 +1330,9 @@ static void emit_decref2(Jit* Dst, int r_idx, int r_idx2, int preserve_res) {
 }
 
 static void emit_xdecref_arg1(Jit* Dst) {
-    emit_cmp64_imm(Dst, arg1_idx, 0);
-    | branch_eq >9
+@ARM| cbz arg1, >9 // compare and branch on zero. only allows to jump up to 126 byte but is okay here because it's much closer
+@X86emit_cmp64_imm(Dst, arg1_idx, 0);
+@X86| branch_eq >9
     emit_decref(Dst, arg1_idx, 0 /* don't preserve res */);
     |9:
 }
