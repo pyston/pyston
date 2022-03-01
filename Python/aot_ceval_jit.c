@@ -3194,9 +3194,10 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             switch_section(Dst, SECTION_COLD);
             |1:
             emit_mov_imm(Dst, arg3_idx, oparg); // deref_error assumes that oparg is in arg3!
-            | branch ->deref_error
 
-            if (!deref_error_label) {
+            if (deref_error_label) {
+                | branch ->deref_error
+            } else {
                 deref_error_label = 1;
                 |->deref_error: // assumes that oparg is in arg3!
                 | mov arg1, tstate
@@ -3526,6 +3527,36 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     ////////////////////////////////
     // EPILOG OF EMITTED CODE: jump target to different exit path
     |->epilog:
+    |->return:
+    // ret value one must already be set
+    // second is the value stackpointer
+    | mov res2, vsp
+
+    // remove stack variable
+@ARMconst int num_callee_saved = 8;
+@ARM| add sp, sp, #(num_callee_saved+num_stack_slots)*8
+@X86| add rsp, num_stack_slots*8
+
+    // restore callee saves
+@ARM_START
+    | ldp x29, x30, [sp, #-16]
+    | ldp vs_preserved_reg, tmp_preserved_reg, [sp, #-32]
+    | ldp f, tstate, [sp, #-48]
+    | ldp vsp, interrupt, [sp, #-64]
+    | ret
+@ARM_END
+@X86_START
+    | pop interrupt
+    | pop vsp
+    | pop tstate
+    | pop f
+    | pop tmp_preserved_reg
+    | pop vs_preserved_reg
+    | ret
+@X86_END
+
+
+
     // TODO: only emit a label if we actually generated an instruction which needs it
     |->exception_unwind:
     emit_mov_imm(Dst, real_res_idx, 1);
@@ -3613,34 +3644,8 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     }
 
     emit_mov_imm(Dst, real_res_idx, 0);
+    | branch ->return
 
-    |->return:
-    // ret value one must already be set
-    // second is the value stackpointer
-    | mov res2, vsp
-
-    // remove stack variable
-@ARMconst int num_callee_saved = 8;
-@ARM| add sp, sp, #(num_callee_saved+num_stack_slots)*8
-@X86| add rsp, num_stack_slots*8
-
-    // restore callee saves
-@ARM_START
-    | ldp x29, x30, [sp, #-16]
-    | ldp vs_preserved_reg, tmp_preserved_reg, [sp, #-32]
-    | ldp f, tstate, [sp, #-48]
-    | ldp vsp, interrupt, [sp, #-64]
-    | ret
-@ARM_END
-@X86_START
-    | pop interrupt
-    | pop vsp
-    | pop tstate
-    | pop f
-    | pop tmp_preserved_reg
-    | pop vs_preserved_reg
-    | ret
-@X86_END
 
 
     ////////////////////////////////
