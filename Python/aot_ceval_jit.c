@@ -1740,10 +1740,32 @@ static void deferred_vs_peek_top_and_apply(Jit* Dst, int r_idx_top) {
 }
 
 static void deferred_vs_pop_n(Jit* Dst, int num, const int* const regs, RefStatus out_ref_status[]) {
-    for (int i=0; i<num; ++i) {
+    if (num <= 0)
+        return;
+
+    // how many values come from the deferred value stack
+    int num_deferred = Dst->deferred_vs_next < num ? Dst->deferred_vs_next : num;
+    // how many values come from the value stack
+    int num_vs = num - num_deferred;
+
+    for (int i=0; i<num_deferred; ++i) {
         out_ref_status[i] = deferred_vs_peek(Dst, regs[i], i+1);
     }
-    deferred_vs_remove(Dst, num);
+    deferred_vs_remove(Dst, num_deferred);
+
+    if (num_vs) {
+        for (int i=0, reverse_i=num-1; i<num_vs; ++i, --reverse_i) {
+            out_ref_status[reverse_i] = OWNED;
+            if (i == 0) {
+                // on arm we can adjust the value stack pointer directly
+                // in the load instruction.
+@ARM            | ldr Rx(regs[reverse_i]), [vsp, #-8*num_vs]!
+@ARM            continue;
+@X86            emit_adjust_vs(Dst, -num_vs);
+            }
+            emit_load64_mem(Dst, regs[reverse_i], vsp_idx, 8*i);
+        }
+    }
 }
 
 // returns one of BORROWED, OWNED, or IMMORTAL
