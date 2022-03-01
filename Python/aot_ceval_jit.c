@@ -798,6 +798,11 @@ static void switch_section(Jit* Dst, Section new_section) {
 @X86| jg dst
 |.endmacro
 
+|.macro branch_ge, dst
+@ARM| bge dst
+@X86| jge dst
+|.endmacro
+
 |.macro branch_le, dst
 @ARM| ble dst
 @X86| jle dst
@@ -1435,32 +1440,6 @@ static void debug_error_not_a_jump_target(PyFrameObject* f) {
     JIT_ASSERT(0, "ERROR: jit entry points to f->f_lasti %d which is not a jump target", f->f_lasti);
 }
 #endif
-
-// warning this will overwrite tmp, arg1 and arg2
-static void emit_jmp_to_lasti(Jit* Dst) {
-    emit_load32_mem(Dst, arg1_idx, f_idx, offsetof(PyFrameObject, f_lasti));
-
-#if JIT_DEBUG
-    // generate code to check that the instruction we jump to had 'is_jmp_target' set
-    // every entry in the is_jmp_target array is 4 bytes long. 'lasti / 2' is the index
-
-@ARM| adr arg2, ->is_jmp_target
-@ARM| lsl tmp, arg1, #1
-@ARM| ldr tmp, [arg2, tmp]
-@ARM| cmp tmp, #0
-
-@X86| lea arg2, [->is_jmp_target]
-@X86| cmp dword [arg2 + arg1*2], 0
-
-    | branch_ne >9
-    | mov arg1, f
-    emit_call_ext_func(Dst, debug_error_not_a_jump_target);
-
-    |9:
-#endif
-
-    emit_jmp_to_inst_idx(Dst, arg1_idx);
-}
 
 static int get_fastlocal_offset(int fastlocal_idx) {
     return offsetof(PyFrameObject, f_localsplus) + fastlocal_idx * 8;
@@ -3701,9 +3680,41 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         emit_store64_mem_imm(Dst, 0 /* =value */, sp_reg_idx, (NUM_MANUAL_STACK_SLOTS + i) * 8);
     }
 
-    // jumps either to first opcode implementation or resumes a generator
-    emit_jmp_to_lasti(Dst);
+    // in the most common case where f_lasti is < 0 it just fallsthrough to the first opcode
+    // in the other cases it will jump to the opcode f_lasti + 2.
+    emit_load32_mem(Dst, arg1_idx, f_idx, offsetof(PyFrameObject, f_lasti));
+    emit_cmp32_imm(Dst, arg1_idx, 0);
+    | branch_ge >1
 
+    int prev_section = Dst->current_section;
+    JIT_ASSERT(prev_section == SECTION_ENTRY, "");
+    switch_section(Dst, SECTION_CODE);
+
+    |1:
+    emit_add_or_sub_imm(Dst, arg1_idx, arg1_idx, 2); // we have to increment the value by 2.
+
+#if JIT_DEBUG
+    // generate code to check that the instruction we jump to had 'is_jmp_target' set
+    // every entry in the is_jmp_target array is 4 bytes long. 'lasti / 2' is the index
+
+@ARM| adr arg2, ->is_jmp_target
+@ARM| lsl tmp, arg1, #1
+@ARM| ldr tmp, [arg2, tmp]
+@ARM| cmp tmp, #0
+
+@X86| lea arg2, [->is_jmp_target]
+@X86| cmp dword [arg2 + arg1*2], 0
+
+    | branch_ne >9
+    | mov arg1, f
+    emit_call_ext_func(Dst, debug_error_not_a_jump_target);
+
+    |9:
+#endif
+    emit_jmp_to_inst_idx(Dst, arg1_idx);
+
+    switch_section(Dst, prev_section);
+    // code assumes that the opcodes follows here...
 
     ////////////////////////////////
     // OPCODE TABLE

@@ -4482,13 +4482,6 @@ _PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObje
 {
     PyObject* retval = NULL;
 
-    // our generated code dispatches based on f_lasti so we need to adjust it
-    if (f->f_lasti < 0)
-        f->f_lasti = 0;
-    else // e.g. continuing a generator. increase by one instruction
-        f->f_lasti += 2;
-
-
 continue_jit:
     {
         JitRetVal ret = jit_code(f, tstate, stack_pointer);
@@ -4588,7 +4581,7 @@ exception_unwind:
             PUSH(val);
             PUSH(exc);
 
-            f->f_lasti = handler;
+            f->f_lasti = handler - 2;
             /* Resume normal execution */
             goto continue_jit;
         }
