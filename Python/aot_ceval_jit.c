@@ -644,11 +644,14 @@ static size_t mem_chunk_bytes_remaining = 0;
 static long mem_bytes_allocated = 0, mem_bytes_used = 0;
 static long mem_bytes_used_max = 100*1000*1000; // will stop emitting code after that many bytes
 static int jit_num_funcs = 0, jit_num_failed = 0;
+static long total_compilation_time_in_us = 0;
 
 static int jit_stats_enabled = 0;
 static unsigned long jit_stat_load_attr_hit, jit_stat_load_attr_miss, jit_stat_load_attr_inline, jit_stat_load_attr_total;
 static unsigned long jit_stat_load_method_hit, jit_stat_load_method_miss, jit_stat_load_method_inline, jit_stat_load_method_total;
 static unsigned long jit_stat_load_global_hit, jit_stat_load_global_miss, jit_stat_load_global_inline, jit_stat_load_global_total;
+static unsigned long jit_stat_call_method_hit, jit_stat_call_method_miss, jit_stat_call_method_inline, jit_stat_call_method_total;
+
 
 #define ENABLE_DEFERRED_RES_PUSH 1
 #define ENABLE_DEFINED_TRACKING 1
@@ -793,6 +796,25 @@ static void switch_section(Jit* Dst, Section new_section) {
 |.macro branch_gt, dst
 @ARM| bgt dst
 @X86| jg dst
+|.endmacro
+
+|.macro branch_le, dst
+@ARM| ble dst
+@X86| jle dst
+|.endmacro
+
+// compares r_object_idx->ob_type with type
+// branches to false_branch on inequality else continues
+|.macro type_check, r_object_idx, type, false_branch
+|| emit_cmp64_mem_imm(Dst, r_object_idx, offsetof(PyObject, ob_type), (uint64_t)type);
+|  branch_ne false_branch
+|.endmacro
+
+// compares r_type_idx->tp_version_tag with type_ver
+// branches to false_branch on inequality else continues
+|.macro type_version_check, r_type_idx, type_ver, false_branch
+|| emit_cmp64_mem_imm(Dst, r_type_idx, offsetof(PyTypeObject, tp_version_tag), (uint64_t)type_ver);
+|  branch_ne false_branch
 |.endmacro
 
 @ARM_START
@@ -975,34 +997,67 @@ static void emit_cmp64_mem_imm(Jit* Dst, int r_mem, long offset, unsigned long v
 @X86_END
 }
 
-// moves the value stack pointer by num_values python objects
-static void emit_adjust_vs(Jit* Dst, int num_values) {
-    if (num_values == 0)
+// emits: *(int*)((char*)$r_mem[offset_in_bytes]) == val
+static void emit_cmp32_mem_imm(Jit* Dst, int r_mem, long offset, unsigned long val) {
+@ARMemit_load32_mem(Dst, get_tmp_reg(r_mem), r_mem, offset);
+@ARMemit_cmp32_imm(Dst, get_tmp_reg(r_mem), val);
+@X86| cmp qword [Rq(r_mem)+ offset], (unsigned int)val
+}
+
+// returns 1 if we can encode it in one instruction and 0 if we need multiple
+static int emit_add_or_sub_imm_can_encode_as_single_instruction(Jit* Dst, int r_dst, int r_src1, long imm) {
+@ARMif (is_in_range(imm, -4095, 4095) || fits_in_12bit_with_12bit_rshift(labs(imm)))
+@X86if (IS_32BIT_SIGNED_VAL(imm))
+       return 1;
+    return 0;
+}
+// emits: (long)r_dst = (long)r_src1 + (long)imm
+// Useful for general calculations and address calculaions
+// This three operand add uses lea or add/sub on x86
+// and make sure that negative immediates are handled by a subtract on ARM
+// which can't encode them.
+static void emit_add_or_sub_imm(Jit* Dst, int r_dst, int r_src1, long imm) {
+    if (imm == 0) {
+        emit_mov64_reg(Dst, r_dst, r_src1);
         return;
-@ARM_START
-    int offset_abs = abs(8*num_values);
-    if (is_in_range(offset_abs, 0, 4095) || fits_in_12bit_with_12bit_rshift(offset_abs)) {
-        if (num_values > 0) {
-            | add vsp, vsp, #offset_abs
-        } else if (num_values < 0) {
-            | sub vsp, vsp, #offset_abs
-        }
-    } else {
-        emit_mov_imm(Dst, tmp_idx, offset_abs);
-        if (num_values > 0) {
-            | add vsp, vsp, tmp
-        } else {
-            | sub vsp, vsp, tmp
-        }
     }
+
+    if (emit_add_or_sub_imm_can_encode_as_single_instruction(Dst, r_dst, r_src1, imm)) {
+@ARM_START
+        // ARM64 can't encode negative immediated for adds.
+        // generate add/sub automatically depending on immediate
+        if (imm > 0) {
+            | add Rx(r_dst), Rx(r_src1), #imm
+        } else {
+            | sub Rx(r_dst), Rx(r_src1), #-imm
+        }
 @ARM_END
 @X86_START
-    if (num_values > 0) {
-        | add vsp, 8*num_values
-    } else if (num_values < 0) {
-        | sub vsp, 8*-num_values
-    }
+        if (r_dst != r_src1) { // do we need 3 operands?
+            | lea Rq(r_dst), [Rq(r_src1)+ imm]
+        } else if (imm > 0) {
+            | add Rq(r_dst), imm
+        } else {
+            | sub Rq(r_dst), -imm
+        }
 @X86_END
+    } else {
+        JIT_ASSERT(r_src1 != tmp_idx, "");
+        emit_mov_imm(Dst, tmp_idx, imm);
+@ARM    | add Rx(r_dst), Rx(r_src1), tmp
+@X86_START
+        if (r_dst != r_src1) { // do we need 3 operands?
+            | lea Rq(r_dst), [Rq(r_src1)+ tmp]
+        } else {
+            | add Rq(r_dst), tmp
+        }
+@X86_END
+    }
+}
+
+// moves the value stack pointer by num_values python objects
+static void emit_adjust_vs(Jit* Dst, int num_values) {
+    emit_add_or_sub_imm(Dst, vsp_idx, vsp_idx, 8*num_values);
 }
 
 static void emit_push_v(Jit* Dst, int r_idx) {
@@ -1028,48 +1083,51 @@ static void emit_write_vs(Jit* Dst, int r_idx, int stack_offset) {
     emit_store64_mem(Dst, r_idx, vsp_idx, -8*stack_offset);
 }
 
-#ifdef Py_REF_DEBUG
-static void emit_dec_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
-@ARMJIT_ASSERT(0, "");
+// emits: *(long*)r_idx += diff
+// diff must be either -1 or 1
+static void emit_inc_or_dec_mem(Jit* Dst, int r_idx, int diff) {
+    JIT_ASSERT(diff == 1 || diff == -1, "");
+@ARM_START
+    int tmpreg = get_tmp_reg(r_idx);
+    emit_load64_mem(Dst, tmpreg, r_idx, 0);
+    emit_add_or_sub_imm(Dst, tmpreg, tmpreg, diff);
+    emit_store64_mem(Dst, tmpreg, r_idx, 0);
+@ARM_END
+@X86| add qword [Rq(r_idx)], diff
+}
+
+// emits: *(long*)ptr += diff where ptr is an immediate
+// diff must be either -1 or 1
+static void emit_inc_or_dec_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg, int diff) {
+    JIT_ASSERT(diff == 1 || diff == -1, "");
+
 @X86_START
     // the JIT always emits code to address which fit into 32bit
     // but if PIC is enabled non JIT code may use a larger address space.
     // This causes issues because x86_64 rip memory access only use 32bit offsets.
     // To solve this issue we have to load the pointer into a register.
     if (IS_32BIT_VAL(ptr)) {
-        | add qword [ptr], -1
-    } else {
-        // unfortunately we can't modify any register here :/
-        // which means we will have to save and restore via the stack
-        if (!can_use_tmp_reg) {
-            | push tmp
-        }
-        | mov64 tmp, (unsigned long)ptr
-        | add qword [tmp], -1
-        if (!can_use_tmp_reg) {
-            | pop tmp
-        }
+        | add qword [ptr], diff
+        return;
     }
 @X86_END
+
+    if (!can_use_tmp_reg) {
+        JIT_ASSERT(2 <= NUM_MANUAL_STACK_SLOTS, "");
+        emit_store64_mem(Dst, tmp_idx, sp_reg_idx, 0);
+@ARM    emit_store64_mem(Dst, tmp2_idx, sp_reg_idx, 8);
+    }
+
+    emit_mov_imm(Dst, tmp_idx, (unsigned long)ptr);
+    emit_inc_or_dec_mem(Dst, tmp_idx, diff);
+    if (!can_use_tmp_reg) {
+        emit_load64_mem(Dst, tmp_idx, sp_reg_idx, 0);
+@ARM    emit_load64_mem(Dst, tmp2_idx, sp_reg_idx, 8);
+    }
 }
-#endif
 
 static void emit_inc_qword_ptr(Jit* Dst, void* ptr, int can_use_tmp_reg) {
-@ARMJIT_ASSERT(0, "");
-@X86_START
-    if (IS_32BIT_VAL(ptr)) {
-        | add qword [ptr], 1
-    } else {
-        if (!can_use_tmp_reg) {
-            | push tmp
-        }
-        | mov64 tmp, (unsigned long)ptr
-        | add qword [tmp], 1
-        if (!can_use_tmp_reg) {
-            | pop tmp
-        }
-    }
-@X86_END
+    emit_inc_or_dec_qword_ptr(Dst, ptr, can_use_tmp_reg, 1);
 }
 
 static void emit_incref(Jit* Dst, int r_idx) {
@@ -1079,11 +1137,7 @@ static void emit_incref(Jit* Dst, int r_idx) {
     _Static_assert(sizeof(_Py_RefTotal) == 8,  "adjust inc qword");
     emit_inc_qword_ptr(Dst, &_Py_RefTotal, 0 /*=can't use tmp_reg*/);
 #endif
-@ARM| ldr tmp2, [Rx(r_idx)]
-@ARM| add tmp2, tmp2, #1
-@ARM| str tmp2, [Rx(r_idx)]
-
-@X86| add qword [Rq(r_idx)], 1
+    emit_inc_or_dec_mem(Dst, r_idx, 1 /*=value*/);
 }
 
 // Loads a register `r_idx` with a value `addr`, potentially doing a lea
@@ -1095,23 +1149,10 @@ static void emit_mov_imm_using_diff(Jit* Dst, int r_idx, int other_idx, void* ad
         return;
     }
 
-@ARM_START
-    long diff_abs = labs(diff);
-    if (is_in_range(diff_abs, 0, 4095) || fits_in_12bit_with_12bit_rshift(diff_abs)) {
-        if (addr > other_addr) {
-            | add Rx(r_idx), Rx(other_idx), #diff_abs
-        } else {
-            | sub Rx(r_idx), Rx(other_idx), #diff_abs
-        }
+    if (emit_add_or_sub_imm_can_encode_as_single_instruction(Dst, r_idx, other_idx, diff)) {
+        emit_add_or_sub_imm(Dst, r_idx, other_idx, diff);
         return;
     }
-@ARM_END
-@X86_START
-    if (!IS_32BIT_SIGNED_VAL((unsigned long)addr) && IS_32BIT_SIGNED_VAL(diff)) {
-        | lea Rq(r_idx), [Rq(other_idx)+diff]
-        return;
-    }
-@X86_END
     emit_mov_imm(Dst, r_idx, (unsigned long)addr);
 }
 
@@ -1211,7 +1252,7 @@ static void emit_call_ext_func(Jit* Dst, void* addr) {
 static void emit_decref(Jit* Dst, int r_idx, int preserve_res) {
     _Static_assert(offsetof(PyObject, ob_refcnt) == 0,  "sub needs to be modified");
 #ifdef Py_REF_DEBUG
-    emit_dec_qword_ptr(Dst, &_Py_RefTotal, 1 /* can_use_tmp_reg  */);
+    emit_inc_or_dec_qword_ptr(Dst, &_Py_RefTotal, 1 /* can_use_tmp_reg  */, -1 /*= dec*/);
 #endif
 
 @ARM| ldr tmp, [Rx(r_idx)]
@@ -1836,25 +1877,6 @@ static void emit_jump_if_true(Jit* Dst, int oparg, RefStatus ref_status) {
 
 // returns 0 if IC generation succeeded
 static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opcache) {
-@X86_START
-    // Same as cmp_imm, but if r is a memory expression we need to specify the size of the load.
-    |.macro cmp_imm_mem, r, addr
-    || if (IS_32BIT_VAL(addr)) {
-    |       cmp qword r, (unsigned int)(unsigned long)addr
-    || } else {
-    |       mov64 tmp, (unsigned long)addr
-    |       cmp r, tmp
-    || }
-    |.endmacro
-
-    // compares tp_version_tag with type_ver
-    // branches to false_branch on inequality else continues
-    |.macro type_version_check, r_type, type_ver, false_branch
-    || // Py_TYPE(obj)->tp_version_tag == type_ver
-    |  cmp_imm_mem [r_type + offsetof(PyTypeObject, tp_version_tag)], type_ver
-    |  jne false_branch
-    |.endmacro
-
     if (co_opcache == NULL || !jit_use_ics)
         return 1;
 
@@ -1878,15 +1900,15 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
 
             deferred_vs_convert_reg_to_stack(Dst);
 
-            | mov arg3, [f + offsetof(PyFrameObject, f_globals)]
-            | cmp_imm_mem [arg3 + offsetof(PyDictObject, ma_version_tag)], lg->globals_ver
-            | jne >1
+            emit_load64_mem(Dst, arg3_idx, f_idx, offsetof(PyFrameObject, f_globals));
+            emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictObject, ma_version_tag), (uint64_t)lg->globals_ver);
+            | branch_ne >1
             if (lg->builtins_ver != LOADGLOBAL_WAS_GLOBAL) {
-                | mov arg3, [f + offsetof(PyFrameObject, f_builtins)]
-                | cmp_imm_mem [arg3 + offsetof(PyDictObject, ma_version_tag)], lg->builtins_ver
-                | jne >1
+                emit_load64_mem(Dst, arg3_idx, f_idx, offsetof(PyFrameObject, f_builtins));
+                emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictObject, ma_version_tag), (uint64_t)lg->builtins_ver);
+                | branch_ne >1
             }
-            emit_mov_imm(Dst, res_idx, (unsigned long)lg->ptr);
+            emit_mov_imm(Dst, res_idx, (uint64_t)lg->ptr);
             if (!IS_IMMORTAL(lg->ptr))
                 emit_incref(Dst, res_idx);
             if (jit_stats_enabled) {
@@ -1905,7 +1927,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                                 arg2_idx, co_opcache);
             emit_call_ext_func(Dst, get_aot_func_addr(Dst, opcode, oparg, co_opcache != 0 /*= use op cache */));
             emit_if_res_0_error(Dst);
-            | jmp <4 // jump to the common code which pushes the result
+            | branch <4 // jump to the common code which pushes the result
             // Switch back to the normal section
             switch_section(Dst, SECTION_CODE);
 
@@ -1953,8 +1975,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
 
             // loadAttrCache
             if (la->cache_type == LA_CACHE_BUILTIN) {
-                | cmp_imm_mem [arg1 + offsetof(PyObject, ob_type)], la->type
-                | jne >1
+                | type_check arg1_idx, la->type, >1
 
                 if (opcode == LOAD_METHOD) {
                     CallMethodHint* hint = Dst->call_method_hints;
@@ -1966,36 +1987,36 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 }
             } else {
                 // PyTypeObject *arg2 = Py_TYPE(obj)
-                | mov arg2, [arg1 + offsetof(PyObject, ob_type)]
-                | type_version_check, arg2, la->type_ver, >1
+                emit_load64_mem(Dst, arg2_idx, arg1_idx,  offsetof(PyObject, ob_type));
+                | type_version_check, arg2_idx, la->type_ver, >1
 
                 if (la->cache_type == LA_CACHE_DATA_DESCR) {
                     // save the obj so we can access it after the call
                     | mov tmp_preserved_reg, arg1
 
                     PyObject* descr = la->u.descr_cache.descr;
-                    emit_mov_imm(Dst, tmp_idx, (unsigned long)descr);
-                    | mov arg2, [tmp + offsetof(PyObject, ob_type)]
-                    | type_version_check, arg2, la->u.descr_cache.descr_type_ver, >1
+                    emit_mov_imm(Dst, arg5_idx, (uint64_t)descr);
+                    emit_load64_mem(Dst, arg2_idx, arg5_idx, offsetof(PyObject, ob_type));
+                    | type_version_check, arg2_idx, la->u.descr_cache.descr_type_ver, >1
 
                     // res = descr->ob_type->tp_descr_get(descr, owner, (PyObject *)owner->ob_type);
-                    | mov arg1, tmp
+                    | mov arg1, arg5
                     | mov arg2, tmp_preserved_reg
-                    | mov arg3, [tmp_preserved_reg + offsetof(PyObject, ob_type)]
+                    emit_load64_mem(Dst, arg3_idx, tmp_preserved_reg_idx, offsetof(PyObject, ob_type));
                     emit_call_ext_func(Dst, descr->ob_type->tp_descr_get);
                     | mov arg1, tmp_preserved_reg // restore the obj so that the decref code works
                     // attr can be NULL
-                    | test res, res
-                    | jz >3
+                    emit_cmp64_imm(Dst, res_idx, 0);
+                    | branch_eq >3
                     emit_load_attr_res_0_helper = 1; // makes sure we emit label 3
                 } else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
                     // nothing todo
                 } else {
                     // _PyObject_GetDictPtr
                     // arg2 = PyType(obj)->tp_dictoffset
-                    | mov arg2, [arg2 + offsetof(PyTypeObject, tp_dictoffset)]
+                    emit_load64_mem(Dst, arg2_idx, arg2_idx, offsetof(PyTypeObject, tp_dictoffset));
 
-                    | test arg2, arg2
+                    emit_cmp64_imm(Dst, arg2_idx, 0);
                     // je -> tp_dictoffset == 0
                     // tp_dict_offset==0 implies dict_ptr==NULL implies dict version (either split keys or not) is 0
                     // Also, fail the cache if dictoffset<0 rather than do the lengthier dict_ptr computation
@@ -2003,26 +2024,27 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                     // and the fact that we successfully wrote the cache the first time.
                     if (version_zero) {
                         // offset==0 => automatic version check success
-                        | je >2
+                        | branch_eq >2
                         // offset<0 => failure
-                        | js >1
+                        | branch_lt >1
                     } else {
                         // automatic failure if dict_offset is zero or if it is negative
-                        | jle >1
+                        | branch_le >1
                     }
 
                     // Now loadAttrCache splits into two cases, but the first step on both
                     // is to load the dict pointer and check if it's null
 
                     // arg2 = *(obj + dictoffset)
-                    | mov arg2, [arg1 + arg2]
-                    | test arg2, arg2
+@ARM                | ldr arg2, [arg1, arg2]
+@X86                | mov arg2, [arg1 + arg2]
+                    emit_cmp64_imm(Dst, arg2_idx, 0);
                     if (version_zero) {
                         // null dict is always a cache hit
-                        | jz >2
+                        | branch_eq >2
                     } else {
                         // null dict is always a cache miss
-                        | jz >1
+                        | branch_eq >1
                     }
                 }
             }
@@ -2030,84 +2052,79 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             if (la->cache_type == LA_CACHE_OFFSET_CACHE)
             {
                 // if (mp->ma_keys->dk_size != dk_size) goto slow_path;
-                | mov res, [arg2 + offsetof(PyDictObject, ma_keys)]
-                | cmp_imm_mem [res + offsetof(PyDictKeysObject, dk_size)], la->u.offset_cache.dk_size
-                | jne >1
+                emit_load64_mem(Dst, res_idx, arg2_idx, offsetof(PyDictObject, ma_keys));
+                emit_cmp64_mem_imm(Dst, res_idx, offsetof(PyDictKeysObject, dk_size), (uint64_t)la->u.offset_cache.dk_size);
+                | branch_ne >1
 
                 // if (mp->ma_keys->dk_lookup == lookdict_split) goto slow_path;
-                | cmp_imm_mem [res + offsetof(PyDictKeysObject, dk_lookup)], lookdict_split
-                | je >1
+                emit_cmp64_mem_imm(Dst, res_idx, offsetof(PyDictKeysObject, dk_lookup), (uint64_t)lookdict_split);
+                | branch_eq >1
 
                 // PyDictKeyEntry *arg3 = (PyDictKeyEntry*)(mp->ma_keys->dk_indices + offset);
                 uint64_t total_offset = offsetof(PyDictKeysObject, dk_indices) + la->u.offset_cache.offset;
-                if (IS_32BIT_SIGNED_VAL(total_offset)) {
-                    | lea arg3, [res + total_offset]
-                } else {
-                    emit_mov_imm(Dst, tmp_idx, total_offset);
-                    | lea arg3, [res + tmp]
-                }
+                emit_add_or_sub_imm(Dst, arg3_idx, res_idx, total_offset);
 
                 // if (ep->me_key != key) goto slow_path;
-                | cmp_imm_mem [arg3 + offsetof(PyDictKeyEntry, me_key)], PyTuple_GET_ITEM(Dst->co_names, oparg)
-                | jne >1
+                emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeyEntry, me_key), (uint64_t)PyTuple_GET_ITEM(Dst->co_names, oparg));
+                | branch_ne >1
 
                 // res = ep->me_value;
-                | mov res, [arg3 + offsetof(PyDictKeyEntry, me_value)]
+                emit_load64_mem(Dst, res_idx, arg3_idx, offsetof(PyDictKeyEntry, me_value));
                 emit_incref(Dst, res_idx);
             } else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
-                | mov res, [arg1 + la->u.slot_cache.offset]
+                emit_load64_mem(Dst, res_idx, arg1_idx, la->u.slot_cache.offset);
                 // attr can be NULL
-                | test res, res
+                emit_cmp64_imm(Dst, res_idx, 0);
                 // we can't just jump to label 3 because it would output a different exception message
                 // instead jump to the slow path
-                | jz >1
+                | branch_eq >1
                 emit_incref(Dst, res_idx);
             } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT || la->cache_type == LA_CACHE_BUILTIN) {
                 if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
-                    | cmp_imm_mem [arg2 + offsetof(PyDictObject, ma_values)], 0
-                    | je >1 // fail if dict->ma_values == NULL
+                    emit_cmp64_mem_imm(Dst, arg2_idx, offsetof(PyDictObject, ma_values), 0);
+                    | branch_eq >1 // fail if dict->ma_values == NULL
                     // _PyDict_GetDictKeyVersionFromSplitDict:
                     // arg3 = arg2->ma_keys
-                    | mov arg3, [arg2 + offsetof(PyDictObject, ma_keys)]
-                    | cmp_imm_mem [arg3 + offsetof(PyDictKeysObject, dk_version_tag)], la->u.value_cache.dict_ver
-                    | jne >1
+                    emit_load64_mem(Dst, arg3_idx, arg2_idx, offsetof(PyDictObject, ma_keys));
+                    emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeysObject, dk_version_tag), (uint64_t)la->u.value_cache.dict_ver);
+                    | branch_ne >1
                 } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT) {
-                    | cmp_imm_mem [arg2 + offsetof(PyDictObject, ma_version_tag)], la->u.value_cache.dict_ver
-                    | jne >1
+                    emit_cmp64_mem_imm(Dst, arg2_idx, offsetof(PyDictObject, ma_version_tag), (uint64_t)la->u.value_cache.dict_ver);
+                    | branch_ne >1
                 } else {
                     // Already guarded
                 }
                 | 2:
                 PyObject* r = la->u.value_cache.obj;
-                emit_mov_imm(Dst, res_idx, (unsigned long)r);
+                emit_mov_imm(Dst, res_idx, (uint64_t)r);
 
                 // In theory we could remove some of these checks, since we could prove that tp_descr_get wouldn't
                 // be able to change.  But we have to do that determination at cache-set time, because that's the
                 // only time we know that the cached value is alive.  So it's unclear if it's worth it, especially
                 // for the complexity.
                 if (la->guard_tp_descr_get) {
-                    | mov arg2, [res + offsetof(PyObject, ob_type)]
-                    | cmp_imm_mem [arg2 + offsetof(PyTypeObject, tp_descr_get)], 0
-                    | jne >1
+                    emit_load64_mem(Dst, arg2_idx, res_idx, offsetof(PyObject, ob_type));
+                    emit_cmp64_mem_imm(Dst, arg2_idx, offsetof(PyTypeObject, tp_descr_get), 0);
+                    | branch_ne >1
                 }
 
                 if (!IS_IMMORTAL(r))
                     emit_incref(Dst, res_idx);
             } else if (la->cache_type == LA_CACHE_IDX_SPLIT_DICT) {
                 // arg4 = dict->ma_values
-                | mov arg4, [arg2 + offsetof(PyDictObject, ma_values)]
-                | test arg4, arg4
-                | jz >1 // fail if dict->ma_values == NULL
+                emit_load64_mem(Dst, arg4_idx, arg2_idx, offsetof(PyDictObject, ma_values));
+                emit_cmp64_imm(Dst, arg4_idx, 0);
+                | branch_eq >1 // fail if dict->ma_values == NULL
                 // _PyDict_GetDictKeyVersionFromSplitDict:
                 // arg3 = arg2->ma_keys
-                | mov arg3, [arg2 + offsetof(PyDictObject, ma_keys)]
-                | cmp_imm_mem [arg3 + offsetof(PyDictKeysObject, dk_version_tag)], la->u.split_dict_cache.splitdict_keys_version
-                | jne >1
+                emit_load64_mem(Dst, arg3_idx, arg2_idx, offsetof(PyDictObject, ma_keys));
+                emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeysObject, dk_version_tag), (uint64_t)la->u.split_dict_cache.splitdict_keys_version);
+                | branch_ne >1
                 // res = arg4[splitdict_index]
-                | mov res, [arg4 + sizeof(PyObject*) * la->u.split_dict_cache.splitdict_index]
+                emit_load64_mem(Dst, res_idx, arg4_idx, sizeof(PyObject*) * la->u.split_dict_cache.splitdict_index);
                 // attr can be NULL
-                | test res, res
-                | jz >3
+                emit_cmp64_imm(Dst, res_idx, 0);
+                | branch_eq >3
                 emit_load_attr_res_0_helper = 1; // makes sure we emit label 3
                 emit_incref(Dst, res_idx);
             }
@@ -2151,23 +2168,23 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             }
             emit_call_ext_func(Dst, get_aot_func_addr(Dst, opcode, oparg, co_opcache != 0 /*= use op cache */));
             emit_if_res_0_error(Dst);
-            | jmp <5 // jump to the common code which pushes the result
+            | branch <5 // jump to the common code which pushes the result
 
             if (emit_load_attr_res_0_helper) { // we only emit this code if it's used
                 |3:
                 | mov tmp_preserved_reg, arg1
-                emit_mov_imm(Dst, arg2_idx, (unsigned long)PyTuple_GET_ITEM(Dst->co_names, oparg));
+                emit_mov_imm(Dst, arg2_idx, (uint64_t)PyTuple_GET_ITEM(Dst->co_names, oparg));
                 emit_call_ext_func(Dst, loadAttrCacheAttrNotFound);
                 | mov arg1, tmp_preserved_reg
-                | test res, res
-                | jnz <4 // jump to the common code which decrefs the obj and pushes the result
+                emit_cmp64_imm(Dst, res_idx, 0);
+                | branch_ne <4 // jump to the common code which decrefs the obj and pushes the result
                 if (ref_status == OWNED) {
                     emit_decref(Dst, tmp_preserved_reg_idx, 0 /*=  don't preserve res */);
                 }
                 if (jit_stats_enabled) {
                     emit_inc_qword_ptr(Dst, opcode == LOAD_ATTR ? &jit_stat_load_attr_hit : &jit_stat_load_method_hit, 1 /*=can use tmp_reg*/);
                 }
-                | jmp ->error
+                | branch ->error
             }
             switch_section(Dst, SECTION_CODE);
 
@@ -2175,7 +2192,6 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             return 0;
         }
     }
-@X86_END
     return 1;
 }
 
@@ -2330,6 +2346,10 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         return NULL;
 
     int success = 0;
+
+    struct timespec compilation_start;
+    if (jit_stats_enabled)
+        clock_gettime(CLOCK_MONOTONIC, &compilation_start);
 
     // setup jit context, will get accessed from all dynasm functions via the name 'Dst'
     Jit jit;
@@ -2693,6 +2713,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
             char wrote_inline_cache = 0;
             if (opcode == CALL_METHOD) {
+                ++jit_stat_call_method_total;
                 CallMethodHint* hint = Dst->call_method_hints;
 
                 // For proper bytecode there should be exactly
@@ -2702,7 +2723,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                     Dst->call_method_hints = hint->next;
 
                 if (hint && hint->attr && hint->meth_found && jit_use_ics) {
-@X86_START
                     int num_args = oparg + hint->meth_found; // number of arguments to the function, including a potential "self"
                     int num_vs_args = num_args + 1; // number of python values; one more than the number of arguments since it includes the callable
 
@@ -2726,27 +2746,28 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                             //
                             // We skip the recursion check since we know we did one when
                             // entering this python frame.
+                            ++jit_stat_call_method_inline;
 
                             JIT_ASSERT(sizeof(tstate->use_tracing) == 4, "");
-                            | cmp dword [tstate + offsetof(PyThreadState, use_tracing)], 0
-                            | jne >1
+                            emit_cmp32_mem_imm(Dst, tstate_idx, offsetof(PyThreadState, use_tracing), 0);
+                            | branch_ne >1
 
-                            | cmp qword [vsp - 8 * num_vs_args], 0 // callable
-                            | je >1
+                            emit_cmp64_mem_imm(Dst, vsp_idx, -8 * num_vs_args, 0); // callable
+                            | branch_eq >1
 
-                            | mov arg1, [vsp - 8 * num_args] // self
-                            | cmp_imm_mem [arg1 + offsetof(PyObject, ob_type)], hint->type
-                            | jne >1
+                            emit_load64_mem(Dst, arg1_idx, vsp_idx, -8 * num_args); // self
+                            | type_check arg1_idx, hint->type, >1
 
                             if (method->vectorcall == method_vectorcall_NOARGS && num_args == 1) {
                                 emit_call_ext_func(Dst, funcptr);
 
                             } else if (method->vectorcall == method_vectorcall_O && num_args == 2) {
-                                | mov arg2, [vsp - 8 * num_args + 8] // first python arg
+                                // first python arg
+                                emit_load64_mem(Dst, arg2_idx, vsp_idx, -8 * num_args + 8);
                                 emit_call_ext_func(Dst, funcptr);
 
                             } else if (method->vectorcall == method_vectorcall_FASTCALL || method->vectorcall == method_vectorcall_FASTCALL_KEYWORDS) {
-                                | lea arg2, [vsp - 8 * num_args + 8]
+                                emit_add_or_sub_imm(Dst, arg2_idx, vsp_idx, -8 * num_args + 8);
                                 emit_mov_imm(Dst, arg3_idx, num_args - 1);
                                 if (method->vectorcall == method_vectorcall_FASTCALL_KEYWORDS)
                                     emit_mov_imm(Dst, arg4_idx, 0); // kwnames
@@ -2754,13 +2775,13 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
                             } else if (method->vectorcall == method_vectorcall_VARARGS || method->vectorcall == method_vectorcall_VARARGS_KEYWORDS) {
                                 // Convert stack to tuple:
-                                | lea arg1, [vsp - 8 * num_args + 8]
+                                emit_add_or_sub_imm(Dst, arg1_idx, vsp_idx, -8 * num_args + 8);
                                 emit_mov_imm(Dst, arg2_idx, num_args - 1);
                                 emit_call_ext_func(Dst, _PyTuple_FromArray_Borrowed);
                                 emit_if_res_0_error(Dst);
                                 | mov tmp_preserved_reg, res
 
-                                | mov arg1, [vsp - 8 * num_args] // self
+                                emit_load64_mem(Dst, arg1_idx, vsp_idx, -8 * num_args); // self
                                 | mov arg2, res // args
                                 if (method->vectorcall == method_vectorcall_VARARGS_KEYWORDS)
                                     emit_mov_imm(Dst, arg3_idx, 0); // kwargs
@@ -2801,15 +2822,17 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                                 | mov res, tmp_preserved_reg
                             } else {
                                 for (int i = 0; i < num_decrefs; i++) {
-                                    | mov arg1, [vsp - (i + 1) * 8]
+                                    emit_load64_mem(Dst, arg1_idx, vsp_idx, -(i + 1) * 8);
                                     emit_decref(Dst, arg1_idx, 1 /* preserve res */);
                                 }
                             }
                             emit_adjust_vs(Dst, -num_vs_args);
+                            if (jit_stats_enabled) {
+                                emit_inc_qword_ptr(Dst, &jit_stat_call_method_hit, 1 /*=can use tmp_reg*/);
+                            }
                             emit_if_res_0_error(Dst);
                         }
                     }
-@X86_END
                 }
 
                 if (hint)
@@ -2820,6 +2843,9 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 switch_section(Dst, SECTION_COLD);
 
             |1:
+            if (wrote_inline_cache && jit_stats_enabled) {
+                emit_inc_qword_ptr(Dst, &jit_stat_call_method_miss, 1 /*=can use tmp_reg*/);
+            }
             | mov arg1, tstate
 
             // arg2 = vsp
@@ -2965,8 +2991,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 end_finally_label = 1;
                 switch_section(Dst, SECTION_COLD);
                 |->end_finally:
-                emit_cmp64_mem_imm(Dst, arg1_idx, offsetof(PyObject, ob_type), (unsigned long)&PyLong_Type);
-                | branch_ne >2
+                | type_check arg1_idx, &PyLong_Type, >2
 
                 // inside CALL_FINALLY we created a long with the bytecode offset to the next instruction
                 // extract it and jump to it
@@ -3828,20 +3853,34 @@ cleanup:
         hint = new_hint;
     }
 
+    if (jit_stats_enabled) {
+        struct timespec compilation_end;
+        clock_gettime(CLOCK_MONOTONIC, &compilation_end);
+        total_compilation_time_in_us += 1000000 * (compilation_end.tv_sec - compilation_start.tv_sec) + (compilation_end.tv_nsec - compilation_start.tv_nsec) / 1000;
+    }
+
     return success ? labels[lbl_entry] : NULL;
 
 
 failed:
+    if (jit_stats_enabled) {
+        fprintf(stderr, "Could not JIT compile %s:%d %s\n",
+                PyUnicode_AsUTF8(co->co_filename), co->co_firstlineno, PyUnicode_AsUTF8(co->co_name));
+        fprintf(stderr, "\tnumber of bytecode instructions: %d\n", Dst->num_opcodes);
+    }
+
     ++jit_num_failed;
     goto cleanup;
 }
 
 void show_jit_stats() {
     fprintf(stderr, "jit: successfully compiled %d functions, failed to compile %d functions\n", jit_num_funcs, jit_num_failed);
+    fprintf(stderr, "jit: took %ld ms to compile all functions\n", total_compilation_time_in_us/1000);
     fprintf(stderr, "jit: %ld bytes used (%.1f%% of allocated)\n", mem_bytes_used, 100.0 * mem_bytes_used / mem_bytes_allocated);
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_ATTR caches: %lu hits %lu misses\n", jit_stat_load_attr_inline, jit_stat_load_attr_total, jit_stat_load_attr_hit, jit_stat_load_attr_miss);
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_METHOD caches: %lu hits %lu misses\n", jit_stat_load_method_inline, jit_stat_load_method_total, jit_stat_load_method_hit, jit_stat_load_method_miss);
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_GLOBAL caches: %lu hits %lu misses\n", jit_stat_load_global_inline, jit_stat_load_global_total, jit_stat_load_global_hit, jit_stat_load_global_miss);
+    fprintf(stderr, "jit: inlined %lu (of total %lu) CALL_METHOD caches: %lu hits %lu misses\n", jit_stat_call_method_inline, jit_stat_call_method_total, jit_stat_call_method_hit, jit_stat_call_method_miss);
 }
 
 void jit_start() {
