@@ -1,6 +1,6 @@
 [submodule "pyston/bolt/bolt"]
 	path = pyston/bolt
-	url = https://github.com/pyston/BOLT
+	url = https://github.com/llvm/llvm-project
 [submodule "pyston/LuaJIT"]
 	path = pyston/LuaJIT
 	url = https://github.com/LuaJIT/LuaJIT.git
