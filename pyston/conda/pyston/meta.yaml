@@ -93,7 +93,7 @@ outputs:
         - libtool
         - sqlite
         - luajit
-        - bolt==2021.11.13 *_pyston
+        - bolt==2022.03.10 *_pyston
         - zlib
 
         # nitrous needs 'nm'
