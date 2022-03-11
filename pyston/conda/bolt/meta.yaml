@@ -1,13 +1,13 @@
 {% set build_num = 0 %}
-{% set version = "2021.11.13" %}
+{% set version = "2022.03.10" %}
 
 package:
   name: bolt
   version: {{ version }}
 
 source:
-  git_url: https://github.com/pyston/BOLT
-  git_rev: pyston_{{version}}
+  git_url: https://github.com/llvm/llvm-project
+  git_rev: 8bef17ed59aafc1b9e645dd956dad124ec7dfb57
   git_depth: -1
 
 build:
@@ -36,7 +36,7 @@ test:
     - merge-fdata --version
 
 about:
-  home: https://github.com/pyston/BOLT/
+  home: https://github.com/llvm/llvm-project/
   licence: Apache License v2.0 with LLVM Exceptions
   licence_file: LICENCE.TXT
   summary: BOLT is a post-link optimizer developed to speed up large applications.
