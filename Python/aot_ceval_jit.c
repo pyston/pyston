@@ -1760,8 +1760,8 @@ typedef struct RegAndStatus {
     RefStatus ref_status;
 } RegAndStatus;
 
-static RegAndStatus deferred_vs_pop1_anyreg(Jit* Dst, int only_if_owned) {
-    int reg_idx = arg1_idx;
+static RegAndStatus deferred_vs_pop1_anyreg(Jit* Dst, int preferred_reg_idx, int only_if_owned) {
+    int reg_idx = preferred_reg_idx;
     if (Dst->deferred_vs_next > 0) {
         int idx = Dst->deferred_vs_next - 1;
         DeferredValueStackEntry* entry = &Dst->deferred_vs[idx];
@@ -1788,6 +1788,12 @@ static RegAndStatus deferred_vs_pop1_anyreg(Jit* Dst, int only_if_owned) {
     r.reg_idx = reg_idx;
     r.ref_status = ref_status;
     return r;
+}
+static int deferred_vs_pop1_anyreg_owned(Jit* Dst, int preferred_reg_idx) {
+    RegAndStatus ret = deferred_vs_pop1_anyreg(Dst, preferred_reg_idx, 0);
+    if (ret.ref_status == BORROWED)
+        emit_incref(Dst, ret.reg_idx);
+    return ret.reg_idx;
 }
 
 static void deferred_vs_pop2(Jit* Dst, int r_idx1, int r_idx2, RefStatus out_ref_status[]) {
@@ -2465,10 +2471,12 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             break;
 
         case STORE_FAST:
-            deferred_vs_pop1_owned(Dst, arg2_idx);
+        {
+            int new_value_reg = deferred_vs_pop1_anyreg_owned(Dst, arg2_idx);
+            JIT_ASSERT(new_value_reg != arg1_idx, "");
             deferred_vs_apply_if_same_var(Dst, oparg);
             emit_load64_mem(Dst, arg1_idx, f_idx, get_fastlocal_offset(oparg));
-            emit_store64_mem(Dst, arg2_idx, f_idx, get_fastlocal_offset(oparg));
+            emit_store64_mem(Dst, new_value_reg, f_idx, get_fastlocal_offset(oparg));
             if (Dst->known_defined[oparg]) {
                 emit_decref(Dst, arg1_idx, 0 /* don't preserve res */);
             } else {
@@ -2477,6 +2485,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             if (ENABLE_DEFINED_TRACKING)
                 Dst->known_defined[oparg] = 1;
             break;
+        }
 
         case DELETE_FAST:
         {
@@ -2500,7 +2509,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
         case POP_TOP:
         {
-            RegAndStatus reg_and_status = deferred_vs_pop1_anyreg(Dst, 1 /* only_if_owned */);
+            RegAndStatus reg_and_status = deferred_vs_pop1_anyreg(Dst, arg1_idx, 1 /* only_if_owned */);
             if (reg_and_status.ref_status == OWNED) {
                 emit_decref(Dst, reg_and_status.reg_idx, Dst->deferred_vs_res_used /*= preserve res */);
             }
@@ -3148,17 +3157,19 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             deferred_vs_push(Dst, REGISTER, res_idx);
             break;
 
-        case STORE_DEREF:
-            deferred_vs_pop1_owned(Dst, arg2_idx);
+        case STORE_DEREF: {
+            int new_value_reg = deferred_vs_pop1_anyreg_owned(Dst, arg2_idx);
+            JIT_ASSERT(new_value_reg != arg1_idx && new_value_reg != arg3_idx, "");
             deferred_vs_convert_reg_to_stack(Dst);
             // PyObject *cell = freevars[oparg];
             emit_load_freevar(Dst, arg3_idx, oparg);
             // PyObject *oldobj = PyCell_GET(cell);
             emit_load64_mem(Dst, arg1_idx, arg3_idx, offsetof(PyCellObject, ob_ref));
             // PyCell_SET(cell, v);
-            emit_store64_mem(Dst, arg2_idx, arg3_idx, offsetof(PyCellObject, ob_ref));
+            emit_store64_mem(Dst, new_value_reg, arg3_idx, offsetof(PyCellObject, ob_ref));
             emit_xdecref_arg1(Dst);
             break;
+        }
 
         case LOAD_DEREF:
         case DELETE_DEREF:
