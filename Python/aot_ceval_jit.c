@@ -1546,19 +1546,27 @@ static void deferred_vs_emit(Jit* Dst) {
             if (delayed_store) {
 @ARM_START
                 if (prev_store_reg != -1) {
-                    | stp Rx(tmpreg), Rx(prev_store_reg), [vsp, #8 * (i-1)]
+                    if (i > 1) {
+                        | stp Rx(tmpreg), Rx(prev_store_reg), [vsp, #8 * (i-1)]
+                    } else {
+                        | stp Rx(tmpreg), Rx(prev_store_reg), [vsp], #8 * Dst->deferred_vs_next
+                    }
                     prev_store_reg = -1;
-                } else if (i > 1) {
-                    prev_store_reg = tmpreg;
-                } else
+                } else {
+                    if (i > 1) {
+                        prev_store_reg = tmpreg;
+                    } else {
+                        | str Rx(tmpreg), [vsp], #8 * Dst->deferred_vs_next
+                    }
+                }
 @ARM_END
-                emit_store64_mem(Dst, tmpreg, vsp_idx, 8 * (i-1));
+@X86            emit_store64_mem(Dst, tmpreg, vsp_idx, 8 * (i-1));
             }
         }
         if (clear_vs_preserved_reg) {
             emit_mov_imm(Dst, vs_preserved_reg_idx, 0); // we have to clear it because error path will xdecref
         }
-        emit_adjust_vs(Dst, Dst->deferred_vs_next);
+@X86    emit_adjust_vs(Dst, Dst->deferred_vs_next);
     }
 }
 
