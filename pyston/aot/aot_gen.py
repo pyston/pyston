@@ -670,7 +670,7 @@ def loadCases():
         def createIsInstanceSignature(name, arg1, arg2):
             classes = []
             tuple1element = isinstance(arg2, tuple) and len(arg2) == 1
-            classes.append(ObjectClass("isinstanceT1" if tuple1element else "isinstance", IdentityGuard(f"(PyObject*)&builtin_isinstance_obj"), [isinstance]))
+            classes.append(ObjectClass("isinstanceT1" if tuple1element else "isinstance", IdentityGuard(f"(PyObject*)&builtin_isinstance_obj_gc.obj"), [isinstance]))
             # add examples
             isinstance_true = [arg1]
             for example in isinstance_true:
@@ -698,7 +698,7 @@ def loadCases():
 
     def createBuiltinCFunction1ArgSignature(func_name, func, arg1type_name, arg1examples):
         classes = []
-        classes.append(ObjectClass(func_name, IdentityGuard(f"(PyObject*)&builtin_{func_name}_obj"), [func]))
+        classes.append(ObjectClass(func_name, IdentityGuard(f"(PyObject*)&builtin_{func_name}_obj_gc.obj"), [func]))
         if arg1type_name: # specialize on arg->ob_type == arg1type_name
             guard = TypeGuard(f"&{getCTypeName(arg1type_name)}")
             guard_fail_fn_name = f"{func_name}2"
@@ -1030,7 +1030,7 @@ def print_includes(f):
     print('#define unlikely(x) __builtin_expect(!!(x), 0)', file=f)
     print('', file=f)
 
-    print('extern PyCFunctionObject builtin_isinstance_obj, builtin_len_obj, builtin_ord_obj;', file=f)
+    print('extern PyCFunctionObjectWithGCHeader builtin_isinstance_obj_gc, builtin_len_obj_gc, builtin_ord_obj_gc;', file=f)
 
     print('', file=f)
 

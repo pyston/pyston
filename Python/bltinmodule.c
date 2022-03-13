@@ -2816,7 +2816,8 @@ PyMethodDef builtin_method_isinstance[] = { BUILTIN_ISINSTANCE_METHODDEF };
 PyMethodDef builtin_method_len[] = { BUILTIN_LEN_METHODDEF };
 PyMethodDef builtin_method_ord[] = { BUILTIN_ORD_METHODDEF };
 
-PyCFunctionObject builtin_isinstance_obj, builtin_len_obj, builtin_ord_obj;
+PyCFunctionObjectWithGCHeader builtin_isinstance_obj_gc, builtin_len_obj_gc, builtin_ord_obj_gc;
+
 #endif
 
 PyDoc_STRVAR(builtin_doc,
@@ -2909,9 +2910,9 @@ _PyBuiltin_Init(void)
     Py_DECREF(debug);
 
 #if PYSTON_SPEEDUPS
-    _PyModule_AddFunctionStatic(mod, builtin_method_isinstance, &builtin_isinstance_obj);
-    _PyModule_AddFunctionStatic(mod, builtin_method_len, &builtin_len_obj);
-    _PyModule_AddFunctionStatic(mod, builtin_method_ord, &builtin_ord_obj);
+    _PyModule_AddFunctionStatic(mod, builtin_method_isinstance, &builtin_isinstance_obj_gc.obj);
+    _PyModule_AddFunctionStatic(mod, builtin_method_len, &builtin_len_obj_gc.obj);
+    _PyModule_AddFunctionStatic(mod, builtin_method_ord, &builtin_ord_obj_gc.obj);
 #endif
 
     return mod;
