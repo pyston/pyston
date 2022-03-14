@@ -13,6 +13,7 @@ source:
 build:
   number: {{ build_num }}
   string: {{ build_num }}_pyston
+  skip: True  # [not x86]
 
 outputs:
   - name: bolt

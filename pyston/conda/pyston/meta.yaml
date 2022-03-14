@@ -1,4 +1,4 @@
-{% set build_num = 11 %}
+{% set build_num = 12 %}
 {% set llvm_version = "13.0.1" %}
 {% set pyston_version = "2.3.2" %}
 {% set python_version = "3.8.12" %}
@@ -92,8 +92,8 @@ outputs:
         - compiler-rt={{ llvm_version }}
         - libtool
         - sqlite
-        - luajit
-        - bolt==2022.03.10 *_pyston
+        - luajit  # [not aarch64] # unfortunately not available on aarch64, use the debian package instead
+        - bolt==2022.03.10 *_pyston  # [x86]
         - zlib
 
         # nitrous needs 'nm'
