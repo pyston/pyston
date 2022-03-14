@@ -441,7 +441,7 @@ using namespace pystol;
 
 extern "C" {
 
-PyCFunctionObject builtin_isinstance_obj, builtin_len_obj, builtin_ord_obj;
+extern PyCFunctionObjectWithGCHeader builtin_isinstance_obj_gc, builtin_len_obj_gc, builtin_ord_obj_gc;
 
 void pystolGlobalPythonSetup() {
     addMallocLikeFunc("PyObject_Malloc");
@@ -453,9 +453,9 @@ void pystolGlobalPythonSetup() {
     pystolAddConstObj(Py_None);
     pystolAddConstObj(Py_NotImplemented);
 
-    pystolAddConstObj((PyObject*)&builtin_isinstance_obj);
-    pystolAddConstObj((PyObject*)&builtin_len_obj);
-    pystolAddConstObj((PyObject*)&builtin_ord_obj);
+    pystolAddConstObj((PyObject*)&builtin_isinstance_obj_gc.obj);
+    pystolAddConstObj((PyObject*)&builtin_len_obj_gc.obj);
+    pystolAddConstObj((PyObject*)&builtin_ord_obj_gc.obj);
 
     MARKCONST((char*)_Py_SwappedOp, sizeof(_Py_SwappedOp[0]) * 6);
 

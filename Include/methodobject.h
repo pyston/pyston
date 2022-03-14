@@ -125,6 +125,14 @@ PyAPI_FUNC(void) _PyCFunction_DebugMallocStats(FILE *out);
 PyAPI_FUNC(void) _PyMethod_DebugMallocStats(FILE *out);
 #endif
 
+#if !defined(Py_LIMITED_API) && PYSTON_SPEEDUPS
+#include "objimpl.h"
+typedef struct {
+    PyGC_Head gchead;
+    PyCFunctionObject obj;
+} PyCFunctionObjectWithGCHeader;
+#endif
+
 #ifdef __cplusplus
 }
 #endif
