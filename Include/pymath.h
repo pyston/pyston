@@ -227,4 +227,21 @@ PyAPI_FUNC(void) _Py_set_387controlword(unsigned short);
  * behavior. */
 #define _Py_InIntegralTypeRange(type, v) (_Py_IntegralTypeMin(type) <= v && v <= _Py_IntegralTypeMax(type))
 
+
+#if PYSTON_SPEEDUPS && defined(Py_BUILD_CORE)
+// conda-forge uses a very old glibc (2.17) which does not use the compiler builtins
+// this causes a major slowdown on some python float heavy code because it can't inline
+// this functions. During the compilation process of Pyston we tightly control which compilers we use
+// so can be sure that we can use the builtins.
+// This definitions are taken from glibc on ubuntu 20.04 (glibc 2.31).
+#undef Py_IS_FINITE
+#undef Py_IS_INFINITY
+#undef Py_IS_NAN
+
+#define Py_IS_FINITE(X) __builtin_isfinite(X)
+#define Py_IS_INFINITY(X) __builtin_isinf_sign(X)
+#define Py_IS_NAN(X) __builtin_isnan(X)
+#endif
+
+
 #endif /* Py_PYMATH_H */
