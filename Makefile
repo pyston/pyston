@@ -55,15 +55,15 @@ tune_reset: build/system_env/bin/python
 build/Release/Makefile:
 	mkdir -p build/Release
 	@# Use gold linker since ld 2.32 (Ubuntu 19.04) is unable to link compiler-rt:
-	cd build/Release; CC=clang CXX=clang++ cmake ../../pyston/ -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DLLVM_USE_LINKER=gold -DLLVM_ENABLE_PROJECTS="clang;compiler-rt" -DCLANG_INCLUDE_TESTS=0 -DCOMPILER_RT_INCLUDE_TESTS=0 -DLLVM_INCLUDE_TESTS=0
+	cd build/Release; CC=clang CXX=clang++ cmake ../../pyston/ -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DLLVM_USE_LINKER=gold -DLLVM_ENABLE_PROJECTS="clang;compiler-rt" -DCLANG_INCLUDE_TESTS=0 -DCOMPILER_RT_INCLUDE_TESTS=0 -DLLVM_INCLUDE_TESTS=0 -DCOMPILER_RT_BUILD_SANITIZERS=0
 
 build/PartialDebug/Makefile:
 	mkdir -p build/PartialDebug
-	cd build/PartialDebug; CC=clang CXX=clang++ cmake ../../pyston/ -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=PartialDebug -DLLVM_ENABLE_PROJECTS=clang -DCLANG_INCLUDE_TESTS=0 -DCOMPILER_RT_INCLUDE_TESTS=0 -DLLVM_INCLUDE_TESTS=0
+	cd build/PartialDebug; CC=clang CXX=clang++ cmake ../../pyston/ -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=PartialDebug -DLLVM_ENABLE_PROJECTS=clang -DCLANG_INCLUDE_TESTS=0 -DCOMPILER_RT_INCLUDE_TESTS=0 -DLLVM_INCLUDE_TESTS=0 -DCOMPILER_RT_BUILD_SANITIZERS=0
 
 build/Debug/Makefile:
 	mkdir -p build/Debug
-	cd build/Debug; CC=clang CXX=clang++ cmake ../../pyston/ -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DLLVM_ENABLE_PROJECTS=clang -DCLANG_INCLUDE_TESTS=0 -DCOMPILER_RT_INCLUDE_TESTS=0 -DLLVM_INCLUDE_TESTS=0
+	cd build/Debug; CC=clang CXX=clang++ cmake ../../pyston/ -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DLLVM_ENABLE_PROJECTS=clang -DCLANG_INCLUDE_TESTS=0 -DCOMPILER_RT_INCLUDE_TESTS=0 -DLLVM_INCLUDE_TESTS=0 -DCOMPILER_RT_BUILD_SANITIZERS=0
 
 .PHONY: build_release build_dbg build_debug
 build_dbg: build/PartialDebug/Makefile build/bc_env/bin/python
