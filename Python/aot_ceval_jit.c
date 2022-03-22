@@ -2278,8 +2278,6 @@ static void emit_instr_start(Jit* Dst, int inst_idx, int opcode, int oparg) {
 
     // we don't emit signal and tracing checks for this opcodes
     // because we know they are not calling into any python function.
-    // We currently don't do this optimizations for opcodes like STORE_FAST which
-    // could call a destructor.
     switch (opcode) {
 #if ENABLE_AVOID_SIG_TRACE_CHECK
         case NOP:
@@ -2297,6 +2295,12 @@ static void emit_instr_start(Jit* Dst, int inst_idx, int opcode, int oparg) {
         case LOAD_FAST:
             if (Dst->known_defined[oparg])
                 return; // don't do a sig check if we know the load can't throw
+            break;
+
+        case STORE_FAST:
+            // only avoid check if we already generated one for the current line.
+            if (Dst->emitted_trace_check_for_line)
+                return;
             break;
 
 #endif // ENABLE_AVOID_SIG_TRACE_CHECK
