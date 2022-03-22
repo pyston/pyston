@@ -1765,7 +1765,28 @@ static void deferred_vs_pop_n(Jit* Dst, int num, const int* const regs, RefStatu
     int num_vs = num - num_deferred;
 
     for (int i=0; i<num_deferred; ++i) {
-        out_ref_status[i] = deferred_vs_peek(Dst, regs[i], i+1);
+        // check for duplicates:
+        // if this is a CONST or FAST entry and we already loaded it
+        // replace it with a register mov.
+        // This just does a linear search but because we only have very few num_deferred entries this should not be a perf problem.
+        // (most of the times it's 2-3 entries and can't be more than DEFERRED_VS_MAX)
+        DeferredValueStackEntry* entry = &GET_DEFERRED[-i-1];
+        int found_duplicate = 0;
+        if (entry->loc == CONST || entry->loc == FAST) {
+            for (int prev=0; prev < i; ++prev) {
+                DeferredValueStackEntry* entry_prev = &GET_DEFERRED[-prev-1];
+                if (entry->loc == entry_prev->loc && entry->val == entry_prev->val) {
+                    // found a duplicate: replace it with a register mov
+                    emit_mov64_reg(Dst, regs[i], regs[prev]);
+                    out_ref_status[i] = out_ref_status[prev];
+                    found_duplicate = 1;
+                    break;
+                }
+            }
+        }
+        if (!found_duplicate) {
+            out_ref_status[i] = deferred_vs_peek(Dst, regs[i], i+1);
+        }
     }
     deferred_vs_remove(Dst, num_deferred);
 
