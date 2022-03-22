@@ -55,15 +55,15 @@ tune_reset: build/system_env/bin/python
 build/Release/Makefile:
 	mkdir -p build/Release
 	@# Use gold linker since ld 2.32 (Ubuntu 19.04) is unable to link compiler-rt:
-	cd build/Release; CC=clang CXX=clang++ cmake ../../pyston/ -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DLLVM_USE_LINKER=gold -DLLVM_ENABLE_PROJECTS="clang;compiler-rt" -DCLANG_INCLUDE_TESTS=0 -DCOMPILER_RT_INCLUDE_TESTS=0 -DLLVM_INCLUDE_TESTS=0
+	cd build/Release; CC=clang CXX=clang++ cmake ../../pyston/ -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DLLVM_USE_LINKER=gold -DLLVM_ENABLE_PROJECTS="clang;compiler-rt" -DCLANG_INCLUDE_TESTS=0 -DCOMPILER_RT_INCLUDE_TESTS=0 -DLLVM_INCLUDE_TESTS=0 -DCOMPILER_RT_BUILD_SANITIZERS=0
 
 build/PartialDebug/Makefile:
 	mkdir -p build/PartialDebug
-	cd build/PartialDebug; CC=clang CXX=clang++ cmake ../../pyston/ -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=PartialDebug -DLLVM_ENABLE_PROJECTS=clang -DCLANG_INCLUDE_TESTS=0 -DCOMPILER_RT_INCLUDE_TESTS=0 -DLLVM_INCLUDE_TESTS=0
+	cd build/PartialDebug; CC=clang CXX=clang++ cmake ../../pyston/ -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=PartialDebug -DLLVM_ENABLE_PROJECTS=clang -DCLANG_INCLUDE_TESTS=0 -DCOMPILER_RT_INCLUDE_TESTS=0 -DLLVM_INCLUDE_TESTS=0 -DCOMPILER_RT_BUILD_SANITIZERS=0
 
 build/Debug/Makefile:
 	mkdir -p build/Debug
-	cd build/Debug; CC=clang CXX=clang++ cmake ../../pyston/ -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DLLVM_ENABLE_PROJECTS=clang -DCLANG_INCLUDE_TESTS=0 -DCOMPILER_RT_INCLUDE_TESTS=0 -DLLVM_INCLUDE_TESTS=0
+	cd build/Debug; CC=clang CXX=clang++ cmake ../../pyston/ -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DLLVM_ENABLE_PROJECTS=clang -DCLANG_INCLUDE_TESTS=0 -DCOMPILER_RT_INCLUDE_TESTS=0 -DLLVM_INCLUDE_TESTS=0 -DCOMPILER_RT_BUILD_SANITIZERS=0
 
 .PHONY: build_release build_dbg build_debug
 build_dbg: build/PartialDebug/Makefile build/bc_env/bin/python
@@ -258,11 +258,13 @@ CPYTHON_EXTRA_CFLAGS_FOR_BOLT:=
 CPYTHON_EXTRA_LDFLAGS_FOR_BOLT:=
 BOLT_BINARY_ENABLE:=
 BOLT_SO_ENABLE:=
+USE_BOLT:=0
 ifeq ($(ARCH),x86_64)
 CPYTHON_EXTRA_CFLAGS_FOR_BOLT:=-fno-reorder-blocks-and-partition
 CPYTHON_EXTRA_LDFLAGS_FOR_BOLT:=-Wl,--emit-relocs
 BOLT_BINARY_ENABLE:=binary
 BOLT_SO_ENABLE:=so
+USE_BOLT:=1
 endif
 
 $(call make_cpython_build,unopt,CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) $(CPYTHON_EXTRA_CFLAGS_FOR_BOLT)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) $(CPYTHON_EXTRA_LDFLAGS_FOR_BOLT)" ../../configure --prefix=$(abspath build/unopt_install/usr) --disable-debugging-features --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot/aot_all.bc,,)
@@ -524,9 +526,13 @@ stocktest: build/stockunopt_build/python
 	$(MAKE) -C build/stockunopt_build test
 dbg_test: python/test/dbg_method_call_unopt
 
-# llvm-bolt must be build outside of dpkg-buildpackage or it will segfault
+
 .PHONY: package
-package: bolt
+package:
+ifeq ($(USE_BOLT),1)
+	# llvm-bolt must be build outside of dpkg-buildpackage or it will segfault
+	$(MAKE) bolt
+endif
 ifeq ($(RELEASE),16.04)
 	# 16.04 needs this file but on newer ubuntu versions it will make it fail
 	echo 10 > pyston/debian/compat

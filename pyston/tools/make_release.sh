@@ -4,6 +4,7 @@ set -eu
 
 VERSION=2.3.2
 OUTPUT_DIR=${PWD}/release/${VERSION}
+ARCH=`dpkg --print-architecture`
 
 PARALLEL=
 RELEASES=
@@ -62,13 +63,13 @@ set -ex
 ln -sf /usr/lib/linux-tools/*/perf /usr/bin/perf
 make package -j`nproc`
 make build/release_env/bin/python3
-build/release_env/bin/python3 pyston/tools/make_portable_dir.py pyston_${VERSION}_amd64.deb pyston_${VERSION}
-chown -R $(id -u):$(id -g) pyston_${VERSION}_amd64.deb
+build/release_env/bin/python3 pyston/tools/make_portable_dir.py pyston_${VERSION}_${ARCH}.deb pyston_${VERSION}
+chown -R $(id -u):$(id -g) pyston_${VERSION}_${ARCH}.deb
 chown -R $(id -u):$(id -g) pyston_${VERSION}
-cp -ar pyston_${VERSION}_amd64.deb /host-volume/pyston_${VERSION}_${DIST}.deb
-cp -ar pyston_${VERSION} /host-volume/pyston_${VERSION}_${DIST}
+cp -ar pyston_${VERSION}_${ARCH}.deb /host-volume/pyston_${VERSION}_${DIST}_${ARCH}.deb
+cp -ar pyston_${VERSION} /host-volume/pyston_${VERSION}_${DIST}_${ARCH}
 # create archive of portable dir
-tar -czf /host-volume/pyston_${VERSION}_${DIST}.tar.gz pyston_${VERSION}
+tar -czf /host-volume/pyston_${VERSION}_${DIST}_${ARCH}.tar.gz pyston_${VERSION}_${ARCH}
 EOF
     docker image rm pyston-build:$DIST
 }
@@ -83,6 +84,6 @@ do
 done
 wait
 
-ln -sf --relative $OUTPUT_DIR/pyston_${VERSION}_18.04.tar.gz $OUTPUT_DIR/pyston_${VERSION}_portable.tar.gz
+ln -sf --relative $OUTPUT_DIR/pyston_${VERSION}_18.04_${ARCH}.tar.gz $OUTPUT_DIR/pyston_${VERSION}_portable_${ARCH}.tar.gz
 
 echo "FINISHED: wrote release to $OUTPUT_DIR"
