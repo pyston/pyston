@@ -2,6 +2,7 @@ set -eux
 
 VER=${PYTHON_VERSION2}-pyston${PYSTON_VERSION2}
 NAME=libpython${VER}.a
+ARCH=`uname -m`
 
 if [ "${PYSTON_UNOPT_BUILD}" = "1" ]; then
     BUILDNAME=unopt
@@ -22,4 +23,4 @@ ${STRIP} -S ${PREFIX}/lib/${NAME}
 ${STRIP} -R ".gnu.lto_*" -R ".gnu.debuglto_*" -N "__gnu_lto_v1" ${PREFIX}/lib/${NAME}
 
 # generate a symlink to the libpython.a file because we removed it in build_base.sh
-ln -s ../../${NAME} ${PREFIX}/lib/python${VER}/config-${VER}-x86_64-linux-gnu/${NAME}
+ln -s ../../${NAME} ${PREFIX}/lib/python${VER}/config-${VER}-${ARCH}-linux-gnu/${NAME}

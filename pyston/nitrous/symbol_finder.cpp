@@ -109,11 +109,17 @@ void SymbolFinder::addSymbolsFromFile(StringRef filename,
                                       intptr_t addr_offset) {
     auto offsets = getOffsetsFromFile(filename);
 
+    auto allowed_duplicate = [](llvm::StringRef name) {
+        if (name == "__clear_cache")
+            return 1;
+        return 0;
+    };
+
     for (auto& p : offsets) {
         void* addr = (void*)(p.second + addr_offset);
 
         if (p.second == MULTIPLY_DEFINED
-            || symbol_addresses.count(p.first()))
+            || (symbol_addresses.count(p.first()) && !allowed_duplicate(p.first())))
             symbol_addresses[p.first()] = (void*)MULTIPLY_DEFINED;
         else
             symbol_addresses[p.first()] = addr;

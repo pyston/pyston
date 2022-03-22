@@ -9,9 +9,14 @@ export PYSTON_USE_SYS_BINS=1
 
 rm -rf build
 
+USE_BOLT=0
+# BOLT is currently only used by the x86 build
+if [[ "${PYSTON_UNOPT_BUILD}" == 0 ]] && [[ ${HOST} =~ x86_64.* ]]; then
+    USE_BOLT=1
 
-# BOLT seems to miscompile pyston when -fno-plt is passed - disable it
-CFLAGS=$(echo "${CFLAGS}" | sed "s/-fno-plt//g")
+    # BOLT seems to miscompile pyston when -fno-plt is passed - disable it
+    CFLAGS=$(echo "${CFLAGS}" | sed "s/-fno-plt//g")
+fi
 
 _OPTIMIZED=yes
 VERFULL=${PKG_VERSION}
@@ -127,16 +132,19 @@ _common_configure_args+=("--with-tcltk-libs=-L${PREFIX}/lib -ltcl8.6 -ltk8.6")
 
 export CONFIGURE_EXTRA_FLAGS='${_common_configure_args[@]} --oldincludedir=${BUILD_PREFIX}/${HOST}/sysroot/usr/include'
 
-if [ "${PYSTON_UNOPT_BUILD}" = "1" ]; then
+if [[ "${PYSTON_UNOPT_BUILD}" == 1 ]]; then
     make -j`nproc` unopt
     make -j`nproc` cpython_testsuite
     OUTDIR=${SRC_DIR}/build/unopt_install/usr
-    PYSTON=${OUTDIR}/bin/python3
 else
     RELEASE_PREFIX=${PREFIX} make -j`nproc` release
     RELEASE_PREFIX=${PREFIX} make -j`nproc` cpython_testsuite_release
     OUTDIR=${SRC_DIR}/build/release_install${PREFIX}
+fi
+if [[ "${USE_BOLT}" == 1 ]]; then
     PYSTON=${OUTDIR}/bin/python3.bolt
+else
+    PYSTON=${OUTDIR}/bin/python3
 fi
 
 cp $PYSTON ${PREFIX}/bin/python${VER}

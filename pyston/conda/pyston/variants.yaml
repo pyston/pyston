@@ -42,8 +42,6 @@ readline:
 - '8'
 sqlite:
 - '3'
-target_platform:
-- linux-64
 tk:
 - '8.6'
 xz:

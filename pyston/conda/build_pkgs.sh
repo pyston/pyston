@@ -31,8 +31,12 @@ apt-get update
 # some cpython tests require /etc/protocols
 apt-get install -y netbase curl patch
 
+if [ `uname -m` = "aarch64" ]; then
+    apt-get install -y luajit  # we have to install luajit via apt because conda-forge does not provide it
+fi
+
+
 conda install conda-build -y
-conda build pyston_dir/pyston/conda/compiler-rt -c pyston --skip-existing -c conda-forge --override-channels
 conda build pyston_dir/pyston/conda/bolt -c pyston --skip-existing -c conda-forge --override-channels
 conda build pyston_dir/pyston/conda/pyston -c pyston -c conda-forge --override-channels -m pyston_dir/pyston/conda/pyston/variants.yaml
 conda build pyston_dir/pyston/conda/python_abi -c conda-forge --override-channels
@@ -45,7 +49,7 @@ do
     CONDA_ADD_PIP_AS_PYTHON_DEPENDENCY=0 conda build \${pkg}-feedstock/recipe --python="${PYSTON_PKG_VER}" --override-channels -c conda-forge --use-local
 done
 
-for arch in noarch linux-64
+for arch in noarch linux-64 linux-aarch64
 do
     mkdir -p /conda_pkgs/\${arch}
     cp /opt/conda/conda-bld/\${arch}/*.tar.bz2 /conda_pkgs/\${arch} || true

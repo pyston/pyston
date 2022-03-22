@@ -3736,6 +3736,13 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         void* new_chunk = MAP_FAILED;
         char* start_addr = (char*)0x40000000;
         for (int i=0; i<8 && new_chunk == MAP_FAILED; ++i, start_addr += 0x10000000) {
+            // MAP_FIXED_NOREPLACE is available from linux 4.17, but older glibc don't define it.
+            // Older kernel will ignore this flag and will try to allocate the address supplied as hint
+            // but if not possible will just return a different address.
+            // If the returned adddress does not fix in 32bit we abort the JIT compilation.
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
             new_chunk = mmap(start_addr + mem_bytes_allocated, mem_chunk_bytes_remaining,
                              PROT_READ | PROT_WRITE,
                              MAP_FIXED_NOREPLACE | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -3745,6 +3752,8 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 #if JIT_DEBUG
             JIT_ASSERT(0, "mmap() returned error %d", errno);
 #endif
+            if (new_chunk != MAP_FAILED)
+                munmap(new_chunk, mem_chunk_bytes_remaining);
             mem_chunk_bytes_remaining = 0;
             goto failed;
         }
