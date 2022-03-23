@@ -9,6 +9,12 @@ def getBranchToBuild(feedstock):
     if feedstock == "openmm":
         return "origin/rc"
 
+    dir = "%s-feedstock" % feedstock
+
+    subprocess.check_call(["git", "fetch", "origin"], cwd=dir)
+    output = subprocess.check_output(["git", "branch", "-r"], cwd=dir).decode("utf8")
+    if "origin/main" in output:
+        return "origin/main"
     return "origin/master"
 
 def findFeedstockCommitForVersion(feedstock, directory, version):
@@ -37,7 +43,20 @@ def getRecipeSedCommands(feedstock, version):
         return (r's/pytest tests/pytest tests --ignore=tests\/test_memory_leaks.py --ignore=tests\/test_circular.py/g',)
 
     if feedstock == "numpy":
-        return (r's/_not_a_real_test/test_for_reference_leak or test_api_importable/g',)
+        tests_to_skip = ["test_for_reference_leak", "test_api_importable"]
+        if subprocess.check_output(["uname", "-m"]).decode("utf8").strip() == "aarch64":
+            # https://github.com/numpy/numpy/issues/15243
+            tests_to_skip.append("test_loss_of_precision")
+
+        commands = [r's/_not_a_real_test/%s/g' % " or ".join(tests_to_skip)]
+
+        if not versionIsAtLeast(version, "1.19.4"):
+            commands.append(r's/^\(.\+\)sha256: \([a-f0-9]\+\)/\1sha256: \2\n\1patches:\n\1  - pyston.patch/')
+        elif not versionIsAtLeast(version, "1.20.0"):
+            commands.append(r's/^\(.\+\)patches:/\1patches:\n\1  - pyston.patch/')
+        elif not versionIsAtLeast(version, "1.22.0"):
+            commands.append(r's/^\(.\+\)sha256: \([a-f0-9]\+\)/\1sha256: \2\n\1patches:\n\1  - pyston.patch/')
+        return commands
 
     if feedstock == "implicit":
         # The build step here implicitly does a `pip install numpy scipy`.
@@ -48,7 +67,10 @@ def getRecipeSedCommands(feedstock, version):
         return (r"s/        - {{ compiler('cxx') }}/        - {{ compiler('cxx') }}\n        - {{ compiler('fortran') }}/",)
 
     if feedstock == "pyqt":
-        return (r"s@      - patches/qt5_dll.diff@      - patches/qt5_dll.diff\n      - pyston.patch@",)
+        return (
+                r"s@      - patches/qt5_dll.diff@      - patches/qt5_dll.diff\n      - pyston.patch@",
+                r"s/qt >=5.12.9/qt 5.12.9 *_4/", # Later builds have an issue https://github.com/conda-forge/pyqt-feedstock/issues/108
+        )
 
     if feedstock == "scikit-build":
         return (r"s/not test_fortran_compiler/not test_fortran_compiler and not test_get_python_version/",)
@@ -64,7 +86,10 @@ def getRecipeSedCommands(feedstock, version):
     if feedstock == "ipython":
         # ipython has a circular dependency via ipykernel,
         # but they have this flag presumably for this exact problem:
-        return (r"s/set migrating = False/set migrating = True/",)
+        if versionIsAtLeast(version, "8.0.1"):
+            return (r"s/set migrating = false/set migrating = true/",)
+        else:
+            return (r"s/set migrating = False/set migrating = True/",)
 
     if feedstock == "gobject-introspection":
         # This feedstock lists a "downstream" test, which it will try to run
@@ -142,6 +167,15 @@ def getRecipeSedCommands(feedstock, version):
     if feedstock == "boost":
         return (r"s/patches:/patches:\n    - pyston.patch/",)
 
+    if feedstock == "ruamel_yaml":
+        # This package does 'pip install ruamel.yaml' (which is not the same package!),
+        # which is somehow hardcoded to require gcc
+        # return (r's/- {{ compiler("c") }}/- {{ compiler("c") }}\n    - gcc/',)
+        return (r's/requires:/requires:\n    - gcc/',)
+
+    if feedstock == "anyio":
+        return (r's/pytest >=6.0/pytest >=6.0,<7/',)
+
     return ()
 
 def getSedCommands(feedstock, version):
@@ -199,8 +233,8 @@ def buildFeedstock(feedstock, version="latest", do_upload=False):
         tmp_str = "^^^^"
         if cmd[0] == 's':
             sep = cmd[1]
-            cmd = cmd.replace("\\" + sep, tmp_str)
-            splits = cmd.split(cmd[1])
+            grep_cmd = cmd.replace("\\" + sep, tmp_str)
+            splits = grep_cmd.split(sep)
             assert len(splits) == 4, cmd
             check_pattern = splits[1]
             check_pattern = check_pattern.replace(tmp_str, sep)
@@ -221,9 +255,12 @@ def buildFeedstock(feedstock, version="latest", do_upload=False):
 
         subprocess.check_call(["sed", "-i", cmd, file], cwd=dir)
 
-    patch_fn = os.path.join(os.path.dirname(__file__), "patches/%s.patch" % feedstock)
-    if os.path.exists(patch_fn):
-        shutil.copyfile(patch_fn, os.path.join(dir, "recipe/pyston.patch"))
+    for name in ("%s%s.patch" % (feedstock, version), "%s.patch" % feedstock):
+        patch_fn = os.path.join(os.path.dirname(__file__), "patches", name)
+        if os.path.exists(patch_fn):
+            print("Using patch file", patch_fn)
+            shutil.copyfile(patch_fn, os.path.join(dir, "recipe/pyston.patch"))
+            break
 
     env = dict(os.environ)
     env["CHANNEL"] = "pyston"
@@ -233,12 +270,13 @@ def buildFeedstock(feedstock, version="latest", do_upload=False):
     env = dict(os.environ)
     env["CONDA_FORGE_DOCKER_RUN_ARGS"] = "-e EXTRA_CB_OPTIONS --rm"
     env["EXTRA_CB_OPTIONS"] = "-c pyston"
+    env["CI"] = ""
     if skipTests(feedstock):
         env["EXTRA_CB_OPTIONS"] += " --no-test"
     subprocess.check_call(["python3", "build-locally.py", config_file], cwd=dir, env=env)
 
     if do_upload:
-        subprocess.check_call("anaconda upload -u pyston build_artifacts/linux-64/*.tar.bz2", cwd=dir, shell=True)
+        subprocess.check_call("anaconda upload -u pyston build_artifacts/*/*.tar.bz2", cwd=dir, shell=True)
         shutil.rmtree(os.path.join(dir, "build_artifacts"))
 
 if __name__ == "__main__":

@@ -23,16 +23,21 @@ versions_to_build = {
     "wrapt": ("1.11.2", "1.12.1"), # pynput needs wrapt 1.11.*
     "h5py": ("2.10.0", "3.1.0"),
     "grpcio": "1.40.0",
-    "setuptools": "57.4.0",
+    "setuptools": "57.4.0", # This is the version before they removed 2to3 support
     "pyyaml": "5.4.1",
     "docutils": "0.15.2",
     "astroid": "2.6.6", # <2.7 needed by pylint 2.9.6 needed by spyder
-    "spyder-kernels": "2.1.3", # <2.2.0 needed by spyder
+    "spyder-kernels": ("2.1.3", "2.2.1"), # <2.2.0 needed by some versions of spyder, >=2.2.1 required by others
     "torchvision": "0.10.1",
     "pandas": ("latest", "1.2.5"), # 1.2.5 needed by daal4py
     "keyring": "21.2.1", # 21.2.* needed by poetry
     "httpstan": "4.5.0", # 4.5.0 needed by pystan
     "setproctitle": ("1.1.10", "1.2.2"), # 1.1.10 needed by ray-packages
+    "psycopg2": "2.9.3", # The next version (3.0.8) changed the library name in a way that broke some downstream packages like django
+    "pydantic": "1.8.2", # thinc depends on pydantic <1.9.0
+    "markupsafe": "2.0.1", # astropy needs this specific version
+    "pytest": "6.2.5", # <7 is needed by anyio
+    "ipython": ("7.30.0", "latest"), # <8.0 is needed by spyder
 }
 
 def getVersionsToBuild(feedstock):
@@ -199,10 +204,12 @@ def buildAll(order, done, nparallel):
                 built_any = True
                 print("Building", feedstock, version)
 
-                p = subprocess.Popen(["python3", "-u", SRC_DIR / "build_feedstock.py", feedstock, version, "--upload"], stdout=open("%s.log" % feedstock, "wb"), stderr=subprocess.STDOUT)
-                code = p.wait()
-                # time.sleep(random.random() * 0.5 + 0.2)
-                # code = 0
+                if feedstock in ("vtk", "fontconfig", "mamba", "boost"):
+                    print("Known issue with %s, skipping for now" % feedstock)
+                    code = 3
+                else:
+                    p = subprocess.Popen(["python3", "-u", SRC_DIR / "build_feedstock.py", feedstock, version, "--upload"], stdout=open("%s.log" % feedstock, "wb"), stderr=subprocess.STDOUT)
+                    code = p.wait()
 
                 print(feedstock, version, "finished with code", code)
 
@@ -246,9 +253,9 @@ def main():
             done_feedstocks.add((feedstock, version))
             # TODO: better detection if there's a new version to build
             done_feedstocks.add((feedstock, "latest"))
-            break
+            print("Found uploaded", feedstock, "(%s)" % name, version)
 
-    topn = int(os.environ.get("TOPN", "500"))
+    topn = int(os.environ.get("TOPN", "1000"))
     targets = []
     for l in open(SRC_DIR / "package_list.txt"):
         targets.append(l.strip())
@@ -267,6 +274,7 @@ def main():
                 all_done = False
                 break
         if all_done:
+            print("Done with", feedstock)
             done_feedstocks.add(feedstock)
 
     total = len(order)

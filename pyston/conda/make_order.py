@@ -124,6 +124,8 @@ _feedstock_overrides = {
     "bs4": "beautifulsoup4",
     "seaborn-base": "seaborn",
     "blackd": "black",
+    "psycopg": "psycopg2",
+    "psycopg-c": "psycopg2",
 }
 
 def getFeedstockName(pkg):
@@ -135,6 +137,7 @@ def getFeedstockName(pkg):
         return "gnuradio"
     pkg = _feedstock_overrides.get(pkg, pkg)
     pkg = pkg.replace("_linux-64", "")
+    pkg = pkg.replace("_linux-aarch64", "")
     return pkg
 
 def getBuildRequirements(pkg):
@@ -213,7 +216,7 @@ def getDependencies(pkg):
     for pattern in ("lib", "gcc", "gxx", "mkl", "glib", "gfortran", "dal(|-devel)$", "r-", "go-"):
         if re.match(pattern, pkg):
             return ()
-    if feedstock in ("ninja", "krb5", "llvmdev", "hcc", "clangdev", "conda", "binutils", "cairo", "jack", "gstreamer", "cyrus-sasl", "hdf5", "openjdk", "bazel", "qt", "atk", "fftw", "yasm", "fribidi", "brunsli", "harfbuzz", "mpir", "gdk-pixbuf", "pango", "gtk2", "graphviz", "cudatoolkit", "sysroot", "rust", "blis", "doxygen", "jsoncpp", "mesalib", "mongodb", "yajl", "lz4", "blas", "nodejs", "gobject-introspection"):
+    if feedstock in ("ninja", "krb5", "llvmdev", "hcc", "clangdev", "binutils", "cairo", "jack", "gstreamer", "cyrus-sasl", "hdf5", "openjdk", "bazel", "qt", "atk", "fftw", "yasm", "fribidi", "brunsli", "harfbuzz", "mpir", "gdk-pixbuf", "pango", "gtk2", "graphviz", "cudatoolkit", "sysroot", "rust", "blis", "doxygen", "jsoncpp", "mesalib", "mongodb", "yajl", "lz4", "blas", "nodejs", "gobject-introspection"):
         return ()
 
     # These are old and aren't built for modern versions of Python:
@@ -244,7 +247,7 @@ def _dependsOnPython(pkg):
     dependencies = getDependencies(pkg)
 
     if verbose:
-        print(pkg, dependencies)
+        print(pkg, "depends on:", dependencies)
 
     r = False
     for d in dependencies:
@@ -301,11 +304,14 @@ def versionIsAtLeast(v1, v2):
 
 def getFeedstockOrder(targets):
     global packages_by_name, noarch_packages
+
+    arch = subprocess.check_output(["uname", "-m"]).decode("utf8").strip()
+    arch = {"aarch64": "aarch64", "x86_64": "64"}[arch]
     if not packages_by_name and not os.path.exists("repo.pkl"):
-        repodata_fn = "repodata_condaforge_linux64.json"
+        repodata_fn = "repodata_condaforge_linux-%s.json" % arch
         if not os.path.exists(repodata_fn):
             print("Downloading...")
-            subprocess.check_call(["wget", "https://conda.anaconda.org/conda-forge/linux-64/repodata.json.bz2", "-O", repodata_fn + ".bz2"])
+            subprocess.check_call(["wget", "https://conda.anaconda.org/conda-forge/linux-%s/repodata.json.bz2" % arch, "-O", repodata_fn + ".bz2"])
             subprocess.check_call(["bzip2", "-d", repodata_fn + ".bz2"])
 
         repodata_noarch_fn = "repodata_condaforge_noarch.json"
