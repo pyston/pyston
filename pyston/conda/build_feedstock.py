@@ -204,7 +204,7 @@ def buildFeedstock(feedstock, version="latest", do_upload=False):
 
     env = dict(os.environ)
     env["CHANNEL"] = "pyston"
-    config_file = subprocess.check_output(["python3", os.path.join(os.path.dirname(__file__), "make_config.py")], env=env, cwd=dir)
+    config_file = subprocess.check_output(["python3", os.path.abspath(os.path.join(os.path.dirname(__file__), "make_config.py"))], env=env, cwd=dir)
     config_file = config_file.decode("utf8").strip()
 
     env = dict(os.environ)

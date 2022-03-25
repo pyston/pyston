@@ -1,4 +1,5 @@
 import collections
+import json
 import os
 import queue
 import random
@@ -232,17 +233,20 @@ def main():
     channel = "pyston"
     os.environ["CHANNEL"] = channel
 
-    search_output = subprocess.check_output(["conda", "search", "*", "-c", channel, "--override-channels"]).decode("ascii")
+    search_output = subprocess.check_output(["conda", "search", "*", "-c", channel, "--override-channels", "--json"]).decode("ascii")
+    search_output = json.loads(search_output)
 
     done_feedstocks = set()
-    for l in search_output.split('\n')[2:]:
-        if not l:
-            continue
-        feedstock = getFeedstockName(l.split()[0])
-        version = l.split()[1]
-        done_feedstocks.add((feedstock, version))
-        # TODO: better detection if there's a new version to build
-        done_feedstocks.add((feedstock, "latest"))
+    for name, l in search_output.items():
+        for d in l:
+            if d["subdir"] == "noarch":
+                continue
+            feedstock = getFeedstockName(name)
+            version = d["version"]
+            done_feedstocks.add((feedstock, version))
+            # TODO: better detection if there's a new version to build
+            done_feedstocks.add((feedstock, "latest"))
+            break
 
     topn = int(os.environ.get("TOPN", "500"))
     targets = []
