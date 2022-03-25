@@ -1410,15 +1410,21 @@ static void* get_aot_func_addr(Jit* Dst, int opcode, int oparg, int opcache_avai
 }
 
 static void emit_mov_inst_addr_to_tmp(Jit* Dst, int r_inst_idx) {
-@ARM| adr tmp, ->opcode_addr_begin // can only address +-1MB
-@ARM| asr Rw(tmp2_idx), Rw(r_inst_idx), #1
-@ARM| ldrsw tmp, [tmp, tmp2, lsl #2]
-
-@X86// *2 instead of *4 because:
-@X86// entries are 4byte wide addresses but lasti needs to be divided by 2
-@X86// because it tracks offset in bytecode (2bytes long) array not the index
-@X86| lea tmp, [->opcode_addr_begin]
-@X86| mov Rd(tmp_idx), [tmp + Rq(r_inst_idx)*2]
+    // every entry is 32bit in size and marks the relative offset from opcode_offset_begin to the IP of the bytecode instruction
+@ARM_START
+    | adr tmp, ->opcode_offset_begin // can only address +-1MB
+    | asr Rw(tmp2_idx), Rw(r_inst_idx), #1
+    | ldrsw tmp2, [tmp, tmp2, lsl #2]
+    | add tmp, tmp, tmp2
+@ARM_END
+@X86_START
+    // *2 instead of *4 because:
+    // entries are 4byte wide addresses but lasti needs to be divided by 2
+    // because it tracks offset in bytecode (2bytes long) array not the index
+    | lea tmp, [->opcode_offset_begin]
+    | movsxd Rq(r_inst_idx), dword [tmp + Rq(r_inst_idx)*2]
+    | add tmp, Rq(r_inst_idx)
+@X86_END
 }
 
 static void emit_jmp_to_inst_idx(Jit* Dst, int r_idx) {
@@ -3679,11 +3685,11 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     ////////////////////////////////
     // OPCODE TABLE
 
-    // space for the table of bytecode index -> IP
+    // space for the table of bytecode index -> IP offset from opcode_offset_begin
     // used e.g. for continuing generators
     // will fill in the actual address after dasm_link
     switch_section(Dst, SECTION_OPCODE_ADDR);
-    |->opcode_addr_begin:
+    |->opcode_offset_begin:
     for (int i=0; i<Dst->num_opcodes; ++i) {
         // fill all bytes with this value to catch bugs
         emit_32bit_value(Dst, UINT_MAX);
@@ -3778,15 +3784,14 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         goto failed;
     }
 
-    // fill in the table of bytecode index -> IP
+    // fill in the table of bytecode index -> IP offset from opcode_offset_begin
     for (int inst_idx=0; inst_idx < Dst->num_opcodes; ++inst_idx) {
-        // emit 4byte address to start of implementation of instruction with index 'inst_idx'
-        // - this is fine our addresses are only 4 byte long not 8
-        unsigned int* opcode_addr_begin = (unsigned int*)labels[lbl_opcode_addr_begin];
-        int offset = dasm_getpclabel(Dst, inst_idx);
-        unsigned long addr = (unsigned long)mem + (unsigned long)offset;
-        JIT_ASSERT(IS_32BIT_VAL(addr), "%lx", addr);
-        opcode_addr_begin[inst_idx] = (unsigned int)addr;
+        // emit 4byte offset to start of implementation of instruction with index 'inst_idx'
+        // relative to the start of the opcode_offset_begin table
+        int* opcode_offset_begin = (int*)labels[lbl_opcode_offset_begin];
+        long offset = dasm_getpclabel(Dst, inst_idx) - ((unsigned long)opcode_offset_begin - (unsigned long)mem);
+        JIT_ASSERT(IS_32BIT_SIGNED_VAL(offset),"");
+        opcode_offset_begin[inst_idx] = (int)offset;
     }
 
     if (perf_map_file) {
@@ -3823,7 +3828,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
     if (perf_map_opcode_map) {
         // table of bytecode index -> IP (4byte address)
-        unsigned int* opcode_addr_begin = (unsigned int*)labels[lbl_opcode_addr_begin];
+        int* opcode_offset_begin = (int*)labels[lbl_opcode_offset_begin];
 
         // write addr and opcode info into a file which tools/perf_jit.py uses
         // to annotate the 'perf report' output
@@ -3831,7 +3836,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             _Py_CODEUNIT word = Dst->first_instr[inst_idx];
             int opcode = _Py_OPCODE(word);
             int oparg = _Py_OPARG(word);
-            void* addr = (void*)(unsigned long)opcode_addr_begin[inst_idx];
+            void* addr = &((char*)opcode_offset_begin)[opcode_offset_begin[inst_idx]];
             const char* jmp_dst = Dst->is_jmp_target[inst_idx] ? "->" : "  ";
             fprintf(perf_map_opcode_map, "%p,%s %4d %-30s %d\n",
                     addr, jmp_dst, inst_idx*2, get_opcode_name(opcode), oparg);
