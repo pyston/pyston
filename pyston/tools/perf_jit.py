@@ -127,11 +127,12 @@ def getAddressOfInst(inst):
 
 def replaceInst(inst):
     # we replace relative call instructions with the symbol name
-    m = re.search("callq  (0x[0-9a-f]+)$", inst)
-    if m:
-        n = int(m.group(1), 16)
-        if n and lookupAsSymbol(n):
-            return inst + " <" + lookupAsSymbol(n) + ">"
+    for call in ["callq", "bl"]:
+        m = re.search(call + "\s+(0x[0-9a-f]+)$", inst)
+        if m:
+            n = int(m.group(1), 16)
+            if n and lookupAsSymbol(n):
+                return inst + " <" + lookupAsSymbol(n) + ">"
     return inst
 
 if __name__ == "__main__":

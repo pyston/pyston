@@ -828,6 +828,12 @@ static int fits_in_12bit_with_12bit_rshift(long val) {
 }
 @ARM_END
 
+static int can_use_relative_call(void *addr) {
+    // bl only supports +-128MB - for additional safety we try to stay +-64MB away from this AOT symbol.
+@ARMreturn labs((int64_t)addr-(int64_t)PyObject_IsTrueProfile) < 64*1024*1024;
+@X86return IS_32BIT_VAL((long)addr);
+}
+
 // writes 32bit value to executable memory
 static void emit_32bit_value(Jit* Dst, long value) {
     |.long value // this is called long but actually emits a 32bit value
@@ -1204,31 +1210,20 @@ static void emit_jg_to_bytecode_n(Jit* Dst, int num_bytes) {
 }
 
 static void emit_call_ext_func(Jit* Dst, void* addr) {
-    // WARNING: if you modify this you have to adopt SET_JIT_AOT_FUNC
 @ARM_START
-    JIT_ASSERT(tmp2_idx == 6, "SET_JIT_AOT_FUNC needs to be adopted");
-    // we can't use 'emit_mov_imm' because we have to make sure
-    // that we always generate this 3/5 instruction sequence because SET_JIT_AOT_FUNC is patching it later.
-    // encodes as: 0x52800006 | (addr&0xFFFF)<<5 (=Rw(tmp2_idx)) or 0xD2800006 (=Rx(tmp2_idx))
-    // note: we use Rx() DynASM sometimes encodes the instruction as Rw() here
-    //       because the 32bit op clears the higher 32bit it does not change things.
-    | mov Rx(tmp2_idx), #(unsigned long)addr&UINT16_MAX
-    // encodes as: 0xF2A00006 | ((addr>>16)&0xFFFF)<<5
-    | movk Rx(tmp2_idx), #((unsigned long)addr>>16)&UINT16_MAX, lsl #16
-
-    if (!IS_32BIT_VAL((long)addr)) {
-        // encodes as: 0xF2C00006 | ((addr>>32)&0xFFFF)<<5
-        | movk Rx(tmp2_idx), #((unsigned long)addr>>32)&UINT16_MAX, lsl #32
-        // encodes as: 0xF2E00006 | ((addr>>48)&0xFFFF)<<5
-        | movk Rx(tmp2_idx), #((unsigned long)addr>>48)&UINT16_MAX, lsl #48
+    // WARNING: if you modify this you have to adopt SET_JIT_AOT_FUNC because this call can be patched.
+    if (can_use_relative_call(addr)) {
+        | bl &addr // +-128MB from current IP
+    } else {
+        // WARNING: this case can currently not be patched by SET_JIT_AOT_FUNC but thats not a problem because it's only used
+        // by inline cache entries to external functions in C extensions and not by calls to AOT funcs which get patched.
+        emit_mov_imm(Dst, tmp_idx, (uint64_t)addr);
+        | blr tmp
     }
-
-    // encodes as: 0xD63F00C0
-    | blr tmp2
     | mov res, real_res
 @ARM_END
 @X86_START
-    if (IS_32BIT_SIGNED_VAL((long)addr)) {
+    if (can_use_relative_call(addr)) {
         // This emits a relative call. The dynasm syntax is confusing
         // it will not actually take the address of addr (even though it says &addr).
         // Put instead just take the value of addr and calculate the difference to the emitted instruction address. (generated code: dasm_put(Dst, 135, (ptrdiff_t)(addr)))
@@ -1410,15 +1405,21 @@ static void* get_aot_func_addr(Jit* Dst, int opcode, int oparg, int opcache_avai
 }
 
 static void emit_mov_inst_addr_to_tmp(Jit* Dst, int r_inst_idx) {
-@ARM| adr tmp, ->opcode_addr_begin // can only address +-1MB
-@ARM| asr Rw(tmp2_idx), Rw(r_inst_idx), #1
-@ARM| ldrsw tmp, [tmp, tmp2, lsl #2]
-
-@X86// *2 instead of *4 because:
-@X86// entries are 4byte wide addresses but lasti needs to be divided by 2
-@X86// because it tracks offset in bytecode (2bytes long) array not the index
-@X86| lea tmp, [->opcode_addr_begin]
-@X86| mov Rd(tmp_idx), [tmp + Rq(r_inst_idx)*2]
+    // every entry is 32bit in size and marks the relative offset from opcode_offset_begin to the IP of the bytecode instruction
+@ARM_START
+    | adr tmp, ->opcode_offset_begin // can only address +-1MB
+    | asr Rw(tmp2_idx), Rw(r_inst_idx), #1
+    | ldrsw tmp2, [tmp, tmp2, lsl #2]
+    | add tmp, tmp, tmp2
+@ARM_END
+@X86_START
+    // *2 instead of *4 because:
+    // entries are 4byte wide addresses but lasti needs to be divided by 2
+    // because it tracks offset in bytecode (2bytes long) array not the index
+    | lea tmp, [->opcode_offset_begin]
+    | movsxd Rq(r_inst_idx), dword [tmp + Rq(r_inst_idx)*2]
+    | add tmp, Rq(r_inst_idx)
+@X86_END
 }
 
 static void emit_jmp_to_inst_idx(Jit* Dst, int r_idx) {
@@ -3679,11 +3680,11 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     ////////////////////////////////
     // OPCODE TABLE
 
-    // space for the table of bytecode index -> IP
+    // space for the table of bytecode index -> IP offset from opcode_offset_begin
     // used e.g. for continuing generators
     // will fill in the actual address after dasm_link
     switch_section(Dst, SECTION_OPCODE_ADDR);
-    |->opcode_addr_begin:
+    |->opcode_offset_begin:
     for (int i=0; i<Dst->num_opcodes; ++i) {
         // fill all bytes with this value to catch bugs
         emit_32bit_value(Dst, UINT_MAX);
@@ -3725,17 +3726,18 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     if (size > mem_chunk_bytes_remaining) {
         mem_chunk_bytes_remaining = size > (1<<18) ? size : (1<<18);
 
+#ifdef __amd64__
         // allocate memory which address fits inside a 32bit pointer (makes sure we can use 32bit rip relative addressing)
-#ifdef MAP_32BIT
         void* new_chunk = mmap(0, mem_chunk_bytes_remaining,
-                               PROT_READ | PROT_WRITE,
+                               PROT_READ | PROT_WRITE | PROT_EXEC,
                                MAP_32BIT | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-#else
-        // kernel does not provide away to allocate a 32bit address.
-        // So try to allocate at a fixed value and if it fails try a different one.
+#elif __aarch64__
+        // we try to allocate a memory block close to our AOT functions, because on ARM64 the relative call insruction 'bl'
+        // can only address +-128MB from current IP. And this allows us to use bl for most calls.
         void* new_chunk = MAP_FAILED;
-        char* start_addr = (char*)0x40000000;
-        for (int i=0; i<8 && new_chunk == MAP_FAILED; ++i, start_addr += 0x10000000) {
+        // try allocate memory 25MB after this AOT func.
+        char* start_addr = (char*)(((uint64_t)PyObject_IsTrueProfile + 25*1024*1024 + 4095) / 4096 * 4096);
+        for (int i=0; i<8 && new_chunk == MAP_FAILED; ++i, start_addr += 5*1024*1024) {
             // MAP_FIXED_NOREPLACE is available from linux 4.17, but older glibc don't define it.
             // Older kernel will ignore this flag and will try to allocate the address supplied as hint
             // but if not possible will just return a different address.
@@ -3744,11 +3746,13 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 #define MAP_FIXED_NOREPLACE 0x100000
 #endif
             new_chunk = mmap(start_addr + mem_bytes_allocated, mem_chunk_bytes_remaining,
-                             PROT_READ | PROT_WRITE,
+                             PROT_READ | PROT_WRITE | PROT_EXEC,
                              MAP_FIXED_NOREPLACE | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         }
+#else
+#error "unknown arch"
 #endif
-        if (new_chunk == MAP_FAILED || !IS_32BIT_VAL(new_chunk)) {
+        if (new_chunk == MAP_FAILED || !can_use_relative_call(new_chunk)) {
 #if JIT_DEBUG
             JIT_ASSERT(0, "mmap() returned error %d", errno);
 #endif
@@ -3758,10 +3762,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             goto failed;
         }
         mem_chunk = new_chunk;
-
-        // we self modify (=AOTFuncs) so make it writable to
-        mprotect(mem_chunk, mem_chunk_bytes_remaining, PROT_READ | PROT_EXEC | PROT_WRITE);
-
         mem_bytes_allocated += (mem_chunk_bytes_remaining + 4095) / 4096 * 4096;
     }
 
@@ -3778,15 +3778,14 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         goto failed;
     }
 
-    // fill in the table of bytecode index -> IP
+    // fill in the table of bytecode index -> IP offset from opcode_offset_begin
     for (int inst_idx=0; inst_idx < Dst->num_opcodes; ++inst_idx) {
-        // emit 4byte address to start of implementation of instruction with index 'inst_idx'
-        // - this is fine our addresses are only 4 byte long not 8
-        unsigned int* opcode_addr_begin = (unsigned int*)labels[lbl_opcode_addr_begin];
-        int offset = dasm_getpclabel(Dst, inst_idx);
-        unsigned long addr = (unsigned long)mem + (unsigned long)offset;
-        JIT_ASSERT(IS_32BIT_VAL(addr), "%lx", addr);
-        opcode_addr_begin[inst_idx] = (unsigned int)addr;
+        // emit 4byte offset to start of implementation of instruction with index 'inst_idx'
+        // relative to the start of the opcode_offset_begin table
+        int* opcode_offset_begin = (int*)labels[lbl_opcode_offset_begin];
+        long offset = dasm_getpclabel(Dst, inst_idx) - ((unsigned long)opcode_offset_begin - (unsigned long)mem);
+        JIT_ASSERT(IS_32BIT_SIGNED_VAL(offset),"");
+        opcode_offset_begin[inst_idx] = (int)offset;
     }
 
     if (perf_map_file) {
@@ -3823,7 +3822,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
     if (perf_map_opcode_map) {
         // table of bytecode index -> IP (4byte address)
-        unsigned int* opcode_addr_begin = (unsigned int*)labels[lbl_opcode_addr_begin];
+        int* opcode_offset_begin = (int*)labels[lbl_opcode_offset_begin];
 
         // write addr and opcode info into a file which tools/perf_jit.py uses
         // to annotate the 'perf report' output
@@ -3831,7 +3830,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             _Py_CODEUNIT word = Dst->first_instr[inst_idx];
             int opcode = _Py_OPCODE(word);
             int oparg = _Py_OPARG(word);
-            void* addr = (void*)(unsigned long)opcode_addr_begin[inst_idx];
+            void* addr = &((char*)opcode_offset_begin)[opcode_offset_begin[inst_idx]];
             const char* jmp_dst = Dst->is_jmp_target[inst_idx] ? "->" : "  ";
             fprintf(perf_map_opcode_map, "%p,%s %4d %-30s %d\n",
                     addr, jmp_dst, inst_idx*2, get_opcode_name(opcode), oparg);
