@@ -1,18 +1,22 @@
 #!/bin/sh
+#
+# Requires:
+# - docker buildx
+# - installed qemu emulation for the non native arch
+#   e.g.: docker run --privileged --rm tonistiigi/binfmt --install arm64
 
 set -eux
 
 BUILD_NAME=2.3.2
 DIR=$(dirname $0)
+PLATFORMS=linux/amd64,linux/arm64
 
-docker build -t pyston/pyston:latest -t pyston/pyston:${BUILD_NAME} -f ${DIR}/Dockerfile ${DIR}
-docker push pyston/pyston:latest
-docker push pyston/pyston:${BUILD_NAME}
+docker buildx create --use --name pyston-build-context --node mybuilder0
 
-docker build -t pyston/slim:latest -t pyston/slim:${BUILD_NAME} -f ${DIR}/Dockerfile.slim-bullseye ${DIR}
-docker push pyston/slim:latest
-docker push pyston/slim:${BUILD_NAME}
+docker buildx build --push --platform ${PLATFORMS} -t pyston/pyston:latest -t pyston/pyston:${BUILD_NAME} -f ${DIR}/Dockerfile ${DIR}
 
-docker build -t pyston/conda:latest -t pyston/conda:${BUILD_NAME} -f ${DIR}/Dockerfile.conda ${DIR}
-docker push pyston/conda:latest
-docker push pyston/conda:${BUILD_NAME}
+docker buildx build --push --platform ${PLATFORMS} -t pyston/slim:latest -t pyston/slim:${BUILD_NAME} -f ${DIR}/Dockerfile.slim-bullseye ${DIR}
+
+docker buildx build --push --platform ${PLATFORMS} -t pyston/conda:latest -t pyston/conda:${BUILD_NAME} -f ${DIR}/Dockerfile.conda ${DIR}
+
+docker buildx rm pyston-build-context
