@@ -196,6 +196,29 @@ def buildFeedstock(feedstock, version="latest", do_upload=False):
     subprocess.check_call(["conda-smithy", "rerender"], cwd=dir)
 
     for file, cmd in sed_commands:
+        tmp_str = "^^^^"
+        if cmd[0] == 's':
+            sep = cmd[1]
+            cmd = cmd.replace("\\" + sep, tmp_str)
+            splits = cmd.split(cmd[1])
+            assert len(splits) == 4, cmd
+            check_pattern = splits[1]
+            check_pattern = check_pattern.replace(tmp_str, sep)
+        elif cmd[0] == '/':
+            splits = cmd.split(cmd[0])
+            assert len(splits) == 3, splits
+            check_pattern = splits[0]
+        else:
+            assert 0, "Don't know how to interpret %r" % cmd
+
+        # Convert sed pattern to egrep; these chars have opposite escaping rules:
+        for chr in ("(", ")", "+", "$"):
+            check_pattern = check_pattern.replace("\\" + chr, tmp_str)
+            check_pattern = check_pattern.replace(chr, "\\" + chr)
+            check_pattern = check_pattern.replace(tmp_str, chr)
+        # Make sure the sed applies:
+        subprocess.check_call(["egrep", "-q", check_pattern, file], cwd=dir)
+
         subprocess.check_call(["sed", "-i", cmd, file], cwd=dir)
 
     patch_fn = os.path.join(os.path.dirname(__file__), "patches/%s.patch" % feedstock)
