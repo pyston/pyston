@@ -10,9 +10,9 @@ ENV LANG C.UTF-8
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends wget; \
-    wget https://github.com/pyston/pyston/releases/download/pyston_${PYSTON_VERSION}/pyston_${PYSTON_VERSION}_${UBUNTU_VERSION}.deb; \
-    apt-get install -y ./pyston_${PYSTON_VERSION}_${UBUNTU_VERSION}.deb; \
-    rm pyston_${PYSTON_VERSION}_${UBUNTU_VERSION}.deb; \
+    wget https://github.com/pyston/pyston/releases/download/pyston_${PYSTON_VERSION}/pyston_${PYSTON_VERSION}_${UBUNTU_VERSION}_`dpkg --print-architecture`.deb; \
+    apt-get install -y ./pyston_*; \
+    rm pyston_*; \
     apt-get remove -y wget; \
     apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
     rm -rf /var/lib/apt/lists/*
