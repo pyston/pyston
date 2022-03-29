@@ -734,6 +734,10 @@ static unsigned long jit_stat_call_method_hit, jit_stat_call_method_miss, jit_st
 |.define tmp2, x6
 #define tmp2_idx 6
 
+// this is currently only used in deferred_vs_emit() which requires a temporary reg which is different from the two other we already have
+|.define tmp_pair, x8
+#define tmp_pair_idx 8
+
 |.define zero_reg, xzr  // this register is always 0 - nice for clearing memory
 #define zero_reg_idx 31
 @ARM_END
@@ -796,6 +800,11 @@ static void switch_section(Jit* Dst, Section new_section) {
 |.macro branch_gt, dst
 @ARM| bgt dst
 @X86| jg dst
+|.endmacro
+
+|.macro branch_ge, dst
+@ARM| bge dst
+@X86| jge dst
 |.endmacro
 
 |.macro branch_le, dst
@@ -1330,8 +1339,9 @@ static void emit_decref2(Jit* Dst, int r_idx, int r_idx2, int preserve_res) {
 }
 
 static void emit_xdecref_arg1(Jit* Dst) {
-    emit_cmp64_imm(Dst, arg1_idx, 0);
-    | branch_eq >9
+@ARM| cbz arg1, >9 // compare and branch on zero. only allows to jump up to 126 byte but is okay here because it's much closer
+@X86emit_cmp64_imm(Dst, arg1_idx, 0);
+@X86| branch_eq >9
     emit_decref(Dst, arg1_idx, 0 /* don't preserve res */);
     |9:
 }
@@ -1435,32 +1445,6 @@ static void debug_error_not_a_jump_target(PyFrameObject* f) {
 }
 #endif
 
-// warning this will overwrite tmp, arg1 and arg2
-static void emit_jmp_to_lasti(Jit* Dst) {
-    emit_load32_mem(Dst, arg1_idx, f_idx, offsetof(PyFrameObject, f_lasti));
-
-#if JIT_DEBUG
-    // generate code to check that the instruction we jump to had 'is_jmp_target' set
-    // every entry in the is_jmp_target array is 4 bytes long. 'lasti / 2' is the index
-
-@ARM| adr arg2, ->is_jmp_target
-@ARM| lsl tmp, arg1, #1
-@ARM| ldr tmp, [arg2, tmp]
-@ARM| cmp tmp, #0
-
-@X86| lea arg2, [->is_jmp_target]
-@X86| cmp dword [arg2 + arg1*2], 0
-
-    | branch_ne >9
-    | mov arg1, f
-    emit_call_ext_func(Dst, debug_error_not_a_jump_target);
-
-    |9:
-#endif
-
-    emit_jmp_to_inst_idx(Dst, arg1_idx);
-}
-
 static int get_fastlocal_offset(int fastlocal_idx) {
     return offsetof(PyFrameObject, f_localsplus) + fastlocal_idx * 8;
 }
@@ -1521,35 +1505,68 @@ static void emit_update_f_lasti(Jit* Dst, long val) {
 // Deferred value stack functions
 static void deferred_vs_emit(Jit* Dst) {
     if (Dst->deferred_vs_next) {
+        int clear_vs_preserved_reg = 0;
+        // we use this to generate store pair instructions on arm
+        // if the value is not -1 at the beginning it means we have a not yet stored value which is lives in register 'prev_store_reg'
+@ARM    int prev_store_reg = -1;
         for (int i=Dst->deferred_vs_next; i>0; --i) {
+            int delayed_store = 1;
+            int tmpreg = tmp_idx;
+@ARM        if (prev_store_reg == -1)
+@ARM            tmpreg = tmp_pair_idx;
             DeferredValueStackEntry* entry = &Dst->deferred_vs[i-1];
             if (entry->loc == CONST) {
                 PyObject* obj = PyTuple_GET_ITEM(Dst->co_consts, entry->val);
-                if (IS_IMMORTAL(obj)) {
+                // don't use this path on arm because it prevents storing a pair and arm does not have a store instructions which support immediates
+                // which means it will expanded into a mov + store - we can do better in the common path which at least handles pairs.
+@ARM            if (0) {
+@X86            if (IS_IMMORTAL(obj)) {
                     emit_store64_mem_imm(Dst, (unsigned long)obj, vsp_idx, 8 * (i-1));
+                    delayed_store = 0;
                 } else {
-                    emit_mov_imm(Dst, tmp_idx, (unsigned long)obj);
-                    emit_incref(Dst, tmp_idx);
-                    emit_store64_mem(Dst, tmp_idx, vsp_idx, 8 * (i-1));
+                    emit_mov_imm(Dst, tmpreg, (unsigned long)obj);
+                    if (!IS_IMMORTAL(obj)) {
+                        emit_incref(Dst, tmpreg);
+                    }
                 }
             } else if (entry->loc == FAST) {
-                emit_load64_mem(Dst, tmp_idx, f_idx, get_fastlocal_offset(entry->val));
-                emit_incref(Dst, tmp_idx);
-                emit_store64_mem(Dst, tmp_idx, vsp_idx, 8 * (i-1));
+                emit_load64_mem(Dst, tmpreg, f_idx, get_fastlocal_offset(entry->val));
+                emit_incref(Dst, tmpreg);
             } else if (entry->loc == REGISTER) {
-                emit_store64_mem(Dst, entry->val, vsp_idx, 8 * (i-1));
+                tmpreg = entry->val;
                 if (entry->val == vs_preserved_reg_idx) {
-                    emit_mov_imm(Dst, vs_preserved_reg_idx, 0); // we have to clear it because error path will xdecref
+                    clear_vs_preserved_reg = 1;
                 }
             } else if (entry->loc == STACK) {
-                emit_load64_mem(Dst, tmp_idx, sp_reg_idx, (entry->val + NUM_MANUAL_STACK_SLOTS) * 8);
+                emit_load64_mem(Dst, tmpreg, sp_reg_idx, (entry->val + NUM_MANUAL_STACK_SLOTS) * 8);
                 emit_store64_mem_imm(Dst, 0 /* = value */, sp_reg_idx, (entry->val + NUM_MANUAL_STACK_SLOTS) * 8);
-                emit_store64_mem(Dst, tmp_idx, vsp_idx, 8 * (i-1));
             } else {
                 JIT_ASSERT(0, "entry->loc not implemented");
             }
+            if (delayed_store) {
+@ARM_START
+                if (prev_store_reg != -1) {
+                    if (i > 1) {
+                        | stp Rx(tmpreg), Rx(prev_store_reg), [vsp, #8 * (i-1)]
+                    } else {
+                        | stp Rx(tmpreg), Rx(prev_store_reg), [vsp], #8 * Dst->deferred_vs_next
+                    }
+                    prev_store_reg = -1;
+                } else {
+                    if (i > 1) {
+                        prev_store_reg = tmpreg;
+                    } else {
+                        | str Rx(tmpreg), [vsp], #8 * Dst->deferred_vs_next
+                    }
+                }
+@ARM_END
+@X86            emit_store64_mem(Dst, tmpreg, vsp_idx, 8 * (i-1));
+            }
         }
-        emit_adjust_vs(Dst, Dst->deferred_vs_next);
+        if (clear_vs_preserved_reg) {
+            emit_mov_imm(Dst, vs_preserved_reg_idx, 0); // we have to clear it because error path will xdecref
+        }
+@X86    emit_adjust_vs(Dst, Dst->deferred_vs_next);
     }
 }
 
@@ -1739,10 +1756,53 @@ static void deferred_vs_peek_top_and_apply(Jit* Dst, int r_idx_top) {
 }
 
 static void deferred_vs_pop_n(Jit* Dst, int num, const int* const regs, RefStatus out_ref_status[]) {
-    for (int i=0; i<num; ++i) {
-        out_ref_status[i] = deferred_vs_peek(Dst, regs[i], i+1);
+    if (num <= 0)
+        return;
+
+    // how many values come from the deferred value stack
+    int num_deferred = Dst->deferred_vs_next < num ? Dst->deferred_vs_next : num;
+    // how many values come from the value stack
+    int num_vs = num - num_deferred;
+
+    for (int i=0; i<num_deferred; ++i) {
+        // check for duplicates:
+        // if this is a CONST or FAST entry and we already loaded it
+        // replace it with a register mov.
+        // This just does a linear search but because we only have very few num_deferred entries this should not be a perf problem.
+        // (most of the times it's 2-3 entries and can't be more than DEFERRED_VS_MAX)
+        DeferredValueStackEntry* entry = &GET_DEFERRED[-i-1];
+        int found_duplicate = 0;
+        if (entry->loc == CONST || entry->loc == FAST) {
+            for (int prev=0; prev < i; ++prev) {
+                DeferredValueStackEntry* entry_prev = &GET_DEFERRED[-prev-1];
+                if (entry->loc == entry_prev->loc && entry->val == entry_prev->val) {
+                    // found a duplicate: replace it with a register mov
+                    emit_mov64_reg(Dst, regs[i], regs[prev]);
+                    out_ref_status[i] = out_ref_status[prev];
+                    found_duplicate = 1;
+                    break;
+                }
+            }
+        }
+        if (!found_duplicate) {
+            out_ref_status[i] = deferred_vs_peek(Dst, regs[i], i+1);
+        }
     }
-    deferred_vs_remove(Dst, num);
+    deferred_vs_remove(Dst, num_deferred);
+
+    if (num_vs) {
+        for (int i=0, reverse_i=num-1; i<num_vs; ++i, --reverse_i) {
+            out_ref_status[reverse_i] = OWNED;
+            if (i == 0) {
+                // on arm we can adjust the value stack pointer directly
+                // in the load instruction.
+@ARM            | ldr Rx(regs[reverse_i]), [vsp, #-8*num_vs]!
+@ARM            continue;
+@X86            emit_adjust_vs(Dst, -num_vs);
+            }
+            emit_load64_mem(Dst, regs[reverse_i], vsp_idx, 8*i);
+        }
+    }
 }
 
 // returns one of BORROWED, OWNED, or IMMORTAL
@@ -1758,8 +1818,8 @@ typedef struct RegAndStatus {
     RefStatus ref_status;
 } RegAndStatus;
 
-static RegAndStatus deferred_vs_pop1_anyreg(Jit* Dst, int only_if_owned) {
-    int reg_idx = arg1_idx;
+static RegAndStatus deferred_vs_pop1_anyreg(Jit* Dst, int preferred_reg_idx, int only_if_owned) {
+    int reg_idx = preferred_reg_idx;
     if (Dst->deferred_vs_next > 0) {
         int idx = Dst->deferred_vs_next - 1;
         DeferredValueStackEntry* entry = &Dst->deferred_vs[idx];
@@ -1786,6 +1846,12 @@ static RegAndStatus deferred_vs_pop1_anyreg(Jit* Dst, int only_if_owned) {
     r.reg_idx = reg_idx;
     r.ref_status = ref_status;
     return r;
+}
+static int deferred_vs_pop1_anyreg_owned(Jit* Dst, int preferred_reg_idx) {
+    RegAndStatus ret = deferred_vs_pop1_anyreg(Dst, preferred_reg_idx, 0);
+    if (ret.ref_status == BORROWED)
+        emit_incref(Dst, ret.reg_idx);
+    return ret.reg_idx;
 }
 
 static void deferred_vs_pop2(Jit* Dst, int r_idx1, int r_idx2, RefStatus out_ref_status[]) {
@@ -2212,8 +2278,6 @@ static void emit_instr_start(Jit* Dst, int inst_idx, int opcode, int oparg) {
 
     // we don't emit signal and tracing checks for this opcodes
     // because we know they are not calling into any python function.
-    // We currently don't do this optimizations for opcodes like STORE_FAST which
-    // could call a destructor.
     switch (opcode) {
 #if ENABLE_AVOID_SIG_TRACE_CHECK
         case NOP:
@@ -2231,6 +2295,12 @@ static void emit_instr_start(Jit* Dst, int inst_idx, int opcode, int oparg) {
         case LOAD_FAST:
             if (Dst->known_defined[oparg])
                 return; // don't do a sig check if we know the load can't throw
+            break;
+
+        case STORE_FAST:
+            // only avoid check if we already generated one for the current line.
+            if (Dst->emitted_trace_check_for_line)
+                return;
             break;
 
 #endif // ENABLE_AVOID_SIG_TRACE_CHECK
@@ -2463,10 +2533,12 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             break;
 
         case STORE_FAST:
-            deferred_vs_pop1_owned(Dst, arg2_idx);
+        {
+            int new_value_reg = deferred_vs_pop1_anyreg_owned(Dst, arg2_idx);
+            JIT_ASSERT(new_value_reg != arg1_idx, "");
             deferred_vs_apply_if_same_var(Dst, oparg);
             emit_load64_mem(Dst, arg1_idx, f_idx, get_fastlocal_offset(oparg));
-            emit_store64_mem(Dst, arg2_idx, f_idx, get_fastlocal_offset(oparg));
+            emit_store64_mem(Dst, new_value_reg, f_idx, get_fastlocal_offset(oparg));
             if (Dst->known_defined[oparg]) {
                 emit_decref(Dst, arg1_idx, 0 /* don't preserve res */);
             } else {
@@ -2475,6 +2547,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             if (ENABLE_DEFINED_TRACKING)
                 Dst->known_defined[oparg] = 1;
             break;
+        }
 
         case DELETE_FAST:
         {
@@ -2498,7 +2571,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
         case POP_TOP:
         {
-            RegAndStatus reg_and_status = deferred_vs_pop1_anyreg(Dst, 1 /* only_if_owned */);
+            RegAndStatus reg_and_status = deferred_vs_pop1_anyreg(Dst, arg1_idx, 1 /* only_if_owned */);
             if (reg_and_status.ref_status == OWNED) {
                 emit_decref(Dst, reg_and_status.reg_idx, Dst->deferred_vs_res_used /*= preserve res */);
             }
@@ -3146,17 +3219,19 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             deferred_vs_push(Dst, REGISTER, res_idx);
             break;
 
-        case STORE_DEREF:
-            deferred_vs_pop1_owned(Dst, arg2_idx);
+        case STORE_DEREF: {
+            int new_value_reg = deferred_vs_pop1_anyreg_owned(Dst, arg2_idx);
+            JIT_ASSERT(new_value_reg != arg1_idx && new_value_reg != arg3_idx, "");
             deferred_vs_convert_reg_to_stack(Dst);
             // PyObject *cell = freevars[oparg];
             emit_load_freevar(Dst, arg3_idx, oparg);
             // PyObject *oldobj = PyCell_GET(cell);
             emit_load64_mem(Dst, arg1_idx, arg3_idx, offsetof(PyCellObject, ob_ref));
             // PyCell_SET(cell, v);
-            emit_store64_mem(Dst, arg2_idx, arg3_idx, offsetof(PyCellObject, ob_ref));
+            emit_store64_mem(Dst, new_value_reg, arg3_idx, offsetof(PyCellObject, ob_ref));
             emit_xdecref_arg1(Dst);
             break;
+        }
 
         case LOAD_DEREF:
         case DELETE_DEREF:
@@ -3171,9 +3246,10 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             switch_section(Dst, SECTION_COLD);
             |1:
             emit_mov_imm(Dst, arg3_idx, oparg); // deref_error assumes that oparg is in arg3!
-            | branch ->deref_error
 
-            if (!deref_error_label) {
+            if (deref_error_label) {
+                | branch ->deref_error
+            } else {
                 deref_error_label = 1;
                 |->deref_error: // assumes that oparg is in arg3!
                 | mov arg1, tstate
@@ -3503,6 +3579,36 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     ////////////////////////////////
     // EPILOG OF EMITTED CODE: jump target to different exit path
     |->epilog:
+    |->return:
+    // ret value one must already be set
+    // second is the value stackpointer
+    | mov res2, vsp
+
+    // remove stack variable
+@ARMconst int num_callee_saved = 8;
+@ARM| add sp, sp, #(num_callee_saved+num_stack_slots)*8
+@X86| add rsp, num_stack_slots*8
+
+    // restore callee saves
+@ARM_START
+    | ldp x29, x30, [sp, #-16]
+    | ldp vs_preserved_reg, tmp_preserved_reg, [sp, #-32]
+    | ldp f, tstate, [sp, #-48]
+    | ldp vsp, interrupt, [sp, #-64]
+    | ret
+@ARM_END
+@X86_START
+    | pop interrupt
+    | pop vsp
+    | pop tstate
+    | pop f
+    | pop tmp_preserved_reg
+    | pop vs_preserved_reg
+    | ret
+@X86_END
+
+
+
     // TODO: only emit a label if we actually generated an instruction which needs it
     |->exception_unwind:
     emit_mov_imm(Dst, real_res_idx, 1);
@@ -3590,34 +3696,8 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     }
 
     emit_mov_imm(Dst, real_res_idx, 0);
+    | branch ->return
 
-    |->return:
-    // ret value one must already be set
-    // second is the value stackpointer
-    | mov res2, vsp
-
-    // remove stack variable
-@ARMconst int num_callee_saved = 8;
-@ARM| add sp, sp, #(num_callee_saved+num_stack_slots)*8
-@X86| add rsp, num_stack_slots*8
-
-    // restore callee saves
-@ARM_START
-    | ldp x29, x30, [sp, #-16]
-    | ldp vs_preserved_reg, tmp_preserved_reg, [sp, #-32]
-    | ldp f, tstate, [sp, #-48]
-    | ldp vsp, interrupt, [sp, #-64]
-    | ret
-@ARM_END
-@X86_START
-    | pop interrupt
-    | pop vsp
-    | pop tstate
-    | pop f
-    | pop tmp_preserved_reg
-    | pop vs_preserved_reg
-    | ret
-@X86_END
 
 
     ////////////////////////////////
@@ -3673,9 +3753,41 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         emit_store64_mem_imm(Dst, 0 /* =value */, sp_reg_idx, (NUM_MANUAL_STACK_SLOTS + i) * 8);
     }
 
-    // jumps either to first opcode implementation or resumes a generator
-    emit_jmp_to_lasti(Dst);
+    // in the most common case where f_lasti is < 0 it just fallsthrough to the first opcode
+    // in the other cases it will jump to the opcode f_lasti + 2.
+    emit_load32_mem(Dst, arg1_idx, f_idx, offsetof(PyFrameObject, f_lasti));
+    emit_cmp32_imm(Dst, arg1_idx, 0);
+    | branch_ge >1
 
+    int prev_section = Dst->current_section;
+    JIT_ASSERT(prev_section == SECTION_ENTRY, "");
+    switch_section(Dst, SECTION_CODE);
+
+    |1:
+    emit_add_or_sub_imm(Dst, arg1_idx, arg1_idx, 2); // we have to increment the value by 2.
+
+#if JIT_DEBUG
+    // generate code to check that the instruction we jump to had 'is_jmp_target' set
+    // every entry in the is_jmp_target array is 4 bytes long. 'lasti / 2' is the index
+
+@ARM| adr arg2, ->is_jmp_target
+@ARM| lsl tmp, arg1, #1
+@ARM| ldr tmp, [arg2, tmp]
+@ARM| cmp tmp, #0
+
+@X86| lea arg2, [->is_jmp_target]
+@X86| cmp dword [arg2 + arg1*2], 0
+
+    | branch_ne >9
+    | mov arg1, f
+    emit_call_ext_func(Dst, debug_error_not_a_jump_target);
+
+    |9:
+#endif
+    emit_jmp_to_inst_idx(Dst, arg1_idx);
+
+    switch_section(Dst, prev_section);
+    // code assumes that the opcodes follows here...
 
     ////////////////////////////////
     // OPCODE TABLE
