@@ -1,6 +1,6 @@
-{% set build_num = 12 %}
+{% set build_num = 13 %} # caution: only reset when python_version changes
 {% set llvm_version = "13.0.1" %}
-{% set pyston_version = "2.3.2" %}
+{% set pyston_version = "2.3.3" %}
 {% set python_version = "3.8.12" %}
 {% set pyston_version2 = ".".join(pyston_version.split(".")[:2]) %}
 {% set python_version2 = ".".join(python_version.split(".")[:2]) %}

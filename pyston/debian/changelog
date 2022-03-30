@@ -1,3 +1,10 @@
+pyston (2.3.3) unstable; urgency=medium
+
+  * First release which supports Arm64 (=aarch64)
+  * Small performance improvements and bugfixes
+
+ -- Marius Wachtler <undingen@gmail.com>  Wed, 30 Mar 2022 12:20:00 +0200
+
 pyston (2.3.2) unstable; urgency=medium
 
   * Fix a memory leak, and setuptools 60.0 support

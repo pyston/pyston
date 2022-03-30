@@ -2,7 +2,7 @@
 
 set -eu
 
-VERSION=2.3.2
+VERSION=2.3.3
 OUTPUT_DIR=${PWD}/release/${VERSION}
 ARCH=`dpkg --print-architecture`
 

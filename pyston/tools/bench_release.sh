@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-VERSION=2.3.2
+VERSION=2.3.3
 INPUT_DIR=${PWD}/release/${VERSION}
 OUTPUT_DIR=`realpath ${INPUT_DIR}/bench`
 
@@ -46,7 +46,7 @@ if [ "$DIST" = "20.04" ]; then
     chown -R $(id -u):$(id -g) /host-volume-out/cpython_${DIST}.json
     pyston -mpyperformance compare -O table /host-volume-out/cpython_${DIST}.json /host-volume-out/pyston_${VERSION}_${DIST}.json > /host-volume-out/pyperformance_diff_${DIST}.txt
     chown -R $(id -u):$(id -g) /host-volume-out/pyperformance_diff_${DIST}.txt
-    
+
     python-macrobenchmarks/run_all.sh /usr/bin/python3
     mv results /host-volume-out/results_cpython_${DIST}
     chown -R $(id -u):$(id -g) /host-volume-out/results_cpython_${DIST}
