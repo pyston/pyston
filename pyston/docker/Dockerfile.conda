@@ -9,9 +9,9 @@ RUN set -eux; \
             ca-certificates \
             wget \
         ; \
-    wget https://github.com/pyston/pyston/releases/download/pyston_${PYSTON_VERSION}/PystonConda-${INSTALLER_VERSION}-Linux-x86_64.sh; \
-    bash PystonConda-${INSTALLER_VERSION}-Linux-x86_64.sh -b; \
-    rm PystonConda-${INSTALLER_VERSION}-Linux-x86_64.sh; \
+    wget https://github.com/pyston/pyston/releases/download/pyston_${PYSTON_VERSION}/PystonConda-${INSTALLER_VERSION}-Linux-`uname -m`.sh; \
+    bash PystonConda* -b; \
+    rm PystonConda*; \
     /root/pystonconda/bin/conda init; \
     apt-get remove -y wget; \
     apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
