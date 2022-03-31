@@ -72,6 +72,15 @@ Extra dependencies for producing Pyston debian packages and portable directory r
 sudo apt-get install dh-make dh-exec debhelper patchelf
 ```
 
+Extra dependencies for producing Pyston docker images (on amd64 adjust for arm64):
+```
+# docker buildx
+wget https://github.com/docker/buildx/releases/download/v0.8.1/buildx-v0.8.1.linux-amd64 -O $HOME/.docker/cli-plugins/docker-buildx
+chmod +x $HOME/.docker/cli-plugins/docker-buildx
+# qemu
+docker run --privileged --rm tonistiigi/binfmt --install arm64
+```
+
 ## Building
 
 For a build with all optimizations enabled (LTO+PGO) run:
