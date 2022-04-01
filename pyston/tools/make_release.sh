@@ -2,7 +2,7 @@
 
 set -eu
 
-VERSION=2.3.2
+VERSION=2.3.3
 OUTPUT_DIR=${PWD}/release/${VERSION}
 ARCH=`dpkg --print-architecture`
 
@@ -69,7 +69,7 @@ chown -R $(id -u):$(id -g) pyston_${VERSION}
 cp -ar pyston_${VERSION}_${ARCH}.deb /host-volume/pyston_${VERSION}_${DIST}_${ARCH}.deb
 cp -ar pyston_${VERSION} /host-volume/pyston_${VERSION}_${DIST}_${ARCH}
 # create archive of portable dir
-tar -czf /host-volume/pyston_${VERSION}_${DIST}_${ARCH}.tar.gz pyston_${VERSION}_${ARCH}
+tar -czf /host-volume/pyston_${VERSION}_${DIST}_${ARCH}.tar.gz pyston_${VERSION}
 EOF
     docker image rm pyston-build:$DIST
 }

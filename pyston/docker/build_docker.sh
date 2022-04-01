@@ -7,7 +7,7 @@
 
 set -eux
 
-BUILD_NAME=2.3.2
+BUILD_NAME=2.3.3
 DIR=$(dirname $0)
 PLATFORMS=linux/amd64,linux/arm64
 
