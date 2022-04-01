@@ -1,6 +1,6 @@
 # Pyston
 
-Pyston is a fork of CPython 3.8.8 with additional optimizations for performance.  It is targeted at large real-world applications such as web serving, delivering up to a 30% speedup with no development work required.
+Pyston is a fork of CPython 3.8.12 with additional optimizations for performance.  It is targeted at large real-world applications such as web serving, delivering up to a 30% speedup with no development work required.
 
 [Blog](https://blog.pyston.org/)
 
