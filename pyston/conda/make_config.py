@@ -1,5 +1,9 @@
 import os
+import subprocess
 import sys
+
+arch = subprocess.check_output(["uname", "-m"]).decode("utf8").strip()
+arch = {"aarch64": "aarch64", "x86_64": "64"}[arch]
 
 def replace_section(lines, name, new_str):
     for i in range(len(lines)):
@@ -16,6 +20,10 @@ def replace_section(lines, name, new_str):
     return False
 
 def rewrite_config(config_str):
+    if arch == "aarch64":
+        # Looks like some aarch64 CF configs reference an x86 docker image:
+        config_str = config_str.replace("quay.io/condaforge/linux-anvil-cos7-x86_64", "quay.io/condaforge/linux-anvil-aarch64")
+
     lines = config_str.split('\n')
 
     removed = replace_section(lines, "python", "- 3.8.* *_pyston")
@@ -24,9 +32,9 @@ def rewrite_config(config_str):
 
     replace_section(lines, "python_impl", "- pyston")
 
-    removed = replace_section(lines, "numpy", "- '1.18'")
+    removed = replace_section(lines, "numpy", "- '1.19'")
     if removed:
-        assert any("1.18" in s for s in removed), removed
+        assert any("1.19" in s for s in removed), removed
 
     return '\n'.join(lines)
 
@@ -38,7 +46,11 @@ def main():
     cwd = os.getcwd()
 
     for c in configs:
-        if "aarch64" in c or "ppc" in c:
+        if arch == "aarch64" and "aarch64" not in c:
+            continue
+        if arch != "aarch64" and "aarch64" in c:
+            continue
+        if "ppc" in c:
             continue
         if "win" in c or "osx" in c:
             continue
@@ -52,7 +64,7 @@ def main():
             continue
         if "nomkl" in c:
             continue
-        if "pyproj" in cwd and "8.2.0" not in c:
+        if "pyproj" in cwd and "9.0.0" not in c:
             continue
         if "paraview" in cwd and "qt" not in c:
             continue
@@ -61,7 +73,7 @@ def main():
 
         # Not sure about this, but only build the cpu version of arrow-cpp
         if "arrow-cpp" in cwd:
-            if "None" not in c:
+            if arch == "64" and "None" not in c:
                 continue
         elif "cuda_compiler_version" in c or "cuda" in cwd:
             assert "11.3" not in c
@@ -73,8 +85,12 @@ def main():
 
         possible_configs.append(c)
 
+    if not possible_configs:
+        raise Exception("No suitable configs found; checked: %s" % configs)
     assert len(possible_configs) == 1, possible_configs
     config, = possible_configs
+
+    print("Picked %r as the config base" % config, file=sys.stderr)
 
     config_str = open(".ci_support/" + config).read()
     new_config_str = rewrite_config(config_str)

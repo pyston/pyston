@@ -1,0 +1,14 @@
+diff --git a/numpy/testing/_private/utils.py b/numpy/testing/_private/utils.py
+index 23267a9e1..91bd47968 100644
+--- a/numpy/testing/_private/utils.py
++++ b/numpy/testing/_private/utils.py
+@@ -53,7 +53,8 @@ KnownFailureTest = KnownFailureException  # backwards compat
+ verbose = 0
+ 
+ IS_PYPY = platform.python_implementation() == 'PyPy'
+-HAS_REFCOUNT = getattr(sys, 'getrefcount', None) is not None
++IS_PYSTON = hasattr(sys, "pyston_version_info")
++HAS_REFCOUNT = getattr(sys, 'getrefcount', None) is not None and not IS_PYSTON
+ HAS_LAPACK64 = hasattr(numpy.__config__, 'lapack_ilp64_opt_info')
+ 
+ 
