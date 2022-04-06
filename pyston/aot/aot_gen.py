@@ -273,20 +273,9 @@ class Handler(object):
     def _emitDeopt(self, deopt_to, pass_args, f):
         # if we call another AOT function we have to make sure we generate a jump and not a call
         # this is because the called trace will try to patch the call instruction by looking at the
-        # return address. Unfortunately only Clang >= 13 has __attribute__((musttail)).
-        # To workaround this issue we call into the unspecialized function but patch the return address
-        # to the more optimized guard_fail_fn_name which will get called from the JIT next time.
+        # return address.
         print(f"    SET_JIT_AOT_FUNC({deopt_to});", file=f)
-        if 0: # case when clang 13 is widely adopted
-            print(f"    PyObject* ret = {deopt_to}({pass_args});", file=f)
-            # this makes sure the compiler is not merging the calls into a single one
-            print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
-            print(f"    __attribute__((musttail)) return ret;", file=f)
-        else:
-            print(f"    PyObject* ret = {self.case.unspecialized_name}({pass_args});", file=f)
-            # this makes sure the compiler is not merging the calls into a single one
-            print(f"    __builtin_assume(ret != (PyObject*)0x1);", file=f)
-            print(f"    return ret;", file=f)
+        print(f"    __attribute__((musttail)) return {deopt_to}({pass_args});", file=f)
 
 class NormalHandler(Handler):
     """
