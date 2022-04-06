@@ -2117,6 +2117,11 @@ main_loop:
                speedup on microbenchmarks. */
             if (PyUnicode_CheckExact(left) &&
                      PyUnicode_CheckExact(right)) {
+                // Pyston change: we use the opcache to signal that we can optimize this unicode concat
+                OPCACHE_CHECK();
+                if (co_opcache)
+                    co_opcache->optimized = 1;
+
                 sum = unicode_concatenate(tstate, left, right, f, next_instr);
                 /* unicode_concatenate consumed the ref to left */
             }
@@ -2316,6 +2321,11 @@ main_loop:
             PyObject *left = TOP();
             PyObject *sum;
             if (PyUnicode_CheckExact(left) && PyUnicode_CheckExact(right)) {
+                // Pyston change: we use the opcache to signal that we can optimize this unicode concat
+                OPCACHE_CHECK();
+                if (co_opcache)
+                    co_opcache->optimized = 1;
+
                 sum = unicode_concatenate(tstate, left, right, f, next_instr);
                 /* unicode_concatenate consumed the ref to left */
             }
