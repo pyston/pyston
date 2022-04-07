@@ -327,14 +327,14 @@ static void* __attribute__ ((const)) get_addr_of_helper_func(int opcode, int opa
 
 static void* __attribute__ ((const)) get_addr_of_aot_func(int opcode, int oparg, int opcache_available) {
     #define OPCODE_STATIC(x, func) if (opcode == x) return (func)
-    #define OPCODE_PROFILE(x, func) OPCODE_STATIC(x, jit_use_aot ? func##Profile : func)
+    #define OPCODE_PROFILE(x, func) OPCODE_STATIC(x, jit_use_aot ? AOT_##func##Profile : func)
 
     OPCODE_PROFILE(UNARY_POSITIVE, PyNumber_Positive);
     OPCODE_PROFILE(UNARY_NEGATIVE, PyNumber_Negative);
     OPCODE_PROFILE(UNARY_INVERT, PyNumber_Invert);
 
     // special case we reuse PyObject_IsTrue
-    OPCODE_STATIC(UNARY_NOT, jit_use_aot ? PyObject_IsTrueProfile : PyObject_IsTrue);
+    OPCODE_STATIC(UNARY_NOT, jit_use_aot ? AOT_PyObject_IsTrueProfile : PyObject_IsTrue);
 
     OPCODE_PROFILE(GET_ITER, PyObject_GetIter);
 
@@ -389,14 +389,14 @@ static void* __attribute__ ((const)) get_addr_of_aot_func(int opcode, int oparg,
 
     if (opcode == COMPARE_OP) {
         switch (oparg) {
-        case PyCmp_LT: return jit_use_aot ? cmp_outcomePyCmp_LTProfile : cmp_outcomePyCmp_LT;
-        case PyCmp_LE: return jit_use_aot ? cmp_outcomePyCmp_LEProfile : cmp_outcomePyCmp_LE;
-        case PyCmp_EQ: return jit_use_aot ? cmp_outcomePyCmp_EQProfile : cmp_outcomePyCmp_EQ;
-        case PyCmp_NE: return jit_use_aot ? cmp_outcomePyCmp_NEProfile : cmp_outcomePyCmp_NE;
-        case PyCmp_GT: return jit_use_aot ? cmp_outcomePyCmp_GTProfile : cmp_outcomePyCmp_GT;
-        case PyCmp_GE: return jit_use_aot ? cmp_outcomePyCmp_GEProfile : cmp_outcomePyCmp_GE;
-        case PyCmp_IN: return jit_use_aot ? cmp_outcomePyCmp_INProfile : cmp_outcomePyCmp_IN;
-        case PyCmp_NOT_IN: return jit_use_aot ? cmp_outcomePyCmp_NOT_INProfile : cmp_outcomePyCmp_NOT_IN;
+        case PyCmp_LT: return jit_use_aot ? AOT_cmp_outcomePyCmp_LTProfile : cmp_outcomePyCmp_LT;
+        case PyCmp_LE: return jit_use_aot ? AOT_cmp_outcomePyCmp_LEProfile : cmp_outcomePyCmp_LE;
+        case PyCmp_EQ: return jit_use_aot ? AOT_cmp_outcomePyCmp_EQProfile : cmp_outcomePyCmp_EQ;
+        case PyCmp_NE: return jit_use_aot ? AOT_cmp_outcomePyCmp_NEProfile : cmp_outcomePyCmp_NE;
+        case PyCmp_GT: return jit_use_aot ? AOT_cmp_outcomePyCmp_GTProfile : cmp_outcomePyCmp_GT;
+        case PyCmp_GE: return jit_use_aot ? AOT_cmp_outcomePyCmp_GEProfile : cmp_outcomePyCmp_GE;
+        case PyCmp_IN: return jit_use_aot ? AOT_cmp_outcomePyCmp_INProfile : cmp_outcomePyCmp_IN;
+        case PyCmp_NOT_IN: return jit_use_aot ? AOT_cmp_outcomePyCmp_NOT_INProfile : cmp_outcomePyCmp_NOT_IN;
 
         // we don't create type specific version for those so use non Profile final versions
         case PyCmp_BAD: return cmp_outcomePyCmp_BAD;
@@ -839,7 +839,7 @@ static int fits_in_12bit_with_12bit_rshift(long val) {
 
 static int can_use_relative_call(void *addr) {
     // bl only supports +-128MB - for additional safety we try to stay +-64MB away from this AOT symbol.
-@ARMreturn labs((int64_t)addr-(int64_t)PyObject_IsTrueProfile) < 64*1024*1024;
+@ARMreturn labs((int64_t)addr-(int64_t)AOT_PyObject_IsTrueProfile) < 64*1024*1024;
 @X86return IS_32BIT_VAL((long)addr);
 }
 
@@ -1910,7 +1910,7 @@ static void emit_jump_if_false(Jit* Dst, int oparg, RefStatus ref_status) {
 
     switch_section(Dst, SECTION_COLD);
     |1:
-    void* func = jit_use_aot ? PyObject_IsTrueProfile : PyObject_IsTrue;
+    void* func = jit_use_aot ? AOT_PyObject_IsTrueProfile : PyObject_IsTrue;
     emit_call_decref_args1(Dst, func, arg1_idx, &ref_status);
     emit_cmp32_imm(Dst, res_idx, 0);
     emit_je_to_bytecode_n(Dst, oparg);
@@ -1930,7 +1930,7 @@ static void emit_jump_if_true(Jit* Dst, int oparg, RefStatus ref_status) {
 
     switch_section(Dst, SECTION_COLD);
     |1:
-    void* func = jit_use_aot ? PyObject_IsTrueProfile : PyObject_IsTrue;
+    void* func = jit_use_aot ? AOT_PyObject_IsTrueProfile : PyObject_IsTrue;
     emit_call_decref_args1(Dst, func, arg1_idx, &ref_status);
     emit_cmp32_imm(Dst, res_idx, 0);
     emit_jg_to_bytecode_n(Dst, oparg);
@@ -2716,7 +2716,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 if (n == -1 && PyErr_Occurred()) {
                     PyErr_Clear();
                 } else {
-                    func = jit_use_aot ? PyObject_GetItemLongProfile : PyObject_GetItemLong;
+                    func = jit_use_aot ? AOT_PyObject_GetItemLongProfile : PyObject_GetItemLong;
                     emit_mov_imm(Dst, arg3_idx, n);
                 }
             }
@@ -3848,7 +3848,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         // can only address +-128MB from current IP. And this allows us to use bl for most calls.
         void* new_chunk = MAP_FAILED;
         // try allocate memory 25MB after this AOT func.
-        char* start_addr = (char*)(((uint64_t)PyObject_IsTrueProfile + 25*1024*1024 + 4095) / 4096 * 4096);
+        char* start_addr = (char*)(((uint64_t)AOT_PyObject_IsTrueProfile + 25*1024*1024 + 4095) / 4096 * 4096);
         for (int i=0; i<8 && new_chunk == MAP_FAILED; ++i, start_addr += 5*1024*1024) {
             // MAP_FIXED_NOREPLACE is available from linux 4.17, but older glibc don't define it.
             // Older kernel will ignore this flag and will try to allocate the address supplied as hint

@@ -138,12 +138,12 @@ build/systemdbg_env/bin/python: | $(VIRTUALENV)
 build/pypy_env/bin/python: | $(VIRTUALENV)
 	$(VIRTUALENV) -p pypy3 build/pypy_env
 
-EXTRA_BOLT_OPTS:=
+EXTRA_BOLT_OPTS:=-skip-funcs="AOT_*"
 ifeq ($(RELEASE),16.04)
 else ifeq ($(RELEASE),18.04)
 else ifeq ($(CONDA_BUILD),1)
 else
-EXTRA_BOLT_OPTS:=-frame-opt=hot
+EXTRA_BOLT_OPTS:=$(EXTRA_BOLT_OPTS) -frame-opt=hot
 endif
 
 # Usage:
@@ -171,7 +171,7 @@ ifeq ($(5),binary)
 build/$(1)_install$(_PREFIX)/bin/python3.bolt.fdata: build/$(1)_install$(_PREFIX)/bin/python3 $(BOLT) | $(VIRTUALENV)
 	rm -rf /tmp/tmp_env_$(1)
 	rm $$<.bolt*.fdata || true
-	$(BOLT) $$< -instrument -instrumentation-file-append-pid -instrumentation-file=$$(abspath build/$(1)_install$(_PREFIX)/bin/python3.bolt) -o $$<.bolt_inst
+	$(BOLT) $$< -instrument -instrumentation-file-append-pid -instrumentation-file=$$(abspath build/$(1)_install$(_PREFIX)/bin/python3.bolt) -skip-funcs="AOT_*" -o $$<.bolt_inst
 	$(VIRTUALENV) -p $$<.bolt_inst /tmp/tmp_env_$(1)
 	/tmp/tmp_env_$(1)/bin/pip install -r pyston/pgo_requirements.txt
 	/tmp/tmp_env_$(1)/bin/python3 pyston/run_profile_task.py
@@ -202,7 +202,7 @@ ifeq ($(5),so)
 # then output the bolt'd file to the proper place
 build/$(1)_install$(_PREFIX)/lib/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.fdata: build/$(1)_install$(_PREFIX)/bin/python3
 	rm -rf /tmp/tmp_env_$(1)
-	$(BOLT) $$(abspath build/$(1)_install$(_PREFIX)/lib)/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.prebolt -instrument -instrumentation-file-append-pid -instrumentation-file=$$(abspath build/$(1)_install$(_PREFIX)/lib)/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0 -o $$(abspath build/$(1)_install$(_PREFIX)/lib)/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.bolt_inst -skip-funcs="_PyEval_EvalFrameDefault,_PyEval_EvalFrame_AOT_Interpreter.*"
+	$(BOLT) $$(abspath build/$(1)_install$(_PREFIX)/lib)/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.prebolt -instrument -instrumentation-file-append-pid -instrumentation-file=$$(abspath build/$(1)_install$(_PREFIX)/lib)/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0 -o $$(abspath build/$(1)_install$(_PREFIX)/lib)/libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.bolt_inst -skip-funcs="_PyEval_EvalFrameDefault,_PyEval_EvalFrame_AOT_Interpreter.*,AOT_*"
 	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$$(abspath build/$(1)_install$(_PREFIX)/lib) LD_PRELOAD=libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.bolt_inst $(VIRTUALENV) -p $$< /tmp/tmp_env_$(1)
 	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$$(abspath build/$(1)_install$(_PREFIX)/lib) LD_PRELOAD=libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.bolt_inst /tmp/tmp_env_$(1)/bin/pip install -r pyston/pgo_requirements.txt
 	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$$(abspath build/$(1)_install$(_PREFIX)/lib) LD_PRELOAD=libpython$(PYTHON_MAJOR).$(PYTHON_MINOR)-pyston$(PYSTON_MAJOR).$(PYSTON_MINOR).so.1.0.bolt_inst /tmp/tmp_env_$(1)/bin/python3 pyston/run_profile_task.py

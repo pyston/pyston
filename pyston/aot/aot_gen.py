@@ -266,7 +266,7 @@ class Handler(object):
     def getGuardFailFuncName(self, signature):
         suffix = getattr(signature, "guard_fail_fn_name", "")
         if suffix:
-            return self.case.specialized_base + suffix
+            return "AOT_" + self.case.specialized_base + suffix
         else:
             return self.case.unspecialized_name
 
@@ -295,7 +295,7 @@ class NormalHandler(Handler):
             parameters = [f"{cls.c_type_name} {name}" for (name, cls) in zip(arg_names, signature.argument_classes)]
             pass_args = ", ".join(arg_names)
             guard_fail_fn_name = self.getGuardFailFuncName(signature)
-            print(f"{self._get_ret_type()} {name}({', '.join(parameters)})", "{", file=f)
+            print(f"{self._get_ret_type()} AOT_{name}({', '.join(parameters)})", "{", file=f)
             print(f"  if (unlikely(!({signature.getGuard(arg_names)})))", "{", file=f)
             self._emitDeopt(guard_fail_fn_name, pass_args, f)
             print("  }", file=f)
@@ -339,7 +339,7 @@ class NormalHandler(Handler):
 
     def _get_func_sig(self, name):
         param = ", ".join([f"{type} {o}" for (type, o) in self._args()])
-        return f"{self._get_ret_type()} {name}({param})"
+        return f"{self._get_ret_type()} AOT_{name}({param})"
 
     def _get_ret_type(self):
         if self.need_res_wrap:
@@ -361,8 +361,8 @@ class NormalHandler(Handler):
         for spec, name in traced:
             checks = spec.getGuard([f"o{i}" for i in range(self.nargs)])
             print(f"  if ({checks})", "{", file=profile_f)
-            print(f"    SET_JIT_AOT_FUNC({name});", file=profile_f)
-            print(f"    return {name}({func_call_args});", file=profile_f)
+            print(f"    SET_JIT_AOT_FUNC(AOT_{name});", file=profile_f)
+            print(f"    return AOT_{name}({func_call_args});", file=profile_f)
             print("  }", file=profile_f)
 
 
@@ -438,7 +438,6 @@ class CallableHandler(Handler):
 
     def write_profile_func(self, traced, header_f, profile_f):
         func = self.case.unspecialized_name
-        profile_func = self.case.specialized_base + 'Profile'
         print(f"{self._get_func_sig(func)};", file=header_f)
 
         for signature, name in self.case.getSignatures():
@@ -464,8 +463,8 @@ class CallableHandler(Handler):
             guard = signature.getGuard(arg_names)
             nargs = signature.nargs
             print(f"  if (oparg == {nargs-1} && {guard})", "{", file=profile_f)
-            print(f"    SET_JIT_AOT_FUNC({name});", file=profile_f)
-            print(f"    return {name}({pass_args});", file=profile_f)
+            print(f"    SET_JIT_AOT_FUNC(AOT_{name});", file=profile_f)
+            print(f"    return AOT_{name}({pass_args});", file=profile_f)
             print("}", file=profile_f)
         print(
             rf'  DBG("Missing {func} %s\n", f->ob_type == &PyType_Type ? ((PyTypeObject*)f)->tp_name : f->ob_type->tp_name);', file=profile_f)
@@ -487,7 +486,7 @@ class CallableHandler(Handler):
 
     def _get_func_sig(self, name):
         param = ", ".join([f"{type} {o}" for (type, o) in self._args()])
-        return f"PyObject* {name}({param})"
+        return f"PyObject* AOT_{name}({param})"
 
     def trace(self, jit_target, args, signature):
         self.setTracingOverwrites(signature)
@@ -927,7 +926,7 @@ def specialize_func(handler, header_f, profile_f, async_tracing, only=None):
         if only and name != only:
             continue
 
-        target_addr = aot_pre_trace_so[name]
+        target_addr = aot_pre_trace_so["AOT_" + name]
         # we prune specialization which generate an error or inputs which generate one
         train_success = []
 
