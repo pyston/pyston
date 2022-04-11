@@ -4097,11 +4097,16 @@ void show_jit_stats() {
     fprintf(stderr, "jit: successfully compiled %d functions, failed to compile %d functions\n", jit_num_funcs, jit_num_failed);
     fprintf(stderr, "jit: took %ld ms to compile all functions\n", total_compilation_time_in_us/1000);
     fprintf(stderr, "jit: %ld bytes used (%.1f%% of allocated)\n", mem_bytes_used, 100.0 * mem_bytes_used / mem_bytes_allocated);
-    fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_ATTR caches: %lu hits %lu misses\n", jit_stat_load_attr_inline, jit_stat_load_attr_total, jit_stat_load_attr_hit, jit_stat_load_attr_miss);
-    fprintf(stderr, "jit: inlined %lu (of total %lu) STORE_ATTR caches: %lu hits %lu misses\n", jit_stat_store_attr_inline, jit_stat_store_attr_total, jit_stat_store_attr_hit, jit_stat_store_attr_miss);
-    fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_METHOD caches: %lu hits %lu misses\n", jit_stat_load_method_inline, jit_stat_load_method_total, jit_stat_load_method_hit, jit_stat_load_method_miss);
-    fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_GLOBAL caches: %lu hits %lu misses\n", jit_stat_load_global_inline, jit_stat_load_global_total, jit_stat_load_global_hit, jit_stat_load_global_miss);
-    fprintf(stderr, "jit: inlined %lu (of total %lu) CALL_METHOD caches: %lu hits %lu misses\n", jit_stat_call_method_inline, jit_stat_call_method_total, jit_stat_call_method_hit, jit_stat_call_method_miss);
+
+#define PRINT_STAT(name, opcode) fprintf(stderr, "jit: inlined %lu (of total %lu) %s caches: %lu hits %lu misses (=%lu%%)\n", \
+jit_stat_##name##_inline, jit_stat_##name##_total, #opcode, jit_stat_##name##_hit, jit_stat_##name##_miss, \
+ jit_stat_##name##_miss ? jit_stat_##name##_miss*100 / (jit_stat_##name##_hit + jit_stat_##name##_miss) : 0)
+    PRINT_STAT(load_attr, LOAD_ATTR);
+    PRINT_STAT(load_method, LOAD_METHOD);
+    PRINT_STAT(load_global, LOAD_GLOBAL);
+    PRINT_STAT(call_method, CALL_METHOD);
+    PRINT_STAT(store_attr, STORE_ATTR);
+
     fprintf(stderr, "jit: num GetItemLong: %lu\n", jit_stat_getitemlong);
     fprintf(stderr, "jit: num unicode concatenation: %lu\n", jit_stat_unicode_concat);
 }
