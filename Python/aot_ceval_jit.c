@@ -648,6 +648,7 @@ static long total_compilation_time_in_us = 0;
 
 static int jit_stats_enabled = 0;
 static unsigned long jit_stat_load_attr_hit, jit_stat_load_attr_miss, jit_stat_load_attr_inline, jit_stat_load_attr_total;
+static unsigned long jit_stat_store_attr_hit, jit_stat_store_attr_miss, jit_stat_store_attr_inline, jit_stat_store_attr_total;
 static unsigned long jit_stat_load_method_hit, jit_stat_load_method_miss, jit_stat_load_method_inline, jit_stat_load_method_total;
 static unsigned long jit_stat_load_global_hit, jit_stat_load_global_miss, jit_stat_load_global_inline, jit_stat_load_global_total;
 static unsigned long jit_stat_call_method_hit, jit_stat_call_method_miss, jit_stat_call_method_inline, jit_stat_call_method_total;
@@ -2271,6 +2272,63 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             switch_section(Dst, SECTION_CODE);
 
             deferred_vs_push(Dst, REGISTER, res_idx);
+            return 0;
+        }
+    } else if (opcode == STORE_ATTR) {
+        ++jit_stat_store_attr_total;
+        if (co_opcache->num_failed == 0 && co_opcache->u.sa.type_ver != 0 && co_opcache->optimized) {
+            ++jit_stat_store_attr_inline;
+
+            _PyOpcache_StoreAttr *sa = &co_opcache->u.sa;
+
+            // we only jit this cache type for now
+            if (sa->cache_type != SA_CACHE_SLOT_CACHE) {
+                return -1;
+            }
+
+            RefStatus ref_status[2];
+            deferred_vs_pop2(Dst, arg2_idx, arg3_idx, ref_status);
+            deferred_vs_convert_reg_to_stack(Dst);
+
+            if (ref_status[1] == BORROWED) {
+                emit_incref(Dst, arg3_idx);
+            }
+
+            emit_load64_mem(Dst, arg1_idx, arg2_idx, offsetof(PyObject, ob_type));
+            | type_version_check, arg1_idx, sa->type_ver, >1
+
+            if (sa->cache_type == SA_CACHE_SLOT_CACHE) {
+                emit_load64_mem(Dst, res_idx, arg2_idx, sa->u.slot_cache.offset);
+                emit_store64_mem(Dst, arg3_idx, arg2_idx, sa->u.slot_cache.offset);
+                if (ref_status[0] == OWNED) {
+                    emit_decref(Dst, arg2_idx, 1 /*=  preserve res */);
+                }
+                emit_xdecref(Dst, res_idx);
+            } else {
+                JIT_ASSERT(0, "add other cache types");
+            }
+            if (jit_stats_enabled) {
+                emit_inc_qword_ptr(Dst, &jit_stat_store_attr_hit, 1 /*=can use tmp_reg*/);
+            }
+            |5:
+            // fallthrough to next opcode
+
+            switch_section(Dst, SECTION_COLD);
+            |1:
+            if (jit_stats_enabled) {
+                emit_inc_qword_ptr(Dst, &jit_stat_store_attr_miss, 1 /*=can use tmp_reg*/);
+            }
+            if (ref_status[0] == BORROWED) {
+                emit_incref(Dst, arg2_idx);
+            }
+            emit_mov_imm2(Dst, arg1_idx, PyTuple_GET_ITEM(Dst->co_names, oparg),
+                               arg4_idx, co_opcache);
+
+            emit_call_ext_func(Dst, get_aot_func_addr(Dst, opcode, oparg, co_opcache != 0 /*= use op cache */));
+            emit_if_res_0_error(Dst);
+            | branch <5 // jump to the common code which pushes the result
+
+            switch_section(Dst, SECTION_CODE);
             return 0;
         }
     }
@@ -4040,6 +4098,7 @@ void show_jit_stats() {
     fprintf(stderr, "jit: took %ld ms to compile all functions\n", total_compilation_time_in_us/1000);
     fprintf(stderr, "jit: %ld bytes used (%.1f%% of allocated)\n", mem_bytes_used, 100.0 * mem_bytes_used / mem_bytes_allocated);
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_ATTR caches: %lu hits %lu misses\n", jit_stat_load_attr_inline, jit_stat_load_attr_total, jit_stat_load_attr_hit, jit_stat_load_attr_miss);
+    fprintf(stderr, "jit: inlined %lu (of total %lu) STORE_ATTR caches: %lu hits %lu misses\n", jit_stat_store_attr_inline, jit_stat_store_attr_total, jit_stat_store_attr_hit, jit_stat_store_attr_miss);
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_METHOD caches: %lu hits %lu misses\n", jit_stat_load_method_inline, jit_stat_load_method_total, jit_stat_load_method_hit, jit_stat_load_method_miss);
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_GLOBAL caches: %lu hits %lu misses\n", jit_stat_load_global_inline, jit_stat_load_global_total, jit_stat_load_global_hit, jit_stat_load_global_miss);
     fprintf(stderr, "jit: inlined %lu (of total %lu) CALL_METHOD caches: %lu hits %lu misses\n", jit_stat_call_method_inline, jit_stat_call_method_total, jit_stat_call_method_hit, jit_stat_call_method_miss);

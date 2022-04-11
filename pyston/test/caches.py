@@ -177,3 +177,23 @@ def test_module():
     assert f() == 23
 test_module()
 
+# test our store attribute cache guarding
+def test_set_slot():
+    class C1(object):
+        __slots__ = ("attr",)
+        def get(self):
+            return self.attr
+    class C2(object):
+        __slots__ = ("a", "attr",)
+        def get(self):
+            return -self.attr
+    def f(x):
+        x.attr = 42
+    c = C1()
+    for i in range(5000):
+        f(c)
+        assert c.get() == 42
+    c = C2()
+    f(c)
+    assert c.get() == -42
+test_set_slot()
