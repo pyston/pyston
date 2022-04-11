@@ -1339,11 +1339,11 @@ static void emit_decref2(Jit* Dst, int r_idx, int r_idx2, int preserve_res) {
     }
 }
 
-static void emit_xdecref_arg1(Jit* Dst) {
-@ARM| cbz arg1, >9 // compare and branch on zero. only allows to jump up to 126 byte but is okay here because it's much closer
-@X86emit_cmp64_imm(Dst, arg1_idx, 0);
+static void emit_xdecref(Jit* Dst, int reg_idx) {
+@ARM| cbz Rx(reg_idx), >9 // compare and branch on zero. only allows to jump up to 126 byte but is okay here because it's much closer
+@X86emit_cmp64_imm(Dst, reg_idx, 0);
 @X86| branch_eq >9
-    emit_decref(Dst, arg1_idx, 0 /* don't preserve res */);
+    emit_decref(Dst, reg_idx, 0 /* don't preserve res */);
     |9:
 }
 
@@ -2557,7 +2557,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             if (Dst->known_defined[oparg]) {
                 emit_decref(Dst, arg1_idx, 0 /* don't preserve res */);
             } else {
-                emit_xdecref_arg1(Dst);
+                emit_xdecref(Dst, arg1_idx);
             }
             if (ENABLE_DEFINED_TRACKING)
                 Dst->known_defined[oparg] = 1;
@@ -3279,7 +3279,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             emit_load64_mem(Dst, arg1_idx, arg3_idx, offsetof(PyCellObject, ob_ref));
             // PyCell_SET(cell, v);
             emit_store64_mem(Dst, new_value_reg, arg3_idx, offsetof(PyCellObject, ob_ref));
-            emit_xdecref_arg1(Dst);
+            emit_xdecref(Dst, arg1_idx);
             break;
         }
 
@@ -3731,10 +3731,10 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     |->error:
     // we have to decref all python object stored in the deferred stack array
     | mov arg1, vs_preserved_reg
-    emit_xdecref_arg1(Dst);
+    emit_xdecref(Dst, arg1_idx);
     for (int i=0; i<Dst->num_deferred_stack_slots; ++i) {
         emit_load64_mem(Dst, arg1_idx, sp_reg_idx, (NUM_MANUAL_STACK_SLOTS + i) * 8);
-        emit_xdecref_arg1(Dst);
+        emit_xdecref(Dst, arg1_idx);
     }
 
     emit_mov_imm(Dst, real_res_idx, 0);
