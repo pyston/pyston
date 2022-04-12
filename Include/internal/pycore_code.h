@@ -99,10 +99,29 @@ typedef struct {
     char guard_tp_descr_get; // do we have to guard on Py_TYPE(u.value_cache.obj)->tp_descr_get == NULL
 } _PyOpcache_LoadAttr;
 
+enum _PyOpcache_StoreAttr_Types {
+    // we always guard on the type version - in addition:
+
+    // caching an index inside instance splitdict, guarded by the splitdict keys version (dict->ma_keys->dk_version_tag)
+    SA_CACHE_IDX_SPLIT_DICT = 0,
+
+    // caching the offset to attribute slot inside a python object.
+    // used for __slots__
+    SA_CACHE_SLOT_CACHE = 1,
+};
+
 typedef struct {
     uint64_t type_ver;  /* tp_version_tag of type */
-    uint64_t splitdict_keys_version;  /* dk_version_tag of dict */
-    Py_ssize_t splitdict_index;  /* index into dict value array */
+    union {
+        struct {
+            uint64_t splitdict_keys_version;  /* dk_version_tag of dict */
+            Py_ssize_t splitdict_index;  /* index into dict value array */
+        } split_dict_cache;
+        struct {
+            int64_t offset; /* offset in bytes from the start of the PyObject to the slot */
+        } slot_cache;
+    } u;
+    char cache_type;
 } _PyOpcache_StoreAttr;
 
 _Static_assert(sizeof(_PyOpcache_LoadMethod) <= 32,  "_data[32] needs to be updated");

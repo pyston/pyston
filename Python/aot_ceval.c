@@ -841,15 +841,35 @@ static uint64_t getSplitDictKeysVersionFromDictPtr(PyObject** dictptr) {
 
 int __attribute__((always_inline)) __attribute__((visibility("hidden")))
 storeAttrCache(PyObject* owner, PyObject* name, PyObject* v, _PyOpcache *co_opcache, int* err) {
-    _PyOpcache_StoreAttr *as = &co_opcache->u.sa;
+    _PyOpcache_StoreAttr *sa = &co_opcache->u.sa;
     PyTypeObject *tp = Py_TYPE(owner);
 
     // do we have a valid cache entry?
     if (!co_opcache->optimized)
         return -1;
 
-    if (unlikely(as->type_ver != tp->tp_version_tag))
+    if (unlikely(sa->type_ver != tp->tp_version_tag))
         return -1;
+
+    if (sa->cache_type == SA_CACHE_SLOT_CACHE) {
+        char* addr = (char*)owner + sa->u.slot_cache.offset;
+        PyObject** slot = (PyObject**)addr;
+        PyObject* old = *slot;
+        /* we don't support del attr yet so v can't be null
+        if (v == NULL && old == NULL) {
+            PyErr_SetString(PyExc_AttributeError, name);
+            *err = -1;
+            goto hit;
+        }
+        Py_XINCREF(v);
+        */
+        Py_INCREF(v);
+        *slot = v;
+        Py_XDECREF(old);
+
+        *err = 0;
+        goto hit;
+    }
 
     PyObject** dictptr = _PyObject_GetDictPtr(owner);
     if (dictptr && !*dictptr) {
@@ -862,21 +882,23 @@ storeAttrCache(PyObject* owner, PyObject* name, PyObject* v, _PyOpcache *co_opca
         PyDictKeysObject* keys = ((PyHeapTypeObject*)tp)->ht_cached_keys;
         if (!keys)
             return -1;
-        if (_PyDict_GetDictKeyVersionFromKeys((PyObject*)keys) != as->splitdict_keys_version)
+        if (_PyDict_GetDictKeyVersionFromKeys((PyObject*)keys) != sa->u.split_dict_cache.splitdict_keys_version)
             return -1;
 
-        *err = _PyDict_SetItemInitialFromSplitDict(tp, dictptr, name, as->splitdict_index, v);
+        *err = _PyDict_SetItemInitialFromSplitDict(tp, dictptr, name, sa->u.split_dict_cache.splitdict_index, v);
     } else {
         // check if this dict has the same keys as the cached one
-        if (as->splitdict_keys_version != getSplitDictKeysVersionFromDictPtr(dictptr))
+        if (sa->u.split_dict_cache.splitdict_keys_version != getSplitDictKeysVersionFromDictPtr(dictptr))
             return -1;
 
-        *err = _PyDict_SetItemFromSplitDict(*dictptr, name, as->splitdict_index, v);
+        *err = _PyDict_SetItemFromSplitDict(*dictptr, name, sa->u.split_dict_cache.splitdict_index, v);
     }
 
     if (*err < 0 && PyErr_ExceptionMatches(PyExc_KeyError))
         PyErr_SetObject(PyExc_AttributeError, name);
 
+
+hit:
     co_opcache->num_failed = 0;
 #if OPCACHE_STATS
     storeattr_hits++;
@@ -901,8 +923,20 @@ setupStoreAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache) {
     if (tp->tp_dict == NULL && PyType_Ready(tp) < 0)
         return -1;
 
-    if (_PyType_Lookup(tp, name) != NULL)
+    PyObject* descr = _PyType_Lookup(tp, name);
+    if (descr != NULL) {
+        PyTypeObject *dtype = Py_TYPE(descr);
+        if (dtype == &PyMemberDescr_Type) {  // It's a slot
+            PyMemberDescrObject *member = (PyMemberDescrObject*)descr;
+            struct PyMemberDef *dmem = member->d_member;
+            if (dmem->type == T_OBJECT_EX) {
+                sa->cache_type = SA_CACHE_SLOT_CACHE;
+                sa->u.slot_cache.offset = dmem->offset;
+                goto common_cached;
+            }
+        }
         return -1;
+    }
 
     PyObject** dictptr = _PyObject_GetDictPtr(obj);
     PyObject* dict;
@@ -912,12 +946,15 @@ setupStoreAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache) {
     if (!_PyDict_HasSplitTable((PyDictObject*)dict))
         return -1;
 
+    sa->cache_type = SA_CACHE_IDX_SPLIT_DICT;
+    sa->u.split_dict_cache.splitdict_keys_version = getSplitDictKeysVersionFromDictPtr(dictptr);
+    sa->u.split_dict_cache.splitdict_index = _PyDict_GetItemIndexSplitDict(dict, name);
+    // the index must be >= 0 because otherwise _PyObject_SetAttrCanCache would return 0
+    assert(sa->u.split_dict_cache.splitdict_index >= 0);
+
+common_cached:
     co_opcache->optimized = 1;
     sa->type_ver = tp->tp_version_tag;
-    sa->splitdict_keys_version = getSplitDictKeysVersionFromDictPtr(dictptr);
-    sa->splitdict_index = _PyDict_GetItemIndexSplitDict(dict, name);
-    // the index must be >= 0 because otherwise _PyObject_SetAttrCanCache would return 0
-    assert(sa->splitdict_index >= 0);
     return 0;
 }
 
