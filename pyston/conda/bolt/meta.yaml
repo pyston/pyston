@@ -1,5 +1,5 @@
 {% set build_num = 0 %}
-{% set version = "2022.03.10" %}
+{% set version = "2022.04.11" %}
 
 package:
   name: bolt
@@ -7,7 +7,7 @@ package:
 
 source:
   git_url: https://github.com/llvm/llvm-project
-  git_rev: 8bef17ed59aafc1b9e645dd956dad124ec7dfb57
+  git_rev: c29a51b3a257908aebc01cd7c4655665db317d66
   git_depth: -1
 
 build:
