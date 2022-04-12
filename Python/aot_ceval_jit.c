@@ -651,6 +651,7 @@ static unsigned long jit_stat_load_attr_hit, jit_stat_load_attr_miss, jit_stat_l
 static unsigned long jit_stat_load_method_hit, jit_stat_load_method_miss, jit_stat_load_method_inline, jit_stat_load_method_total;
 static unsigned long jit_stat_load_global_hit, jit_stat_load_global_miss, jit_stat_load_global_inline, jit_stat_load_global_total;
 static unsigned long jit_stat_call_method_hit, jit_stat_call_method_miss, jit_stat_call_method_inline, jit_stat_call_method_total;
+static unsigned long jit_stat_getitemlong, jit_stat_unicode_concat;
 
 
 #define ENABLE_DEFERRED_RES_PUSH 1
@@ -1942,6 +1943,20 @@ static void emit_jump_if_true(Jit* Dst, int oparg, RefStatus ref_status) {
     // continue here
 }
 
+static _PyOpcache* get_opcache_entry(PyCodeObject* co, int inst_idx) {
+    _PyOpcache* co_opcache = NULL;
+    if (co->co_opcache != NULL) {
+        unsigned char co_opt_offset = co->co_opcache_map[inst_idx + 1];
+        if (co_opt_offset > 0) {
+            JIT_ASSERT(co_opt_offset <= co->co_opcache_size, "");
+            co_opcache = &co->co_opcache[co_opt_offset - 1];
+            JIT_ASSERT(co_opcache != NULL, "");
+        }
+    }
+    return co_opcache;
+}
+
+
 // returns 0 if IC generation succeeded
 static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opcache) {
     if (co_opcache == NULL || !jit_use_ics)
@@ -2676,7 +2691,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         case BINARY_TRUE_DIVIDE:
         case BINARY_FLOOR_DIVIDE:
         case BINARY_MODULO: // TODO: add special handling like in the interp
-        case BINARY_ADD: // TODO: add special handling like in the interp
+        case BINARY_ADD:
         case BINARY_SUBTRACT:
         case BINARY_LSHIFT:
         case BINARY_RSHIFT:
@@ -2690,7 +2705,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         case INPLACE_TRUE_DIVIDE:
         case INPLACE_FLOOR_DIVIDE:
         case INPLACE_MODULO:
-        case INPLACE_ADD: // TODO: add special handling like in the interp
+        case INPLACE_ADD:
         case INPLACE_SUBTRACT:
         case INPLACE_LSHIFT:
         case INPLACE_RSHIFT:
@@ -2705,6 +2720,24 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         {
             RefStatus ref_status[2];
 
+            // check if we can use the fast unicode concatenation path which modifies the first string
+            int unicode_concat = -1;
+            if ((opcode == INPLACE_ADD || opcode == BINARY_ADD) &&
+                Dst->deferred_vs_next >= 2 && GET_DEFERRED[-2].loc == FAST &&
+                inst_idx + 1 < Dst->num_opcodes) {
+                _PyOpcache* co_opcache = get_opcache_entry(co, inst_idx);
+                _Py_CODEUNIT next_word = Dst->first_instr[inst_idx + 1];
+                // interpreter sets this to 1 if both operands have been unicode strings
+                int both_are_unicode = co_opcache && co_opcache->optimized;
+                int next_opcode = _Py_OPCODE(next_word);
+                int next_oparg = _Py_OPARG(next_word);
+                if (both_are_unicode &&
+                    next_opcode == STORE_FAST && next_oparg == GET_DEFERRED[-2].val &&
+                    !Dst->is_jmp_target[inst_idx + 1]) {
+                    unicode_concat = next_oparg;
+                }
+            }
+
             PyObject* const_val = deferred_vs_peek_const(Dst);
             deferred_vs_pop2(Dst, arg2_idx, arg1_idx, ref_status);
             deferred_vs_convert_reg_to_stack(Dst);
@@ -2718,6 +2751,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 } else {
                     func = jit_use_aot ? PyObject_GetItemLongProfile : PyObject_GetItemLong;
                     emit_mov_imm(Dst, arg3_idx, n);
+                    ++jit_stat_getitemlong;
                 }
             }
             if (opcode == COMPARE_OP && (oparg == PyCmp_IS || oparg == PyCmp_IS_NOT)) {
@@ -2738,6 +2772,22 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 else if (ref_status[1] == OWNED)
                     emit_decref(Dst, arg1_idx, 1 /*= preserve res */);
             } else {
+                if (unicode_concat != -1) {
+                    JIT_ASSERT(ref_status[1] == BORROWED, "");
+                    | type_check arg1_idx, &PyUnicode_Type, >1
+                    | type_check arg2_idx, &PyUnicode_Type, >1
+
+                    emit_add_or_sub_imm(Dst, arg1_idx, f_idx, get_fastlocal_offset(unicode_concat));
+                    emit_call_decref_args2(Dst, PyUnicode_Append, arg2_idx, arg1_idx, ref_status);
+
+                    emit_cmp64_mem_imm(Dst, f_idx, get_fastlocal_offset(unicode_concat), 0 /* = value */);
+                    | branch_eq ->error
+                    // skip STORE_FAST
+                    emit_jump_by_n_bytecodes(Dst, 2, inst_idx);
+                    ++jit_stat_unicode_concat;
+                }
+
+                |1:
                 if (!func)
                     func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
                 emit_call_decref_args2(Dst, func, arg2_idx, arg1_idx, ref_status);
@@ -3320,15 +3370,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             // compiler complains if the first line after a label is a declaration and not a statement:
             (void)0;
 
-            _PyOpcache* co_opcache = NULL;
-            if (co->co_opcache != NULL) {
-                unsigned char co_opt_offset = co->co_opcache_map[inst_idx + 1];
-                if (co_opt_offset > 0) {
-                    JIT_ASSERT(co_opt_offset <= co->co_opcache_size, "");
-                    co_opcache = &co->co_opcache[co_opt_offset - 1];
-                    JIT_ASSERT(co_opcache != NULL, "");
-                }
-            }
+            _PyOpcache* co_opcache = get_opcache_entry(co, inst_idx);
 
             if (opcode == LOAD_METHOD) {
                 CallMethodHint* hint = (CallMethodHint*)calloc(1, sizeof(CallMethodHint));
@@ -4001,6 +4043,8 @@ void show_jit_stats() {
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_METHOD caches: %lu hits %lu misses\n", jit_stat_load_method_inline, jit_stat_load_method_total, jit_stat_load_method_hit, jit_stat_load_method_miss);
     fprintf(stderr, "jit: inlined %lu (of total %lu) LOAD_GLOBAL caches: %lu hits %lu misses\n", jit_stat_load_global_inline, jit_stat_load_global_total, jit_stat_load_global_hit, jit_stat_load_global_miss);
     fprintf(stderr, "jit: inlined %lu (of total %lu) CALL_METHOD caches: %lu hits %lu misses\n", jit_stat_call_method_inline, jit_stat_call_method_total, jit_stat_call_method_hit, jit_stat_call_method_miss);
+    fprintf(stderr, "jit: num GetItemLong: %lu\n", jit_stat_getitemlong);
+    fprintf(stderr, "jit: num unicode concatenation: %lu\n", jit_stat_unicode_concat);
 }
 
 void jit_start() {
