@@ -4038,15 +4038,47 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
         // write addr and opcode info into a file which tools/perf_jit.py uses
         // to annotate the 'perf report' output
+        long extended_arg = 0;
+
+        // display filepath, line number and function name at the top
+        fprintf(perf_map_opcode_map, "%p,%s:%d %s\n",
+                mem, PyUnicode_AsUTF8(co->co_filename), co->co_firstlineno, PyUnicode_AsUTF8(co->co_name));
+
+        PyObject* str_newline = PyUnicode_FromString("\n");
+        PyObject* str_newline_escaped = PyUnicode_FromString("\\n");
         for (int inst_idx = 0; inst_idx < Dst->num_opcodes; ++inst_idx) {
             _Py_CODEUNIT word = Dst->first_instr[inst_idx];
             int opcode = _Py_OPCODE(word);
             int oparg = _Py_OPARG(word);
             void* addr = &((char*)opcode_offset_begin)[opcode_offset_begin[inst_idx]];
             const char* jmp_dst = Dst->is_jmp_target[inst_idx] ? "->" : "  ";
-            fprintf(perf_map_opcode_map, "%p,%s %4d %-30s %d\n",
+            fprintf(perf_map_opcode_map, "%p,%s %4d %-30s %3d",
                     addr, jmp_dst, inst_idx*2, get_opcode_name(opcode), oparg);
+
+            if (opcode == LOAD_CONST) {
+                PyObject* c = PyTuple_GET_ITEM(Dst->co_consts, oparg | extended_arg);
+                PyObject* str = PyObject_Repr(c);
+                PyObject* str_escaped = PyUnicode_Replace(str, str_newline, str_newline_escaped, -1);
+                fprintf(perf_map_opcode_map, " (%s: %.60s)\n", c->ob_type->tp_name, PyUnicode_AsUTF8(str_escaped));
+                Py_DECREF(str);
+                Py_DECREF(str_escaped);
+            } else if (opcode == LOAD_FAST || opcode == STORE_FAST || opcode == DELETE_FAST) {
+                PyObject* name = PyTuple_GET_ITEM(co->co_varnames, oparg | extended_arg);
+                fprintf(perf_map_opcode_map, " (%.60s)\n", PyUnicode_AsUTF8(name));
+            } else if (opcode == LOAD_ATTR || opcode == STORE_ATTR || opcode == DELETE_ATTR || opcode == LOAD_METHOD || opcode == LOAD_GLOBAL) {
+                PyObject* name = PyTuple_GET_ITEM(co->co_names, oparg | extended_arg);
+                fprintf(perf_map_opcode_map, " (%.60s)\n", PyUnicode_AsUTF8(name));
+            } else {
+                fprintf(perf_map_opcode_map, "\n");
+            }
+            if (opcode == EXTENDED_ARG) {
+                extended_arg |= oparg << 8;
+            } else {
+                extended_arg = 0;
+            }
         }
+        Py_DECREF(str_newline);
+        Py_DECREF(str_newline_escaped);
     }
 
     __builtin___clear_cache((char*)mem, &((char*)mem)[size]);
