@@ -120,7 +120,7 @@ typedef enum Section {
 
 typedef struct DeferredValueStackEntry {
     ValueStackLoc loc;
-    int val;
+    unsigned long val;
 } DeferredValueStackEntry;
 
 // We have a very simple analysis method:
@@ -1518,16 +1518,16 @@ static void deferred_vs_emit(Jit* Dst) {
 @ARM            tmpreg = tmp_pair_idx;
             DeferredValueStackEntry* entry = &Dst->deferred_vs[i-1];
             if (entry->loc == CONST) {
-                PyObject* obj = PyTuple_GET_ITEM(Dst->co_consts, entry->val);
+                PyObject* obj = (PyObject*)entry->val;
                 // don't use this path on arm because it prevents storing a pair and arm does not have a store instructions which support immediates
                 // which means it will expanded into a mov + store - we can do better in the common path which at least handles pairs.
 @ARM            if (0) {
-@X86            if (IS_IMMORTAL(obj)) {
+@X86            if (obj == NULL || IS_IMMORTAL(obj)) {
                     emit_store64_mem_imm(Dst, (unsigned long)obj, vsp_idx, 8 * (i-1));
                     delayed_store = 0;
                 } else {
                     emit_mov_imm(Dst, tmpreg, (unsigned long)obj);
-                    if (!IS_IMMORTAL(obj)) {
+                    if (obj != NULL && !IS_IMMORTAL(obj)) {
                         emit_incref(Dst, tmpreg);
                     }
                 }
@@ -1580,7 +1580,7 @@ static PyObject* deferred_vs_peek_const(Jit* Dst) {
 
     DeferredValueStackEntry* entry = &Dst->deferred_vs[Dst->deferred_vs_next - 1];
     if (entry->loc == CONST)
-        return PyTuple_GET_ITEM(Dst->co_consts, entry->val);
+        return (PyObject*)entry->val;
     return NULL;
 }
 
@@ -1629,7 +1629,7 @@ static RefStatus deferred_vs_peek(Jit* Dst, int r_idx, int num) {
         int idx = Dst->deferred_vs_next-(num);
         DeferredValueStackEntry* entry = &Dst->deferred_vs[idx];
         if (entry->loc == CONST) {
-            PyObject* obj = PyTuple_GET_ITEM(Dst->co_consts, entry->val);
+            PyObject* obj = (PyObject*)entry->val;
             emit_mov_imm(Dst, r_idx, (unsigned long)obj);
             ref_status = IS_IMMORTAL(obj) ? IMMORTAL : BORROWED;
         } else if (entry->loc == FAST) {
@@ -1637,7 +1637,7 @@ static RefStatus deferred_vs_peek(Jit* Dst, int r_idx, int num) {
             ref_status = BORROWED;
         } else if (entry->loc == REGISTER) {
             // only generate mov if src and dst is different
-            if (r_idx != entry->val) {
+            if (r_idx != (int)entry->val) {
                 emit_mov64_reg(Dst, r_idx, entry->val);
             }
             ref_status = OWNED;
@@ -1707,7 +1707,7 @@ static void deferred_vs_remove(Jit* Dst, int num_to_remove) {
         DeferredValueStackEntry* entry = &GET_DEFERRED[-i-1];
         if (entry->loc == STACK) {
             emit_store64_mem_imm(Dst, 0 /*= value */, sp_reg_idx, (entry->val + NUM_MANUAL_STACK_SLOTS) * 8);
-            if (Dst->deferred_stack_slot_next-1 == entry->val)
+            if (Dst->deferred_stack_slot_next-1 == (int)entry->val)
                 --Dst->deferred_stack_slot_next;
         } else if (entry->loc == REGISTER) {
             if (entry->val == vs_preserved_reg_idx) {
@@ -1892,7 +1892,7 @@ static void deferred_vs_apply_if_same_var(Jit* Dst, int var_idx) {
     int materialize_stack = 0;
     for (int i=Dst->deferred_vs_next; i>0; --i) {
         DeferredValueStackEntry* entry = &Dst->deferred_vs[i-1];
-        if (entry->loc == FAST && entry->val == var_idx) {
+        if (entry->loc == FAST && (int)entry->val == var_idx) {
             materialize_stack = 1;
             break;
         }
@@ -2602,7 +2602,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             break;
 
         case LOAD_CONST:
-            deferred_vs_push(Dst, CONST, oparg);
+            deferred_vs_push(Dst, CONST, (unsigned long)PyTuple_GET_ITEM(Dst->co_consts, oparg));
             break;
 
         case STORE_FAST:
@@ -2790,7 +2790,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 int next_opcode = _Py_OPCODE(next_word);
                 int next_oparg = _Py_OPARG(next_word);
                 if (both_are_unicode &&
-                    next_opcode == STORE_FAST && next_oparg == GET_DEFERRED[-2].val &&
+                    next_opcode == STORE_FAST && next_oparg == (int)GET_DEFERRED[-2].val &&
                     !Dst->is_jmp_target[inst_idx + 1]) {
                     unicode_concat = next_oparg;
                 }
@@ -3284,11 +3284,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             if (oparg == 0) {
                 // todo: handle during bytecode generation
                 PyObject* empty_tuple = PyTuple_New(0);
-                deferred_vs_convert_reg_to_stack(Dst);
-                emit_mov_imm(Dst, res_idx, (unsigned long)empty_tuple);
-                if (!IS_IMMORTAL(empty_tuple))
-                    emit_incref(Dst, res_idx);
-                deferred_vs_push(Dst, REGISTER, res_idx);
+                deferred_vs_push(Dst, CONST, (unsigned long)empty_tuple);
                 Py_DECREF(empty_tuple);
                 break;
             }
@@ -3420,8 +3416,8 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             POP_FINALLY, WITH_CLEANUP_START and WITH_CLEANUP_FINISH.
             */
             // PUSH(NULL);
-            emit_mov_imm(Dst, arg1_idx, 0);
-            deferred_vs_push_reg_and_apply(Dst, arg1_idx);
+            deferred_vs_push(Dst, CONST, 0);
+            deferred_vs_apply(Dst);
             break;
 
         default:
