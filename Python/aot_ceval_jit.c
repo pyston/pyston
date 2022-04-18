@@ -148,6 +148,7 @@ typedef struct CallMethodHint {
     PyTypeObject* type; // type of the object we got the attribute from
     PyObject* attr; // the attribute that we fetched
     char meth_found;
+    char is_self_const; // self set via LOAD_CONST
 } CallMethodHint;
 
 typedef struct Jit {
@@ -2045,29 +2046,42 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             // In comparison to the LOAD_METHOD cache, label 2 is when we know the version checks have
             // passed, but there's an additional tp_descr_get check that we have to do
 
-
+            PyObject* const_val = deferred_vs_peek_const(Dst);
             RefStatus ref_status = 0;
             if (opcode == LOAD_ATTR) {
                 // PyObject *owner = POP();
                 ref_status = deferred_vs_pop1(Dst, arg1_idx);
                 deferred_vs_convert_reg_to_stack(Dst);
             } else {
-                // PyObject *obj = TOP();
-                deferred_vs_peek_top_and_apply(Dst, arg1_idx);
-            }
-
-            // loadAttrCache
-            if (la->cache_type == LA_CACHE_BUILTIN) {
-                | type_check arg1_idx, la->type, >1
-
-                if (opcode == LOAD_METHOD) {
+                if (la->cache_type == LA_CACHE_BUILTIN) {
                     CallMethodHint* hint = Dst->call_method_hints;
                     if (hint) {
                         hint->type = la->type;
                         hint->attr = la->u.value_cache.obj;
                         hint->meth_found = la->meth_found;
+                        hint->is_self_const = const_val != NULL;
                     }
                 }
+                // special case for method loads on constant objects.
+                // mostly used for "".join() and "".format()
+                if (const_val && la->cache_type == LA_CACHE_BUILTIN && la->meth_found &&
+                    la->type == Py_TYPE(const_val)) {
+                    deferred_vs_remove(Dst, 1); // this is LOAD_CONST 'self'
+                    deferred_vs_push(Dst, CONST, (unsigned long)la->u.value_cache.obj);
+                    deferred_vs_push(Dst, CONST, (unsigned long)const_val);
+                    if (jit_stats_enabled) {
+                        emit_inc_qword_ptr(Dst, &jit_stat_load_method_hit, 1 /*=can use tmp_reg*/);
+                    }
+                    return 0;
+                } else {
+                    // PyObject *obj = TOP();
+                    deferred_vs_peek_top_and_apply(Dst, arg1_idx);
+                }
+            }
+
+            // loadAttrCache
+            if (la->cache_type == LA_CACHE_BUILTIN) {
+                | type_check arg1_idx, la->type, >1
             } else {
                 // PyTypeObject *arg2 = Py_TYPE(obj)
                 emit_load64_mem(Dst, arg2_idx, arg1_idx,  offsetof(PyObject, ob_type));
@@ -2934,11 +2948,15 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                             emit_cmp32_mem_imm(Dst, tstate_idx, offsetof(PyThreadState, use_tracing), 0);
                             | branch_ne >1
 
-                            emit_cmp64_mem_imm(Dst, vsp_idx, -8 * num_vs_args, 0); // callable
-                            | branch_eq >1
+                            if (!hint->is_self_const) {
+                                emit_cmp64_mem_imm(Dst, vsp_idx, -8 * num_vs_args, 0); // callable
+                                | branch_eq >1
+                            }
 
                             emit_load64_mem(Dst, arg1_idx, vsp_idx, -8 * num_args); // self
-                            | type_check arg1_idx, hint->type, >1
+                            if (!hint->is_self_const) {
+                                | type_check arg1_idx, hint->type, >1
+                            }
 
                             if (method->vectorcall == method_vectorcall_NOARGS && num_args == 1) {
                                 emit_call_ext_func(Dst, funcptr);
