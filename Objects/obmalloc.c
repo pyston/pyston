@@ -150,6 +150,21 @@ _PyObject_ArenaVirtualFree(void *ctx, void *ptr, size_t size)
 static void *
 _PyObject_ArenaMmap(void *ctx, size_t size)
 {
+#if PYSTON_SPEEDUPS && defined(MAP_32BIT)
+    // try to allocate smaller addresses because
+    // they fit better into immediates of asm instructions
+    static int map32bit_failed = 0;
+    if (!map32bit_failed) {
+        void *ptr = mmap(NULL, size, PROT_READ|PROT_WRITE,
+                         MAP_PRIVATE|MAP_ANONYMOUS|MAP_32BIT, -1, 0);
+        if (ptr != MAP_FAILED) {
+            assert(ptr != NULL);
+            return ptr;
+        }
+        map32bit_failed = 1;
+    }
+#endif
+
     void *ptr;
     ptr = mmap(NULL, size, PROT_READ|PROT_WRITE,
                MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
