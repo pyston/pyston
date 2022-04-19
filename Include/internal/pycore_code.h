@@ -124,9 +124,14 @@ typedef struct {
     char cache_type;
 } _PyOpcache_StoreAttr;
 
+typedef struct {
+    PyTypeObject* type;  /* borrowed type */
+} _PyOpcache_Type;
+
 _Static_assert(sizeof(_PyOpcache_LoadMethod) <= 32,  "_data[32] needs to be updated");
 _Static_assert(sizeof(_PyOpcache_LoadAttr) <= 32,  "_data[32] needs to be updated");
 _Static_assert(sizeof(_PyOpcache_StoreAttr) <= 32,  "_data[32] needs to be updated");
+_Static_assert(sizeof(_PyOpcache_Type) <= 32,  "_data[32] needs to be updated");
 #endif
 
 struct _PyOpcache {
@@ -136,6 +141,7 @@ struct _PyOpcache {
         _PyOpcache_LoadMethod lm;
         _PyOpcache_LoadAttr la;
         _PyOpcache_StoreAttr sa;
+        _PyOpcache_Type t;
 #endif
     } u;
     char optimized;

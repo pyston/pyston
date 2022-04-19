@@ -280,6 +280,7 @@ _PyCode_InitOpcache(PyCodeObject *co)
 #if PYSTON_SPEEDUPS
                 || opcode == LOAD_METHOD || opcode == LOAD_ATTR || opcode == STORE_ATTR
                 || opcode == BINARY_ADD || opcode == INPLACE_ADD
+                || opcode == BINARY_SUBSCR || opcode == STORE_SUBSCR
 #endif
                 ) {
             opts++;
