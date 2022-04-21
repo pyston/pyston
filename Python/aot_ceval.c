@@ -2188,6 +2188,13 @@ main_loop:
         case TARGET(BINARY_SUBSCR): {
             PyObject *sub = POP();
             PyObject *container = TOP();
+
+            OPCACHE_CHECK();
+            if (co_opcache) {
+                co_opcache->u.t.type = Py_TYPE(container);
+                co_opcache->optimized = 1;
+            }
+
             PyObject *res = PyObject_GetItem(container, sub);
             Py_DECREF(container);
             Py_DECREF(sub);
@@ -2455,6 +2462,13 @@ main_loop:
             PyObject *v = THIRD();
             int err;
             STACK_SHRINK(3);
+
+            OPCACHE_CHECK();
+            if (co_opcache) {
+                co_opcache->u.t.type = Py_TYPE(container);
+                co_opcache->optimized = 1;
+            }
+
             /* container[sub] = v */
             err = PyObject_SetItem(container, sub, v);
             Py_DECREF(v);

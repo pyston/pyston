@@ -654,7 +654,8 @@ static unsigned long jit_stat_store_attr_hit, jit_stat_store_attr_miss, jit_stat
 static unsigned long jit_stat_load_method_hit, jit_stat_load_method_miss, jit_stat_load_method_inline, jit_stat_load_method_total;
 static unsigned long jit_stat_load_global_hit, jit_stat_load_global_miss, jit_stat_load_global_inline, jit_stat_load_global_total;
 static unsigned long jit_stat_call_method_hit, jit_stat_call_method_miss, jit_stat_call_method_inline, jit_stat_call_method_total;
-static unsigned long jit_stat_getitemlong, jit_stat_unicode_concat;
+static unsigned long jit_stat_getitemlong, jit_stat_getitemlong_inlined, jit_stat_setitemlong_inlined;
+static unsigned long jit_stat_unicode_concat;
 
 
 #define ENABLE_DEFERRED_RES_PUSH 1
@@ -814,6 +815,11 @@ static void switch_section(Jit* Dst, Section new_section) {
 |.macro branch_le, dst
 @ARM| ble dst
 @X86| jle dst
+|.endmacro
+
+|.macro branch_le_unsigned, dst
+@ARM| bls dst
+@X86| jbe dst
 |.endmacro
 
 // compares r_object_idx->ob_type with type
@@ -1963,6 +1969,134 @@ static _PyOpcache* get_opcache_entry(PyCodeObject* co, int inst_idx) {
     return co_opcache;
 }
 
+// returns 0 if generation succeeded
+static int emit_special_binary_subscr(Jit* Dst, int inst_idx, PyObject* const_val, RefStatus ref_status[2]) {
+    if (!const_val || !PyLong_CheckExact(const_val)) {
+        return -1;
+    }
+
+    Py_ssize_t n = PyLong_AsSsize_t(const_val);
+    if (n == -1 && PyErr_Occurred()) {
+        PyErr_Clear();
+        return -1;
+    }
+
+    _PyOpcache* co_opcache = get_opcache_entry(Dst->co, inst_idx);
+    PyTypeObject* cached_type = co_opcache ? co_opcache->u.t.type : NULL;
+
+    int use_cold_section = 0;
+    // special path: if we have a >= 0 index and during profiling encountered tuple or lists
+    // we emit assembler code for the access
+    if (n >= 0 && ref_status[0] != OWNED /* this is the index/const_val object */ &&
+        (cached_type == &PyList_Type || cached_type == &PyTuple_Type)) {
+        | type_check arg1_idx, cached_type, >1
+        emit_cmp64_mem_imm(Dst, arg1_idx, offsetof(PyVarObject, ob_size), n /* = value */);
+        | branch_le_unsigned >1
+        if (cached_type == &PyList_Type) {
+            emit_load64_mem(Dst, arg4_idx, arg1_idx, offsetof(PyListObject, ob_item));
+            emit_load64_mem(Dst, res_idx, arg4_idx, n*sizeof(PyObject*));
+        } else {
+            emit_load64_mem(Dst, res_idx, arg1_idx, offsetof(PyTupleObject, ob_item) + n*sizeof(PyObject*));
+        }
+        emit_incref(Dst, res_idx);
+        if (ref_status[1] == OWNED /* check if the container is owned */) {
+            emit_decref(Dst, arg1_idx, 1 /* preserve res */);
+        }
+        use_cold_section = 1;
+        ++jit_stat_getitemlong_inlined;
+    }
+
+    if (use_cold_section) {
+        switch_section(Dst, SECTION_COLD);
+    }
+    |1:
+    emit_mov_imm(Dst, arg3_idx, n);
+    void* func = jit_use_aot ? PyObject_GetItemLongProfile : PyObject_GetItemLong;
+    emit_call_decref_args2(Dst, func, arg2_idx, arg1_idx, ref_status);
+    emit_if_res_0_error(Dst);
+    if (use_cold_section) {
+        | branch >2
+        switch_section(Dst, SECTION_CODE);
+    }
+    |2:
+    deferred_vs_push(Dst, REGISTER, res_idx);
+    ++jit_stat_getitemlong;
+    return 0;
+}
+
+// returns 0 if generation succeeded
+static int emit_special_store_subscr(Jit* Dst, int inst_idx, int opcode, int oparg, PyObject* const_val, RefStatus ref_status[3]) {
+    if (!const_val || !PyLong_CheckExact(const_val)) {
+        return -1;
+    }
+
+    Py_ssize_t n = PyLong_AsSsize_t(const_val);
+    if (n == -1 && PyErr_Occurred()) {
+        PyErr_Clear();
+        return -1;
+    }
+    if (n < 0 || ref_status[0] == OWNED /* this is the index/const_val object */) {
+        return -1;
+    }
+
+    _PyOpcache* co_opcache = get_opcache_entry(Dst->co, inst_idx);
+    PyTypeObject* cached_type = co_opcache ? co_opcache->u.t.type : NULL;
+    if (cached_type != &PyList_Type) {
+        return -1;
+    }
+
+    // special path: if we have a >= 0 index and during profiling encountered a lists
+    // we emit assembler code for the store
+    | type_check arg1_idx, cached_type, >1
+    emit_cmp64_mem_imm(Dst, arg1_idx, offsetof(PyVarObject, ob_size), n /* = value */);
+    | branch_le_unsigned >1
+    if (ref_status[2] == BORROWED /* this is the new value */ ) {
+        emit_incref(Dst, arg3_idx);
+    }
+    emit_load64_mem(Dst, arg4_idx, arg1_idx, offsetof(PyListObject, ob_item));
+    emit_load64_mem(Dst, res_idx, arg4_idx, n*sizeof(PyObject*));
+    emit_store64_mem(Dst, arg3_idx, arg4_idx, n*sizeof(PyObject*));
+    if (ref_status[1] == OWNED /* check if the container is owned */) {
+        emit_decref(Dst, arg1_idx, 1 /* preserve res */);
+    }
+    emit_xdecref(Dst, res_idx);
+
+    switch_section(Dst, SECTION_COLD);
+    |1:
+    void* func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
+    emit_call_decref_args3(Dst, func, arg2_idx, arg1_idx, arg3_idx, ref_status);
+    emit_if_res_32b_not_0_error(Dst);
+    | branch >2
+    switch_section(Dst, SECTION_CODE);
+    |2:
+    ++jit_stat_setitemlong_inlined;
+    return 0;
+}
+
+// returns 0 if generation succeeded
+static int emit_special_compare_op(Jit* Dst, int oparg, RefStatus ref_status[2]) {
+    if (oparg != PyCmp_IS && oparg != PyCmp_IS_NOT) {
+        return -1;
+    }
+    emit_mov_imm2(Dst, res_idx, Py_True, tmp_idx, Py_False);
+    | cmp arg1, arg2
+    if (oparg == PyCmp_IS) {
+@ARM    | csel res, res, tmp, eq
+@X86    | cmovne res, tmp
+    } else {
+@ARM    | csel res, res, tmp, ne
+@X86    | cmove res, tmp
+    }
+    // don't need to incref Py_True/Py_False because they are immortals
+    if (ref_status[0] == OWNED && ref_status[1] == OWNED)
+        emit_decref2(Dst, arg2_idx, arg1_idx, 1 /*= preserve res */);
+    else if (ref_status[0] == OWNED)
+        emit_decref(Dst, arg2_idx, 1 /*= preserve res */);
+    else if (ref_status[1] == OWNED)
+        emit_decref(Dst, arg1_idx, 1 /*= preserve res */);
+    deferred_vs_push(Dst, REGISTER, res_idx);
+    return 0;
+}
 
 // returns 0 if IC generation succeeded
 static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opcache) {
@@ -2819,57 +2953,32 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             deferred_vs_pop2(Dst, arg2_idx, arg1_idx, ref_status);
             deferred_vs_convert_reg_to_stack(Dst);
 
-            void* func = NULL;
-            if (opcode == BINARY_SUBSCR && const_val && PyLong_CheckExact(const_val)) {
-                Py_ssize_t n = PyLong_AsSsize_t(const_val);
-
-                if (n == -1 && PyErr_Occurred()) {
-                    PyErr_Clear();
-                } else {
-                    func = jit_use_aot ? PyObject_GetItemLongProfile : PyObject_GetItemLong;
-                    emit_mov_imm(Dst, arg3_idx, n);
-                    ++jit_stat_getitemlong;
-                }
+            if (opcode == BINARY_SUBSCR && emit_special_binary_subscr(Dst, inst_idx, const_val, ref_status) == 0) {
+                break; // we are finished
             }
-            if (opcode == COMPARE_OP && (oparg == PyCmp_IS || oparg == PyCmp_IS_NOT)) {
-                emit_mov_imm2(Dst, res_idx, Py_True, tmp_idx, Py_False);
-                | cmp arg1, arg2
-                if (oparg == PyCmp_IS) {
-@ARM                | csel res, res, tmp, eq
-@X86                | cmovne res, tmp
-                } else {
-@ARM                | csel res, res, tmp, ne
-@X86                | cmove res, tmp
-                }
-                // don't need to incref Py_True/Py_False because they are immortals
-                if (ref_status[0] == OWNED && ref_status[1] == OWNED)
-                    emit_decref2(Dst, arg2_idx, arg1_idx, 1 /*= preserve res */);
-                else if (ref_status[0] == OWNED)
-                    emit_decref(Dst, arg2_idx, 1 /*= preserve res */);
-                else if (ref_status[1] == OWNED)
-                    emit_decref(Dst, arg1_idx, 1 /*= preserve res */);
-            } else {
-                if (unicode_concat != -1) {
-                    JIT_ASSERT(ref_status[1] == BORROWED, "");
-                    | type_check arg1_idx, &PyUnicode_Type, >1
-                    | type_check arg2_idx, &PyUnicode_Type, >1
-
-                    emit_add_or_sub_imm(Dst, arg1_idx, f_idx, get_fastlocal_offset(unicode_concat));
-                    emit_call_decref_args2(Dst, PyUnicode_Append, arg2_idx, arg1_idx, ref_status);
-
-                    emit_cmp64_mem_imm(Dst, f_idx, get_fastlocal_offset(unicode_concat), 0 /* = value */);
-                    | branch_eq ->error
-                    // skip STORE_FAST
-                    emit_jump_by_n_bytecodes(Dst, 2, inst_idx);
-                    ++jit_stat_unicode_concat;
-                }
-
-                |1:
-                if (!func)
-                    func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
-                emit_call_decref_args2(Dst, func, arg2_idx, arg1_idx, ref_status);
-                emit_if_res_0_error(Dst);
+            if (opcode == COMPARE_OP && emit_special_compare_op(Dst, oparg, ref_status) == 0) {
+                break; // we are finished
             }
+            // generic path
+            if (unicode_concat != -1) {
+                JIT_ASSERT(ref_status[1] == BORROWED, "");
+                | type_check arg1_idx, &PyUnicode_Type, >1
+                | type_check arg2_idx, &PyUnicode_Type, >1
+
+                emit_add_or_sub_imm(Dst, arg1_idx, f_idx, get_fastlocal_offset(unicode_concat));
+                emit_call_decref_args2(Dst, PyUnicode_Append, arg2_idx, arg1_idx, ref_status);
+
+                emit_cmp64_mem_imm(Dst, f_idx, get_fastlocal_offset(unicode_concat), 0 /* = value */);
+                | branch_eq ->error
+                // skip STORE_FAST
+                emit_jump_by_n_bytecodes(Dst, 2, inst_idx);
+                ++jit_stat_unicode_concat;
+            }
+
+            |1:
+            void* func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
+            emit_call_decref_args2(Dst, func, arg2_idx, arg1_idx, ref_status);
+            emit_if_res_0_error(Dst);
             deferred_vs_push(Dst, REGISTER, res_idx);
             break;
         }
@@ -3142,11 +3251,15 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         case STORE_SUBSCR:
             if (Dst->deferred_vs_next >= 3) {
                 RefStatus ref_status[3];
+                PyObject* const_val = deferred_vs_peek_const(Dst);
                 deferred_vs_pop3(Dst, arg2_idx, arg1_idx, arg3_idx, ref_status);
                 deferred_vs_convert_reg_to_stack(Dst);
-                void* func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
-                emit_call_decref_args3(Dst, func, arg2_idx, arg1_idx, arg3_idx, ref_status);
-                emit_if_res_32b_not_0_error(Dst);
+
+                if (emit_special_store_subscr(Dst, inst_idx, opcode, oparg, const_val, ref_status)<0) {
+                    void* func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
+                    emit_call_decref_args3(Dst, func, arg2_idx, arg1_idx, arg3_idx, ref_status);
+                    emit_if_res_32b_not_0_error(Dst);
+                }
             } else {
                 deferred_vs_apply(Dst);
                 emit_read_vs(Dst, arg2_idx, 1 /*=top*/);
@@ -4158,7 +4271,8 @@ jit_stat_##name##_inline, jit_stat_##name##_total, #opcode, jit_stat_##name##_hi
     PRINT_STAT(call_method, CALL_METHOD);
     PRINT_STAT(store_attr, STORE_ATTR);
 
-    fprintf(stderr, "jit: num GetItemLong: %lu\n", jit_stat_getitemlong);
+    fprintf(stderr, "jit: num GetItemLong: %lu inlined: %lu\n", jit_stat_getitemlong, jit_stat_getitemlong_inlined);
+    fprintf(stderr, "jit: num SetItemLong: %lu inlined: %lu\n", jit_stat_setitemlong_inlined, jit_stat_setitemlong_inlined);
     fprintf(stderr, "jit: num unicode concatenation: %lu\n", jit_stat_unicode_concat);
 }
 
