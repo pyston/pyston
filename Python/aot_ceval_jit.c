@@ -543,6 +543,7 @@ static const char* get_opcode_name(int opcode) {
     return "UNKNOWN";
 }
 
+#define IS_16BIT_VAL(x) ((unsigned long)(x) <= UINT16_MAX)
 #define IS_32BIT_VAL(x) ((unsigned long)(x) <= UINT32_MAX)
 #define IS_32BIT_SIGNED_VAL(x) ((int32_t)(x) == (int64_t)(x))
 
@@ -1166,7 +1167,11 @@ static void emit_mov_imm_using_diff(Jit* Dst, int r_idx, int other_idx, void* ad
         return;
     }
 
-    if (emit_add_or_sub_imm_can_encode_as_single_instruction(Dst, r_idx, other_idx, diff)) {
+    // just use a mov instruction if it fits in a single (small) mov
+@ARMint fits_in_mov = IS_16BIT_VAL(addr);
+@X86int fits_in_mov = IS_32BIT_VAL(addr);
+
+    if (!fits_in_mov && emit_add_or_sub_imm_can_encode_as_single_instruction(Dst, r_idx, other_idx, diff)) {
         emit_add_or_sub_imm(Dst, r_idx, other_idx, diff);
         return;
     }
