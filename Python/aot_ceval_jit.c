@@ -120,7 +120,7 @@ typedef enum Section {
 
 typedef struct DeferredValueStackEntry {
     ValueStackLoc loc;
-    int val;
+    unsigned long val;
 } DeferredValueStackEntry;
 
 // We have a very simple analysis method:
@@ -148,6 +148,7 @@ typedef struct CallMethodHint {
     PyTypeObject* type; // type of the object we got the attribute from
     PyObject* attr; // the attribute that we fetched
     char meth_found;
+    char is_self_const; // self set via LOAD_CONST
 } CallMethodHint;
 
 typedef struct Jit {
@@ -1523,16 +1524,16 @@ static void deferred_vs_emit(Jit* Dst) {
 @ARM            tmpreg = tmp_pair_idx;
             DeferredValueStackEntry* entry = &Dst->deferred_vs[i-1];
             if (entry->loc == CONST) {
-                PyObject* obj = PyTuple_GET_ITEM(Dst->co_consts, entry->val);
+                PyObject* obj = (PyObject*)entry->val;
                 // don't use this path on arm because it prevents storing a pair and arm does not have a store instructions which support immediates
                 // which means it will expanded into a mov + store - we can do better in the common path which at least handles pairs.
 @ARM            if (0) {
-@X86            if (IS_IMMORTAL(obj)) {
+@X86            if (obj == NULL || IS_IMMORTAL(obj)) {
                     emit_store64_mem_imm(Dst, (unsigned long)obj, vsp_idx, 8 * (i-1));
                     delayed_store = 0;
                 } else {
                     emit_mov_imm(Dst, tmpreg, (unsigned long)obj);
-                    if (!IS_IMMORTAL(obj)) {
+                    if (obj != NULL && !IS_IMMORTAL(obj)) {
                         emit_incref(Dst, tmpreg);
                     }
                 }
@@ -1585,7 +1586,7 @@ static PyObject* deferred_vs_peek_const(Jit* Dst) {
 
     DeferredValueStackEntry* entry = &Dst->deferred_vs[Dst->deferred_vs_next - 1];
     if (entry->loc == CONST)
-        return PyTuple_GET_ITEM(Dst->co_consts, entry->val);
+        return (PyObject*)entry->val;
     return NULL;
 }
 
@@ -1634,7 +1635,7 @@ static RefStatus deferred_vs_peek(Jit* Dst, int r_idx, int num) {
         int idx = Dst->deferred_vs_next-(num);
         DeferredValueStackEntry* entry = &Dst->deferred_vs[idx];
         if (entry->loc == CONST) {
-            PyObject* obj = PyTuple_GET_ITEM(Dst->co_consts, entry->val);
+            PyObject* obj = (PyObject*)entry->val;
             emit_mov_imm(Dst, r_idx, (unsigned long)obj);
             ref_status = IS_IMMORTAL(obj) ? IMMORTAL : BORROWED;
         } else if (entry->loc == FAST) {
@@ -1642,7 +1643,7 @@ static RefStatus deferred_vs_peek(Jit* Dst, int r_idx, int num) {
             ref_status = BORROWED;
         } else if (entry->loc == REGISTER) {
             // only generate mov if src and dst is different
-            if (r_idx != entry->val) {
+            if (r_idx != (int)entry->val) {
                 emit_mov64_reg(Dst, r_idx, entry->val);
             }
             ref_status = OWNED;
@@ -1712,7 +1713,7 @@ static void deferred_vs_remove(Jit* Dst, int num_to_remove) {
         DeferredValueStackEntry* entry = &GET_DEFERRED[-i-1];
         if (entry->loc == STACK) {
             emit_store64_mem_imm(Dst, 0 /*= value */, sp_reg_idx, (entry->val + NUM_MANUAL_STACK_SLOTS) * 8);
-            if (Dst->deferred_stack_slot_next-1 == entry->val)
+            if (Dst->deferred_stack_slot_next-1 == (int)entry->val)
                 --Dst->deferred_stack_slot_next;
         } else if (entry->loc == REGISTER) {
             if (entry->val == vs_preserved_reg_idx) {
@@ -1897,7 +1898,7 @@ static void deferred_vs_apply_if_same_var(Jit* Dst, int var_idx) {
     int materialize_stack = 0;
     for (int i=Dst->deferred_vs_next; i>0; --i) {
         DeferredValueStackEntry* entry = &Dst->deferred_vs[i-1];
-        if (entry->loc == FAST && entry->val == var_idx) {
+        if (entry->loc == FAST && (int)entry->val == var_idx) {
             materialize_stack = 1;
             break;
         }
@@ -2050,29 +2051,42 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             // In comparison to the LOAD_METHOD cache, label 2 is when we know the version checks have
             // passed, but there's an additional tp_descr_get check that we have to do
 
-
+            PyObject* const_val = deferred_vs_peek_const(Dst);
             RefStatus ref_status = 0;
             if (opcode == LOAD_ATTR) {
                 // PyObject *owner = POP();
                 ref_status = deferred_vs_pop1(Dst, arg1_idx);
                 deferred_vs_convert_reg_to_stack(Dst);
             } else {
-                // PyObject *obj = TOP();
-                deferred_vs_peek_top_and_apply(Dst, arg1_idx);
-            }
-
-            // loadAttrCache
-            if (la->cache_type == LA_CACHE_BUILTIN) {
-                | type_check arg1_idx, la->type, >1
-
-                if (opcode == LOAD_METHOD) {
+                if (la->cache_type == LA_CACHE_BUILTIN) {
                     CallMethodHint* hint = Dst->call_method_hints;
                     if (hint) {
                         hint->type = la->type;
                         hint->attr = la->u.value_cache.obj;
                         hint->meth_found = la->meth_found;
+                        hint->is_self_const = const_val != NULL;
                     }
                 }
+                // special case for method loads on constant objects.
+                // mostly used for "".join() and "".format()
+                if (const_val && la->cache_type == LA_CACHE_BUILTIN && la->meth_found &&
+                    la->type == Py_TYPE(const_val)) {
+                    deferred_vs_remove(Dst, 1); // this is LOAD_CONST 'self'
+                    deferred_vs_push(Dst, CONST, (unsigned long)la->u.value_cache.obj);
+                    deferred_vs_push(Dst, CONST, (unsigned long)const_val);
+                    if (jit_stats_enabled) {
+                        emit_inc_qword_ptr(Dst, &jit_stat_load_method_hit, 1 /*=can use tmp_reg*/);
+                    }
+                    return 0;
+                } else {
+                    // PyObject *obj = TOP();
+                    deferred_vs_peek_top_and_apply(Dst, arg1_idx);
+                }
+            }
+
+            // loadAttrCache
+            if (la->cache_type == LA_CACHE_BUILTIN) {
+                | type_check arg1_idx, la->type, >1
             } else {
                 // PyTypeObject *arg2 = Py_TYPE(obj)
                 emit_load64_mem(Dst, arg2_idx, arg1_idx,  offsetof(PyObject, ob_type));
@@ -2607,7 +2621,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             break;
 
         case LOAD_CONST:
-            deferred_vs_push(Dst, CONST, oparg);
+            deferred_vs_push(Dst, CONST, (unsigned long)PyTuple_GET_ITEM(Dst->co_consts, oparg));
             break;
 
         case STORE_FAST:
@@ -2795,7 +2809,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 int next_opcode = _Py_OPCODE(next_word);
                 int next_oparg = _Py_OPARG(next_word);
                 if (both_are_unicode &&
-                    next_opcode == STORE_FAST && next_oparg == GET_DEFERRED[-2].val &&
+                    next_opcode == STORE_FAST && next_oparg == (int)GET_DEFERRED[-2].val &&
                     !Dst->is_jmp_target[inst_idx + 1]) {
                     unicode_concat = next_oparg;
                 }
@@ -2939,11 +2953,15 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                             emit_cmp32_mem_imm(Dst, tstate_idx, offsetof(PyThreadState, use_tracing), 0);
                             | branch_ne >1
 
-                            emit_cmp64_mem_imm(Dst, vsp_idx, -8 * num_vs_args, 0); // callable
-                            | branch_eq >1
+                            if (!hint->is_self_const) {
+                                emit_cmp64_mem_imm(Dst, vsp_idx, -8 * num_vs_args, 0); // callable
+                                | branch_eq >1
+                            }
 
                             emit_load64_mem(Dst, arg1_idx, vsp_idx, -8 * num_args); // self
-                            | type_check arg1_idx, hint->type, >1
+                            if (!hint->is_self_const) {
+                                | type_check arg1_idx, hint->type, >1
+                            }
 
                             if (method->vectorcall == method_vectorcall_NOARGS && num_args == 1) {
                                 emit_call_ext_func(Dst, funcptr);
@@ -3289,11 +3307,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             if (oparg == 0) {
                 // todo: handle during bytecode generation
                 PyObject* empty_tuple = PyTuple_New(0);
-                deferred_vs_convert_reg_to_stack(Dst);
-                emit_mov_imm(Dst, res_idx, (unsigned long)empty_tuple);
-                if (!IS_IMMORTAL(empty_tuple))
-                    emit_incref(Dst, res_idx);
-                deferred_vs_push(Dst, REGISTER, res_idx);
+                deferred_vs_push(Dst, CONST, (unsigned long)empty_tuple);
                 Py_DECREF(empty_tuple);
                 break;
             }
@@ -3425,8 +3439,8 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             POP_FINALLY, WITH_CLEANUP_START and WITH_CLEANUP_FINISH.
             */
             // PUSH(NULL);
-            emit_mov_imm(Dst, arg1_idx, 0);
-            deferred_vs_push_reg_and_apply(Dst, arg1_idx);
+            deferred_vs_push(Dst, CONST, 0);
+            deferred_vs_apply(Dst);
             break;
 
         default:
