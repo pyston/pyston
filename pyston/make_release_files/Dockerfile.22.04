@@ -1,0 +1,35 @@
+FROM ubuntu:22.04
+
+# have to set this else apt will ask for a config for tzdata
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN echo 'deb-src http://archive.ubuntu.com/ubuntu/ jammy main restricted' >> /etc/apt/sources.list
+
+RUN apt-get update
+RUN apt-get upgrade -y
+RUN apt-get install -y build-essential ninja-build git cmake clang libssl-dev libsqlite3-dev luajit python3 zlib1g-dev virtualenv libjpeg-dev linux-tools-common linux-tools-generic
+RUN apt-get install -y dh-make dh-exec debhelper patchelf
+RUN apt-get install -y rsync # used by the release script
+
+# we have to set a local else it will use ascii
+RUN apt-get install -y locales
+RUN locale-gen en_US.UTF-8
+ENV LANG en_US.UTF-8
+ENV LANGUAGE en_US:en
+ENV LC_ALL en_US.UTF-8
+
+# if we don't install this option packages our build will have way fewer functions
+# e.g. no libreadline -> no repl history
+RUN apt build-dep -y python3
+
+# install dependencies for the test suite
+RUN apt-get install -y libwebp-dev libjpeg-dev python3-gdbm python3-tk python3-dev tk-dev libgdbm-dev libgdbm-compat-dev liblzma-dev libbz2-dev nginx
+
+# revert bolt patched llvm
+RUN git config --global user.email "you@example.com"
+RUN git config --global user.name "Your Name"
+
+# we don't want default gcc11 instead use gcc9
+RUN apt-get install -y gcc-9 g++-9
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 50
+RUN update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-9 50
