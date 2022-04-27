@@ -22,6 +22,12 @@ class int "PyObject *" "&PyLong_Type"
 #define NSMALLNEGINTS           5
 #endif
 
+#if PYSTON_SPEEDUPS
+#define PyLong_MAXFREELIST    100
+int long_numfree = 0;
+PyLongObject *long_free_list = NULL;
+#endif
+
 _Py_IDENTIFIER(little);
 _Py_IDENTIFIER(big);
 
@@ -312,11 +318,21 @@ _PyLong_FromMedium(sdigit x)
 {
     assert(!IS_SMALL_INT(x));
     assert(is_medium_int(x));
-    /* We could use a freelist here */
-    PyLongObject *v = PyObject_Malloc(sizeof(PyLongObject));
-    if (v == NULL) {
-        PyErr_NoMemory();
-        return NULL;
+
+#if PYSTON_SPEEDUPS
+    PyLongObject *v = long_free_list;
+    if (v != NULL) {
+        long_free_list = (PyLongObject *)Py_TYPE(v);
+        long_numfree--;
+    } else
+#endif
+    {
+        /* We could use a freelist here */
+        v = PyObject_Malloc(sizeof(PyLongObject));
+        if (v == NULL) {
+            PyErr_NoMemory();
+            return NULL;
+        }
     }
     Py_ssize_t sign = x < 0 ? -1: 1;
     digit abs_x = x < 0 ? -x : x;
@@ -3202,6 +3218,24 @@ long_richcompare(PyObject *self, PyObject *other, int op)
     Py_RETURN_RICHCOMPARE(result, 0, op);
 }
 
+#if PYSTON_SPEEDUPS
+void long_dealloc(PyLongObject *op)
+{
+    if (PyLong_CheckExact(op) && IS_MEDIUM_VALUE(op)
+        /*&& !IS_SMALL_INT(medium_value(op)) can't be true because all small ints are immortal */) {
+        if (long_numfree >= PyLong_MAXFREELIST)  {
+            PyObject_FREE(op);
+            return;
+        }
+        long_numfree++;
+        Py_TYPE(op) = (struct _typeobject *)long_free_list;
+        long_free_list = op;
+    }
+    else
+        Py_TYPE(op)->tp_free((PyObject *)op);
+}
+#endif
+
 /* static */ Py_hash_t
 long_hash(PyLongObject *v)
 {
@@ -5840,7 +5874,11 @@ PyTypeObject PyLong_Type = {
     "int",                                      /* tp_name */
     offsetof(PyLongObject, ob_digit),           /* tp_basicsize */
     sizeof(digit),                              /* tp_itemsize */
+#if PYSTON_SPEEDUPS
+    (destructor)long_dealloc,                   /* tp_dealloc */
+#else
     0,                                          /* tp_dealloc */
+#endif
     0,                                          /* tp_vectorcall_offset */
     0,                                          /* tp_getattr */
     0,                                          /* tp_setattr */
