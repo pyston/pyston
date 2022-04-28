@@ -664,6 +664,7 @@ static unsigned long jit_stat_getitemlong, jit_stat_getitemlong_inlined, jit_sta
 static unsigned long jit_stat_unicode_concat;
 static unsigned long jit_stat_load_attr_poly, jit_stat_load_attr_poly_entries;
 static unsigned long jit_stat_load_method_poly, jit_stat_load_method_poly_entries;
+static unsigned long jit_stat_binary_op_refcnt1, jit_stat_binary_op_refcnt1_miss, jit_stat_binary_op_refcnt1_hit;
 
 #define ENABLE_DEFERRED_RES_PUSH 1
 #define ENABLE_DEFINED_TRACKING 1
@@ -2309,6 +2310,104 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
         emit_incref(Dst, res_idx);
     }
 }
+// returns 0 if generation succeeded
+static int emit_special_binary_op_refcnt1(Jit* Dst, int inst_idx, int opcode, int oparg, RefStatus ref_status[2]) {
+    switch (opcode) {
+        case BINARY_ADD:
+        case BINARY_SUBTRACT:
+        case BINARY_MULTIPLY:
+
+        case INPLACE_ADD:
+        case INPLACE_SUBTRACT:
+        case INPLACE_MULTIPLY:
+            break;
+
+        default:
+            return -1;
+    }
+    _PyOpcache* co_opcache = get_opcache_entry(Dst->co, inst_idx);
+    if (!co_opcache || !co_opcache->optimized) {
+        return -1;
+    }
+    _PyOpcache_TypeRefcnt* cache = &co_opcache->u.t_refcnt;
+    if (!cache->refcnt1_left && !cache->refcnt1_right) {
+        return -1;
+    }
+    if (cache->type != &PyFloat_Type) {
+        return -1;
+    }
+    int use_left = cache->refcnt1_left > cache->refcnt1_right && ref_status[1] == OWNED;
+    // the inplace modified reference must be owned otherwise the refcnt==1 does not mean it's temporary.
+    if (ref_status[use_left ? 1 : 0] != OWNED)
+        return -1;
+    // some simple heuristics: if it looks like the refcnt is only 1 in less than half the cases
+    // don't inline it
+    if ((use_left ? cache->refcnt1_left : cache->refcnt1_right) < co_opcache->optimized/2)
+        return -1;
+    int inplace_reg = arg1_idx;
+    int other_reg = arg2_idx;
+    if (!use_left) {
+        inplace_reg = arg2_idx;
+        other_reg = arg1_idx;
+    }
+
+    ++jit_stat_binary_op_refcnt1;
+
+    // check that PyREFCNT()==1
+    emit_cmp64_mem_imm(Dst, inplace_reg, 0, 1 /* value */);
+    | branch_ne >1
+
+    | type_check arg1_idx, cache->type, >1
+    | type_check arg2_idx, cache->type, >1
+
+    if (cache->type == &PyFloat_Type) {
+        const int offset_fval = offsetof(PyFloatObject, ob_fval);
+@ARM    | ldr d0, [arg1, #offset_fval]
+@ARM    | ldr d1, [arg2, #offset_fval]
+@X86    | movsd xmm0, qword [arg1+offset_fval]
+        if (opcode == BINARY_ADD || opcode == INPLACE_ADD) {
+@ARM        | fadd d0, d0, d1
+@X86        | addsd xmm0, qword [arg2+offset_fval]
+        } else if (opcode == BINARY_SUBTRACT || opcode == INPLACE_SUBTRACT) {
+@ARM        | fsub d0, d0, d1
+@X86        | subsd xmm0, qword [arg2+offset_fval]
+        } else if (opcode == BINARY_MULTIPLY || opcode == INPLACE_MULTIPLY) {
+@ARM        | fmul d0, d0, d1
+@X86        | mulsd xmm0, qword [arg2+offset_fval]
+        } else {
+            JIT_ASSERT(0, "");
+        }
+@ARM    | str d0, [Rx(inplace_reg),#offset_fval]
+@X86    | movsd qword [Rq(inplace_reg)+offset_fval], xmm0
+        emit_mov64_reg(Dst, res_idx, inplace_reg);
+        if (ref_status[use_left ? 0 : 1] == OWNED) {
+            emit_decref(Dst, other_reg, 1 /* preserve res */);
+        }
+    } else {
+        JIT_ASSERT(0, "");
+    }
+    if (jit_stats_enabled) {
+        emit_inc_qword_ptr(Dst, &jit_stat_binary_op_refcnt1_hit, 0 /*=can't use tmp_reg*/);
+    }
+
+    // slowpath
+    {
+        switch_section(Dst, SECTION_COLD);
+        |1:
+        void* func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
+        emit_call_decref_args2(Dst, func, arg2_idx, arg1_idx, ref_status);
+        emit_if_res_0_error(Dst);
+        if (jit_stats_enabled) {
+            emit_inc_qword_ptr(Dst, &jit_stat_binary_op_refcnt1_miss, 0 /*=can't use tmp_reg*/);
+        }
+        | branch >2
+        switch_section(Dst, SECTION_CODE);
+    }
+    |2:
+
+    deferred_vs_push(Dst, REGISTER, res_idx);
+    return 0;
+}
 
 // returns 0 if IC generation succeeded
 static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opcache) {
@@ -3096,7 +3195,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 _PyOpcache* co_opcache = get_opcache_entry(co, inst_idx);
                 _Py_CODEUNIT next_word = Dst->first_instr[inst_idx + 1];
                 // interpreter sets this to 1 if both operands have been unicode strings
-                int both_are_unicode = co_opcache && co_opcache->optimized;
+                int both_are_unicode = co_opcache && co_opcache->optimized && co_opcache->u.t_refcnt.type == &PyUnicode_Type;
                 int next_opcode = _Py_OPCODE(next_word);
                 int next_oparg = _Py_OPARG(next_word);
                 if (both_are_unicode &&
@@ -3114,6 +3213,9 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 break; // we are finished
             }
             if (opcode == COMPARE_OP && emit_special_compare_op(Dst, oparg, ref_status) == 0) {
+                break; // we are finished
+            }
+            if (emit_special_binary_op_refcnt1(Dst, inst_idx, opcode, oparg, ref_status) == 0) {
                 break; // we are finished
             }
             // generic path
@@ -4454,6 +4556,7 @@ jit_stat_##name##_inline, jit_stat_##name##_total, #opcode, jit_stat_##name##_hi
     fprintf(stderr, "jit: num GetItemLong: %lu inlined: %lu\n", jit_stat_getitemlong, jit_stat_getitemlong_inlined);
     fprintf(stderr, "jit: num SetItemLong: %lu inlined: %lu\n", jit_stat_setitemlong_inlined, jit_stat_setitemlong_inlined);
     fprintf(stderr, "jit: num unicode concatenation: %lu\n", jit_stat_unicode_concat);
+    fprintf(stderr, "jit: num inplace binary op: %lu hits: %lu misses: %lu\n", jit_stat_binary_op_refcnt1, jit_stat_binary_op_refcnt1_hit, jit_stat_binary_op_refcnt1_miss);
 
     fprintf(stderr, "jit: num polymorphic LOAD_ATTR sites: %lu with %lu entries\n", jit_stat_load_attr_poly, jit_stat_load_attr_poly_entries);
     fprintf(stderr, "jit: num polymorphic LOAD_METHOD sites: %lu with %lu entries\n", jit_stat_load_method_poly, jit_stat_load_method_poly_entries);

@@ -1790,6 +1790,21 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 
 #endif
 
+#define BINARY_OP_OPCACHE_PROF() \
+    do { \
+        if (Py_TYPE(left) == Py_TYPE(right)) { \
+            _PyOpcache *co_opcache; \
+            OPCACHE_CHECK(); \
+            if (co_opcache && co_opcache->optimized < 10) { \
+                co_opcache->u.t_refcnt.type = Py_TYPE(left); \
+                co_opcache->u.t_refcnt.refcnt1_left += (Py_REFCNT(left) == 1) ? 1 : 0; \
+                co_opcache->u.t_refcnt.refcnt1_right+= (Py_REFCNT(right) == 1) ? 1 : 0; \
+                ++co_opcache->optimized; \
+            } \
+        } \
+    } while (0)
+
+
 // increments the number of times this loop got ececuted and if the threshold is hit JIT func and do OSR.
 #define HANDLE_JUMP_BACKWARD_OSR() \
     do {  \
@@ -2187,6 +2202,9 @@ main_loop:
         case TARGET(BINARY_MULTIPLY): {
             PyObject *right = POP();
             PyObject *left = TOP();
+
+            BINARY_OP_OPCACHE_PROF();
+
             PyObject *res = PyNumber_Multiply(left, right);
             Py_DECREF(left);
             Py_DECREF(right);
@@ -2256,6 +2274,9 @@ main_loop:
             PyObject *right = POP();
             PyObject *left = TOP();
             PyObject *sum;
+
+            BINARY_OP_OPCACHE_PROF();
+
             /* NOTE(haypo): Please don't try to micro-optimize int+int on
                CPython using bytecode, it is simply worthless.
                See http://bugs.python.org/issue21955 and
@@ -2264,12 +2285,6 @@ main_loop:
                speedup on microbenchmarks. */
             if (PyUnicode_CheckExact(left) &&
                      PyUnicode_CheckExact(right)) {
-                // Pyston change: we use the opcache to signal that we can optimize this unicode concat
-                _PyOpcache *co_opcache;
-                OPCACHE_CHECK();
-                if (co_opcache)
-                    co_opcache->optimized = 1;
-
                 sum = unicode_concatenate(tstate, left, right, f, next_instr);
                 /* unicode_concatenate consumed the ref to left */
             }
@@ -2287,6 +2302,9 @@ main_loop:
         case TARGET(BINARY_SUBTRACT): {
             PyObject *right = POP();
             PyObject *left = TOP();
+
+            BINARY_OP_OPCACHE_PROF();
+
             PyObject *diff = PyNumber_Subtract(left, right);
             Py_DECREF(right);
             Py_DECREF(left);
@@ -2415,6 +2433,9 @@ main_loop:
         case TARGET(INPLACE_MULTIPLY): {
             PyObject *right = POP();
             PyObject *left = TOP();
+
+            BINARY_OP_OPCACHE_PROF();
+
             PyObject *res = PyNumber_InPlaceMultiply(left, right);
             Py_DECREF(left);
             Py_DECREF(right);
@@ -2476,13 +2497,10 @@ main_loop:
             PyObject *right = POP();
             PyObject *left = TOP();
             PyObject *sum;
-            if (PyUnicode_CheckExact(left) && PyUnicode_CheckExact(right)) {
-                // Pyston change: we use the opcache to signal that we can optimize this unicode concat
-                _PyOpcache *co_opcache;
-                OPCACHE_CHECK();
-                if (co_opcache)
-                    co_opcache->optimized = 1;
 
+            BINARY_OP_OPCACHE_PROF();
+
+            if (PyUnicode_CheckExact(left) && PyUnicode_CheckExact(right)) {
                 sum = unicode_concatenate(tstate, left, right, f, next_instr);
                 /* unicode_concatenate consumed the ref to left */
             }
@@ -2500,6 +2518,9 @@ main_loop:
         case TARGET(INPLACE_SUBTRACT): {
             PyObject *right = POP();
             PyObject *left = TOP();
+
+            BINARY_OP_OPCACHE_PROF();
+
             PyObject *diff = PyNumber_InPlaceSubtract(left, right);
             Py_DECREF(left);
             Py_DECREF(right);
