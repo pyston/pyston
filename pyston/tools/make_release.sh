@@ -3,6 +3,7 @@
 set -eu
 
 VERSION=2.3.3
+SRC_DIR=`git rev-parse --show-toplevel`
 OUTPUT_DIR=${PWD}/release/${VERSION}
 ARCH=`dpkg --print-architecture`
 
@@ -57,9 +58,16 @@ function make_release {
     DIST=$1
 
     echo "Creating $DIST release"
-    docker build -f pyston/Dockerfile.$DIST -t pyston-build:$DIST . --no-cache
-    docker run -iv${PWD}/release/$VERSION:/host-volume --rm --cap-add SYS_ADMIN pyston-build:$DIST sh -s <<EOF
+    docker build -f pyston/make_release_files/Dockerfile.$DIST -t pyston-build:$DIST pyston/make_release_files/ --no-cache
+    docker run -iv${PWD}/release/$VERSION:/host-volume -v${SRC_DIR}:/src/src_dir_host:ro --rm --cap-add SYS_ADMIN pyston-build:$DIST sh -s <<EOF
 set -ex
+
+# make a copy of the source because it's mounted read only and we want to modify it
+cp -r /src/src_dir_host /src/build
+cd /src/build
+rm -rf build
+git clean -fdx
+
 ln -sf /usr/lib/linux-tools/*/perf /usr/bin/perf
 make package -j`nproc`
 make build/release_env/bin/python3
