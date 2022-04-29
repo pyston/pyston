@@ -656,7 +656,8 @@ static unsigned long jit_stat_load_global_hit, jit_stat_load_global_miss, jit_st
 static unsigned long jit_stat_call_method_hit, jit_stat_call_method_miss, jit_stat_call_method_inline, jit_stat_call_method_total;
 static unsigned long jit_stat_getitemlong, jit_stat_getitemlong_inlined, jit_stat_setitemlong_inlined;
 static unsigned long jit_stat_unicode_concat;
-
+static unsigned long jit_stat_load_attr_poly, jit_stat_load_attr_poly_entries;
+static unsigned long jit_stat_load_method_poly, jit_stat_load_method_poly_entries;
 
 #define ENABLE_DEFERRED_RES_PUSH 1
 #define ENABLE_DEFINED_TRACKING 1
@@ -2112,7 +2113,10 @@ static int emit_inline_cache_loadattr_is_version_zero(_PyOpcache_LoadAttr *la) {
 }
 
 // returns 1 if IC generation is possible
-static int emit_inline_cache_loadattr_supported(_PyOpcache_LoadAttr *la) {
+static int emit_inline_cache_loadattr_supported(_PyOpcache *co_opcache, _PyOpcache_LoadAttr *la) {
+    if (!co_opcache->optimized)
+        return 0;
+
     int version_zero = emit_inline_cache_loadattr_is_version_zero(la);
 
     if (la->cache_type != LA_CACHE_BUILTIN && la->cache_type != LA_CACHE_DATA_DESCR && la->cache_type != LA_CACHE_SLOT_CACHE) {
@@ -2125,6 +2129,18 @@ static int emit_inline_cache_loadattr_supported(_PyOpcache_LoadAttr *la) {
                 return 0;
         }
     }
+
+    if (la->cache_type == LA_CACHE_POLYMORPHIC) {
+        for (int i=0, num=la->u.poly_cache.num_used; i<num; ++i) {
+            _PyOpcache *co_opcache_entry = &la->u.poly_cache.caches[i];
+            _PyOpcache_LoadAttr *la_entry = &co_opcache_entry->u.la;
+            if (co_opcache_entry->num_failed == 0 && emit_inline_cache_loadattr_supported(co_opcache_entry, la_entry)) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+
     return 1;
 }
 
@@ -2324,9 +2340,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             ++jit_stat_load_method_total;
 
         _PyOpcache_LoadAttr *la = &co_opcache->u.la;
-        if (co_opcache->num_failed == 0 && co_opcache->u.la.type_ver != 0 &&
-            emit_inline_cache_loadattr_supported(la)) {
-
+        if (co_opcache->num_failed == 0 && emit_inline_cache_loadattr_supported(co_opcache, la)) {
             if (opcode == LOAD_ATTR)
                 ++jit_stat_load_attr_inline;
             else
@@ -2365,9 +2379,61 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 }
             }
 
-            int meth_found = la->meth_found;
+            int meth_found = 0;
             int emit_load_attr_res_0_helper = 0;
-            emit_inline_cache_loadattr_entry(Dst, opcode, oparg, la, &emit_load_attr_res_0_helper);
+            if (la->cache_type == LA_CACHE_POLYMORPHIC) {
+                if (opcode == LOAD_ATTR) {
+                    ++jit_stat_load_attr_poly;
+                } else {
+                    ++jit_stat_load_method_poly;
+                }
+                int first = 1;
+                for (int i=0, num=la->u.poly_cache.num_used; i<num; ++i) {
+                    _PyOpcache *co_opcache_entry = &la->u.poly_cache.caches[i];
+                    _PyOpcache_LoadAttr *la_entry = &co_opcache_entry->u.la;
+                    if (co_opcache_entry->num_failed != 0) {
+                        continue;
+                    }
+                    if (!emit_inline_cache_loadattr_supported(co_opcache_entry, la_entry)) {
+                        continue;
+                    }
+                    if (first) {
+                        // remember if this is a meth_found entry.
+                        // currently all entries require this to be the same because they all branch to 4,
+                        // which generates different code depending on the value of meth_found
+                        meth_found = la_entry->meth_found;
+                    } else {
+                        if (meth_found != la_entry->meth_found) {
+                            // can't use this because meth_found is different
+                            continue;
+                        }
+                    }
+                    if (!first) {
+                        // if we reach here it means we found the attribute jump to the sucess branch
+                        | branch >4
+
+                        // attribute not found:
+                        |1:
+                    }
+                    if (opcode == LOAD_ATTR) {
+                        ++jit_stat_load_attr_poly_entries;
+                    } else {
+                        ++jit_stat_load_method_poly_entries;
+                    }
+                    emit_inline_cache_loadattr_entry(Dst, opcode, oparg, la_entry, &emit_load_attr_res_0_helper);
+                    first = 0;
+                }
+                if (first == 1) {
+                    // make sure that we emit at least one entry else we would generate invalid code
+                    // because of the checks we do before we should never get here if we don't have an
+                    // entry to emit.
+                    JIT_ASSERT(0, "likely error in emit_inline_cache_loadattr_supported");
+                }
+
+            } else {
+                emit_inline_cache_loadattr_entry(Dst, opcode, oparg, la, &emit_load_attr_res_0_helper);
+                meth_found = la->meth_found;
+            }
 
             |4:
             if (jit_stats_enabled) {
@@ -4285,6 +4351,9 @@ jit_stat_##name##_inline, jit_stat_##name##_total, #opcode, jit_stat_##name##_hi
     fprintf(stderr, "jit: num GetItemLong: %lu inlined: %lu\n", jit_stat_getitemlong, jit_stat_getitemlong_inlined);
     fprintf(stderr, "jit: num SetItemLong: %lu inlined: %lu\n", jit_stat_setitemlong_inlined, jit_stat_setitemlong_inlined);
     fprintf(stderr, "jit: num unicode concatenation: %lu\n", jit_stat_unicode_concat);
+
+    fprintf(stderr, "jit: num polymorphic LOAD_ATTR sites: %lu with %lu entries\n", jit_stat_load_attr_poly, jit_stat_load_attr_poly_entries);
+    fprintf(stderr, "jit: num polymorphic LOAD_METHOD sites: %lu with %lu entries\n", jit_stat_load_method_poly, jit_stat_load_method_poly_entries);
 }
 
 void jit_start() {

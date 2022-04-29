@@ -987,13 +987,28 @@ PyObject* loadAttrCacheAttrNotFound(PyObject *owner, PyObject *name) {
 int64_t _PyDict_GetItemOffset(PyDictObject *mp, PyObject *key, Py_ssize_t *dk_size);
 PyObject* _PyDict_GetItemByOffset(PyDictObject *mp, PyObject *key, Py_ssize_t dk_size, int64_t offset);
 
-int __attribute__((always_inline)) __attribute__((visibility("hidden")))
+int __attribute__((visibility("hidden")))
 loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject** res, int *meth_found) {
     _PyOpcache_LoadAttr *la = &co_opcache->u.la;
 
     // do we have a valid cache entry?
     if (!co_opcache->optimized)
         return -1;
+
+    if (la->cache_type == LA_CACHE_POLYMORPHIC) {
+        // give up if we have not had a single cache hit after that many tries
+        if (co_opcache->num_failed >= 15) {
+            return -1;
+        }
+        for (int i=0, num=la->u.poly_cache.num_used; i<num; ++i) {
+            _PyOpcache* caches = la->u.poly_cache.caches;
+            if (loadAttrCache(owner, name, &caches[i], res, meth_found) == 0) {
+                co_opcache->num_failed = 0;
+                return 0;
+            }
+        }
+        return -1;
+    }
 
     if (la->cache_type == LA_CACHE_BUILTIN) {
         if (unlikely(Py_TYPE(owner) != la->type))
@@ -1078,8 +1093,28 @@ loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject*
     return 0;
 }
 
-int __attribute__((always_inline)) __attribute__((visibility("hidden")))
-setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObject* res, int is_load_method) {
+static int createPolymorphicCache(_PyOpcache* co_opcache, _PyOpcache_LoadAttr *la) {
+    int num_entries = 5;
+    _PyOpcache* caches = PyMem_Calloc(num_entries, sizeof(_PyOpcache));
+    if (!caches)
+        return -1;
+    // pretend the cache entries failed already a few times because
+    // we prefer emitting less specific caches like LA_CACHE_OFFSET_CACHE when
+    // we are already creating several entries.
+    for (int i = 1; i<num_entries; ++i) {
+        caches[i].num_failed = 2;
+    }
+    // copy over the old entry as first entry of the polymorphic cache
+    memcpy(&caches[0], co_opcache, sizeof(_PyOpcache));
+    la->cache_type = LA_CACHE_POLYMORPHIC;
+    la->u.poly_cache.caches = caches;
+    la->u.poly_cache.num_entries = num_entries;
+    la->u.poly_cache.num_used = 1;
+    return 0;
+}
+
+int __attribute__((visibility("hidden")))
+setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObject* res, int is_load_method, int inside_interpreter) {
     _PyOpcache_LoadAttr *la = &co_opcache->u.la;
     int meth_found = 0;
     PyObject* descr = NULL;
@@ -1107,6 +1142,49 @@ setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObje
 
     if (tp->tp_dict == NULL && PyType_Ready(tp) < 0)
         return -1;
+
+    // We use this hash to see if this cache is for a different type.
+    // Because we don't want to create a polymorphic cache when a single type get modified a
+    // a lot and therefore the type version changes a lot.
+    // This hash will catch most of this cases.
+    uint8_t tp_hash = (uint8_t)((uint64_t)(tp)>>4);
+
+    // support for polymorphic caches
+    if (co_opcache->optimized &&
+        /* enter if we are already polymorphic */
+        (la->cache_type == LA_CACHE_POLYMORPHIC ||
+        /* or if the hash of the type is different we create a polymorphic IC */
+        la->type_hash != tp_hash)) {
+        int entry_idx = 0;
+        // we already have a polymorphic IC
+        if (la->cache_type == LA_CACHE_POLYMORPHIC) {
+            // check if the last slot should be overwritten:
+            // - this can happen when we create a new slow but filling it failed because
+            //   it was not possible to cache the attribute.
+            // - the type hash is the same
+            _PyOpcache *co_opcache_prev_entry = &la->u.poly_cache.caches[la->u.poly_cache.num_used-1];
+            if (!co_opcache_prev_entry->optimized || co_opcache_prev_entry->u.la.type_hash == tp_hash) {
+                entry_idx = la->u.poly_cache.num_used - 1;
+            } else {
+                // add a new entry
+                if (la->u.poly_cache.num_used >= la->u.poly_cache.num_entries) {
+                    co_opcache->num_failed = 10; // don't use the cache anymore we used all slots
+                    return -1;
+                }
+                entry_idx = la->u.poly_cache.num_used++;
+            }
+        } else {
+            // don't create new poly caches from the JIT helper funcs
+            if (!inside_interpreter) {
+                return -1;
+            }
+            if (createPolymorphicCache(co_opcache, la) == -1)
+                return -1;
+            entry_idx = la->u.poly_cache.num_used++;
+        }
+        co_opcache = &la->u.poly_cache.caches[entry_idx];
+        la = &co_opcache->u.la;
+    }
 
     descr = _PyType_Lookup(tp, name);
     if (descr != NULL) {
@@ -1236,6 +1314,7 @@ common_cached:
     la->meth_found = meth_found;
     if (la->cache_type != LA_CACHE_BUILTIN)
         la->type_ver = tp->tp_version_tag;
+    la->type_hash = tp_hash;
     return 0;
 }
 
@@ -3661,7 +3740,7 @@ sa_common:
 #endif
 
             if (USE_LOAD_ATTR_CACHE && co_opcache && res) {
-                setupLoadAttrCache(owner, name, co_opcache, res, 0 /*= not LOAD_METHOD*/);
+                setupLoadAttrCache(owner, name, co_opcache, res, 0 /*= not LOAD_METHOD*/, 1 /*inside interpreter*/);
             }
 la_common:
             Py_DECREF(owner);
@@ -4153,7 +4232,7 @@ la_common:
             }
 
             if (USE_LOAD_METHOD_CACHE && co_opcache) {
-                setupLoadAttrCache(obj, name, co_opcache, meth, 1 /*= LOAD_METHOD*/);
+                setupLoadAttrCache(obj, name, co_opcache, meth, 1 /*= LOAD_METHOD*/, 1 /*inside interpreter*/);
             }
 
             if (meth_found) {
