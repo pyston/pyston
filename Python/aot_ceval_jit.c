@@ -237,6 +237,8 @@ PyObject* cmp_outcomePyCmp_EXC_MATCH(PyObject *v, PyObject *w);
 
 int eval_breaker_jit_helper();
 PyObject* loadAttrCacheAttrNotFound(PyObject *owner, PyObject *name);
+int setItemSplitDictCache(PyObject* dict, Py_ssize_t splitdict_index, PyObject* v, PyObject* name);
+int setItemInitSplitDictCache(PyObject** dictptr, PyObject* obj, PyObject* v, Py_ssize_t splitdict_index,PyObject* name);
 
 PyObject * import_name(PyThreadState *, PyFrameObject *,
                               PyObject *, PyObject *, PyObject *);
@@ -2430,30 +2432,25 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
         ++jit_stat_store_attr_total;
         _PyOpcache_StoreAttr *sa = &co_opcache->u.sa;
         if (co_opcache->num_failed == 0 && sa->type_ver != 0 && co_opcache->optimized) {
-            if (sa->cache_type == SA_CACHE_IDX_SPLIT_DICT && sa->type_tp_dictoffset <= 0) {
+            if ((sa->cache_type == SA_CACHE_IDX_SPLIT_DICT || sa->cache_type == SA_CACHE_IDX_SPLIT_DICT_INIT)
+                && sa->type_tp_dictoffset <= 0) {
                 // fail the cache if dictoffset<=0 rather than do the lengthier dict_ptr computation
                 return -1;
             }
 
             ++jit_stat_store_attr_inline;
 
-            // we only jit this cache type for now
-            if (sa->cache_type != SA_CACHE_SLOT_CACHE) {
-                return -1;
-            }
-
             RefStatus ref_status[2];
             deferred_vs_pop2(Dst, arg2_idx, arg3_idx, ref_status);
             deferred_vs_convert_reg_to_stack(Dst);
-
-            if (ref_status[1] == BORROWED) {
-                emit_incref(Dst, arg3_idx);
-            }
 
             emit_load64_mem(Dst, arg1_idx, arg2_idx, offsetof(PyObject, ob_type));
             | type_version_check, arg1_idx, sa->type_ver, >1
 
             if (sa->cache_type == SA_CACHE_SLOT_CACHE) {
+                if (ref_status[1] == BORROWED) {
+                    emit_incref(Dst, arg3_idx);
+                }
                 emit_load64_mem(Dst, res_idx, arg2_idx, sa->u.slot_cache.offset);
                 emit_store64_mem(Dst, arg3_idx, arg2_idx, sa->u.slot_cache.offset);
                 if (ref_status[0] == OWNED) {
@@ -2461,7 +2458,53 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 }
                 emit_xdecref(Dst, res_idx);
             } else {
-                JIT_ASSERT(0, "add other cache types");
+                if (sa->cache_type == SA_CACHE_IDX_SPLIT_DICT) {
+                    // arg1 = *(obj + dictoffset)
+                    emit_load64_mem(Dst, arg1_idx, arg2_idx, sa->type_tp_dictoffset);
+                    emit_cmp64_imm(Dst, arg1_idx, 0);
+                    | branch_eq >1
+
+                    // dict->ma_values == 0
+                    emit_cmp64_mem_imm(Dst, arg1_idx, offsetof(PyDictObject, ma_values), 0 /* =value */);
+                    | branch_eq >1 // fail if dict->ma_values == NULL
+                    // _PyDict_GetDictKeyVersionFromSplitDict:
+                    // arg5 = arg1->ma_keys
+                    emit_load64_mem(Dst, arg5_idx, arg1_idx, offsetof(PyDictObject, ma_keys));
+                    emit_cmp64_mem_imm(Dst, arg5_idx, offsetof(PyDictKeysObject, dk_version_tag), (uint64_t)sa->u.split_dict_cache.splitdict_keys_version);
+                    | branch_ne >1
+
+                    if (ref_status[0] == OWNED) {
+                        // dummy we need to to decref this but it's not an arg of SetItemSplitDict
+                        // so just but in it in a unused arg so that emit_call_decref_args2 can decref it.
+                        | mov arg5, arg2
+                    }
+                    emit_mov_imm2(Dst, arg2_idx, (void*)sa->u.split_dict_cache.splitdict_index,
+                                    arg4_idx, PyTuple_GET_ITEM(Dst->co_names, oparg));
+                    emit_call_decref_args2(Dst, setItemSplitDictCache, arg5_idx, arg3_idx, ref_status);
+                    emit_if_res_32b_not_0_error(Dst);
+                } else {
+                    // arg1 = (obj + dictoffset)
+                    emit_add_or_sub_imm(Dst, arg1_idx, arg2_idx, sa->type_tp_dictoffset);
+                    // *arg1 == 0
+                    emit_cmp64_mem_imm(Dst, arg1_idx, 0 /* offset */, 0 /* value */);
+                    | branch_ne >1
+
+                    //PyDictKeysObject* keys = ((PyHeapTypeObject*)tp)->ht_cached_keys;
+                    emit_load64_mem(Dst, arg4_idx, arg2_idx, offsetof(PyObject, ob_type));
+                    emit_load64_mem(Dst, arg4_idx, arg4_idx, offsetof(PyHeapTypeObject, ht_cached_keys));
+                    emit_cmp64_imm(Dst, arg4_idx, 0);
+                    | branch_eq >1
+
+                    //if (_PyDict_GetDictKeyVersionFromKeys((PyObject*)keys) != sa->u.split_dict_cache.splitdict_keys_version)
+                    emit_cmp64_mem_imm(Dst, arg4_idx, offsetof(PyDictKeysObject, dk_version_tag), (uint64_t)sa->u.split_dict_cache.splitdict_keys_version);
+                    | branch_ne >1
+
+                    emit_mov_imm2(Dst, arg4_idx, (void*)sa->u.split_dict_cache.splitdict_index,
+                                       arg5_idx, PyTuple_GET_ITEM(Dst->co_names, oparg));
+                    emit_call_decref_args2(Dst, setItemInitSplitDictCache, arg2_idx, arg3_idx, ref_status);
+                    emit_if_res_32b_not_0_error(Dst);
+                }
+
             }
             if (jit_stats_enabled) {
                 emit_inc_qword_ptr(Dst, &jit_stat_store_attr_hit, 1 /*=can use tmp_reg*/);
@@ -2469,22 +2512,29 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             |5:
             // fallthrough to next opcode
 
-            switch_section(Dst, SECTION_COLD);
-            |1:
-            if (jit_stats_enabled) {
-                emit_inc_qword_ptr(Dst, &jit_stat_store_attr_miss, 1 /*=can use tmp_reg*/);
-            }
-            if (ref_status[0] == BORROWED) {
-                emit_incref(Dst, arg2_idx);
-            }
-            emit_mov_imm2(Dst, arg1_idx, PyTuple_GET_ITEM(Dst->co_names, oparg),
-                               arg4_idx, co_opcache);
+            // slowpath
+            {
+                switch_section(Dst, SECTION_COLD);
+                |1:
+                if (jit_stats_enabled) {
+                    emit_inc_qword_ptr(Dst, &jit_stat_store_attr_miss, 1 /*=can use tmp_reg*/);
+                }
+                // slow path expects owned objects
+                if (ref_status[0] == BORROWED) {
+                    emit_incref(Dst, arg2_idx);
+                }
+                if (ref_status[1] == BORROWED) {
+                    emit_incref(Dst, arg3_idx);
+                }
+                emit_mov_imm2(Dst, arg1_idx, PyTuple_GET_ITEM(Dst->co_names, oparg),
+                                arg4_idx, co_opcache);
 
-            emit_call_ext_func(Dst, get_aot_func_addr(Dst, opcode, oparg, co_opcache != 0 /*= use op cache */));
-            emit_if_res_0_error(Dst);
-            | branch <5 // jump to the common code which pushes the result
+                emit_call_ext_func(Dst, get_aot_func_addr(Dst, opcode, oparg, co_opcache != 0 /*= use op cache */));
+                emit_if_res_0_error(Dst);
+                | branch <5 // jump to the common code which pushes the result
+                switch_section(Dst, SECTION_CODE);
+            }
 
-            switch_section(Dst, SECTION_CODE);
             return 0;
         }
     }
