@@ -1327,7 +1327,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
     const _Py_CODEUNIT *first_instr;
     PyObject *names;
     PyObject *consts;
-    _PyOpcache *co_opcache;
+    //_PyOpcache *co_opcache; // Pyston change: use local variable instead
 
 #ifdef LLTRACE
     _Py_IDENTIFIER(__ltrace__);
@@ -2158,6 +2158,7 @@ main_loop:
             if (PyUnicode_CheckExact(left) &&
                      PyUnicode_CheckExact(right)) {
                 // Pyston change: we use the opcache to signal that we can optimize this unicode concat
+                _PyOpcache *co_opcache;
                 OPCACHE_CHECK();
                 if (co_opcache)
                     co_opcache->optimized = 1;
@@ -2192,6 +2193,7 @@ main_loop:
             PyObject *sub = POP();
             PyObject *container = TOP();
 
+            _PyOpcache *co_opcache;
             OPCACHE_CHECK();
             if (co_opcache) {
                 co_opcache->u.t.type = Py_TYPE(container);
@@ -2369,6 +2371,7 @@ main_loop:
             PyObject *sum;
             if (PyUnicode_CheckExact(left) && PyUnicode_CheckExact(right)) {
                 // Pyston change: we use the opcache to signal that we can optimize this unicode concat
+                _PyOpcache *co_opcache;
                 OPCACHE_CHECK();
                 if (co_opcache)
                     co_opcache->optimized = 1;
@@ -2466,6 +2469,7 @@ main_loop:
             int err;
             STACK_SHRINK(3);
 
+            _PyOpcache *co_opcache;
             OPCACHE_CHECK();
             if (co_opcache) {
                 co_opcache->u.t.type = Py_TYPE(container);
@@ -2998,6 +3002,7 @@ main_loop:
             PyObject *v = SECOND();
             int err;
 
+            _PyOpcache *co_opcache;
             OPCACHE_CHECK();
             if (USE_STORE_ATTR_CACHE && co_opcache && likely(v)) {
                 if (likely(storeAttrCache(owner, name, v, co_opcache, &err) == 0)) {
@@ -3134,6 +3139,7 @@ sa_common:
             if (PyDict_CheckExact(f->f_globals)
                 && PyDict_CheckExact(f->f_builtins))
             {
+                _PyOpcache *co_opcache;
                 OPCACHE_CHECK();
                 if (co_opcache != NULL && co_opcache->optimized > 0) {
                     _PyOpcache_LoadGlobal *lg = &co_opcache->u.lg;
@@ -3635,6 +3641,7 @@ sa_common:
             PyObject *owner = TOP();
             PyObject *res;
 
+            _PyOpcache *co_opcache;
             OPCACHE_CHECK();
             if (USE_LOAD_ATTR_CACHE && co_opcache) {
                 if (likely(loadAttrCache(owner, name, co_opcache, &res, NULL) == 0))
@@ -4108,6 +4115,7 @@ la_common:
             PyObject *obj = TOP();
             PyObject *meth = NULL;
 
+            _PyOpcache *co_opcache;
             OPCACHE_CHECK();
 
             int is_method;
