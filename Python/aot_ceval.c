@@ -121,7 +121,8 @@ static long dxp[256];
 //// See bpo-37146
 //#define OPCACHE_MIN_RUNS 0  /* disable opcache */
 //#else
-#define OPCACHE_MIN_RUNS 100*10  /* create opcache when code executed this time */
+#define OPCACHE_INC_FUNC_ENTRY 10
+#define OPCACHE_MIN_RUNS (100*OPCACHE_INC_FUNC_ENTRY)  /* create opcache when code executed this time */
 #define JIT_MIN_RUNS (OPCACHE_MIN_RUNS*2)
 //#endif
 #define OPCACHE_STATS 0  /* Enable stats */
@@ -1652,7 +1653,8 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 
 #define OPCACHE_INIT_IF_HIT_THRESHOLD() \
     do { \
-        if (co->co_opcache_flag >= opcache_min_runs && co->co_opcache_map == NULL) { \
+        if (co->co_opcache_map == NULL && \
+            co->co_opcache_flag >= opcache_min_runs && co->co_opcache_flag <= opcache_min_runs+OPCACHE_INC_FUNC_ENTRY) { \
             if (_PyCode_InitOpcache(co) < 0) { \
                 return NULL; \
             } \
@@ -1671,7 +1673,8 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 
 #define OPCACHE_INIT_IF_HIT_THRESHOLD() \
     do { \
-        if (co->co_opcache_flag >= opcache_min_runs && co->co_opcache_map == NULL) { \
+        if (co->co_opcache_map == NULL && \
+            co->co_opcache_flag >= opcache_min_runs && co->co_opcache_flag <= opcache_min_runs+OPCACHE_INC_FUNC_ENTRY) { \
             if (_PyCode_InitOpcache(co) < 0) { \
                 return NULL; \
             } \
@@ -1769,7 +1772,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
         assert(f->f_lasti % sizeof(_Py_CODEUNIT) == 0);
         next_instr += f->f_lasti / sizeof(_Py_CODEUNIT) + 1;
     } else { // function entry
-        co->co_opcache_flag += 10;
+        co->co_opcache_flag += OPCACHE_INC_FUNC_ENTRY;
         OPCACHE_INIT_IF_HIT_THRESHOLD();
     }
 
