@@ -159,6 +159,33 @@ PySlice_New(PyObject *start, PyObject *stop, PyObject *step)
     return (PyObject *) obj;
 }
 
+#if PYSTON_SPEEDUPS
+PyObject *
+PySlice_NewSteal(PyObject *start, PyObject *stop, PyObject *step) {
+    PySliceObject *obj;
+    if (slice_cache != NULL) {
+        obj = slice_cache;
+        slice_cache = NULL;
+        _Py_NewReference((PyObject *)obj);
+    } else {
+        obj = PyObject_GC_New(PySliceObject, &PySlice_Type);
+        if (obj == NULL) {
+            Py_DECREF(start);
+            Py_DECREF(stop);
+            Py_DECREF(step);
+            return NULL;
+        }
+    }
+
+    obj->step = step;
+    obj->start = start;
+    obj->stop = stop;
+
+    _PyObject_GC_TRACK(obj);
+    return (PyObject *) obj;
+}
+#endif
+
 PyObject *
 _PySlice_FromIndices(Py_ssize_t istart, Py_ssize_t istop)
 {
