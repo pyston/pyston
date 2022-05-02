@@ -2098,6 +2098,166 @@ static int emit_special_compare_op(Jit* Dst, int oparg, RefStatus ref_status[2])
     return 0;
 }
 
+static int emit_inline_cache_loadattr_is_version_zero(_PyOpcache_LoadAttr *la) {
+    int version_zero = (la->cache_type == LA_CACHE_VALUE_CACHE_DICT && la->u.value_cache.dict_ver == 0) ||
+        (la->cache_type == LA_CACHE_IDX_SPLIT_DICT && la->u.split_dict_cache.splitdict_keys_version == 0);
+
+    if (version_zero == 1 && la->cache_type == LA_CACHE_IDX_SPLIT_DICT) {
+        // This case is currently impossible since it will always be a miss and we don't cache
+        // misses, so it's untested.
+        fprintf(stderr, "untested jit case");
+        abort();
+    }
+    return version_zero;
+}
+
+// returns 1 if IC generation is possible
+static int emit_inline_cache_loadattr_supported(_PyOpcache_LoadAttr *la) {
+    int version_zero = emit_inline_cache_loadattr_is_version_zero(la);
+
+    if (la->cache_type != LA_CACHE_BUILTIN && la->cache_type != LA_CACHE_DATA_DESCR && la->cache_type != LA_CACHE_SLOT_CACHE) {
+        // fail the cache if dictoffset<0 rather than do the lengthier dict_ptr computation
+        if (version_zero) {
+            if (la->type_tp_dictoffset < 0)
+                return 0;
+        } else {
+            if (la->type_tp_dictoffset <= 0)
+                return 0;
+        }
+    }
+    return 1;
+}
+
+static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _PyOpcache_LoadAttr *la, int* emit_load_attr_res_0_helper) {
+    int version_zero = emit_inline_cache_loadattr_is_version_zero(la);
+
+    if (la->cache_type == LA_CACHE_BUILTIN) {
+        | type_check arg1_idx, la->type, >1
+    } else {
+        // PyTypeObject *arg2 = Py_TYPE(obj)
+        emit_load64_mem(Dst, arg2_idx, arg1_idx,  offsetof(PyObject, ob_type));
+        | type_version_check, arg2_idx, la->type_ver, >1
+
+        if (la->cache_type == LA_CACHE_DATA_DESCR) {
+            // save the obj so we can access it after the call
+            | mov tmp_preserved_reg, arg1
+
+            PyObject* descr = la->u.descr_cache.descr;
+            emit_mov_imm(Dst, arg5_idx, (uint64_t)descr);
+            emit_load64_mem(Dst, arg2_idx, arg5_idx, offsetof(PyObject, ob_type));
+            | type_version_check, arg2_idx, la->u.descr_cache.descr_type_ver, >1
+
+            // res = descr->ob_type->tp_descr_get(descr, owner, (PyObject *)owner->ob_type);
+            | mov arg1, arg5
+            | mov arg2, tmp_preserved_reg
+            emit_load64_mem(Dst, arg3_idx, tmp_preserved_reg_idx, offsetof(PyObject, ob_type));
+            emit_call_ext_func(Dst, descr->ob_type->tp_descr_get);
+            | mov arg1, tmp_preserved_reg // restore the obj so that the decref code works
+            // attr can be NULL
+            emit_cmp64_imm(Dst, res_idx, 0);
+            | branch_eq >3
+            *emit_load_attr_res_0_helper = 1; // makes sure we emit label 3
+        } else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
+            // nothing todo
+        } else if (version_zero && la->type_tp_dictoffset == 0) {
+            // tp_dict_offset==0 implies dict_ptr==NULL implies dict version (either split keys or not) is 0
+        } else {
+            // arg2 = *(obj + dictoffset)
+            emit_load64_mem(Dst, arg2_idx, arg1_idx, la->type_tp_dictoffset);
+            emit_cmp64_imm(Dst, arg2_idx, 0);
+            if (version_zero) {
+                // null dict is always a cache hit
+                | branch_eq >2
+            } else {
+                // null dict is always a cache miss
+                | branch_eq >1
+            }
+        }
+    }
+
+    if (la->cache_type == LA_CACHE_OFFSET_CACHE)
+    {
+        // if (mp->ma_keys->dk_size != dk_size) goto slow_path;
+        emit_load64_mem(Dst, res_idx, arg2_idx, offsetof(PyDictObject, ma_keys));
+        emit_cmp64_mem_imm(Dst, res_idx, offsetof(PyDictKeysObject, dk_size), (uint64_t)la->u.offset_cache.dk_size);
+        | branch_ne >1
+
+        // if (mp->ma_keys->dk_lookup == lookdict_split) goto slow_path;
+        emit_cmp64_mem_imm(Dst, res_idx, offsetof(PyDictKeysObject, dk_lookup), (uint64_t)lookdict_split);
+        | branch_eq >1
+
+        // PyDictKeyEntry *arg3 = (PyDictKeyEntry*)(mp->ma_keys->dk_indices + offset);
+        uint64_t total_offset = offsetof(PyDictKeysObject, dk_indices) + la->u.offset_cache.offset;
+        emit_add_or_sub_imm(Dst, arg3_idx, res_idx, total_offset);
+
+        // if (ep->me_key != key) goto slow_path;
+        emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeyEntry, me_key), (uint64_t)PyTuple_GET_ITEM(Dst->co_names, oparg));
+        | branch_ne >1
+
+        // res = ep->me_value;
+        emit_load64_mem(Dst, res_idx, arg3_idx, offsetof(PyDictKeyEntry, me_value));
+        emit_incref(Dst, res_idx);
+    } else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
+        emit_load64_mem(Dst, res_idx, arg1_idx, la->u.slot_cache.offset);
+        // attr can be NULL
+        emit_cmp64_imm(Dst, res_idx, 0);
+        // we can't just jump to label 3 because it would output a different exception message
+        // instead jump to the slow path
+        | branch_eq >1
+        emit_incref(Dst, res_idx);
+    } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT || la->cache_type == LA_CACHE_BUILTIN) {
+        if (version_zero && la->type_tp_dictoffset == 0) {
+            // Already guarded
+        } else if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
+            emit_cmp64_mem_imm(Dst, arg2_idx, offsetof(PyDictObject, ma_values), 0);
+            | branch_eq >1 // fail if dict->ma_values == NULL
+            // _PyDict_GetDictKeyVersionFromSplitDict:
+            // arg3 = arg2->ma_keys
+            emit_load64_mem(Dst, arg3_idx, arg2_idx, offsetof(PyDictObject, ma_keys));
+            emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeysObject, dk_version_tag), (uint64_t)la->u.value_cache.dict_ver);
+            | branch_ne >1
+        } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT) {
+            emit_cmp64_mem_imm(Dst, arg2_idx, offsetof(PyDictObject, ma_version_tag), (uint64_t)la->u.value_cache.dict_ver);
+            | branch_ne >1
+        } else {
+            // Already guarded
+        }
+        | 2:
+        PyObject* r = la->u.value_cache.obj;
+        emit_mov_imm(Dst, res_idx, (uint64_t)r);
+
+        // In theory we could remove some of these checks, since we could prove that tp_descr_get wouldn't
+        // be able to change.  But we have to do that determination at cache-set time, because that's the
+        // only time we know that the cached value is alive.  So it's unclear if it's worth it, especially
+        // for the complexity.
+        if (la->guard_tp_descr_get) {
+            emit_load64_mem(Dst, arg2_idx, res_idx, offsetof(PyObject, ob_type));
+            emit_cmp64_mem_imm(Dst, arg2_idx, offsetof(PyTypeObject, tp_descr_get), 0);
+            | branch_ne >1
+        }
+
+        if (!IS_IMMORTAL(r))
+            emit_incref(Dst, res_idx);
+    } else if (la->cache_type == LA_CACHE_IDX_SPLIT_DICT) {
+        // arg4 = dict->ma_values
+        emit_load64_mem(Dst, arg4_idx, arg2_idx, offsetof(PyDictObject, ma_values));
+        emit_cmp64_imm(Dst, arg4_idx, 0);
+        | branch_eq >1 // fail if dict->ma_values == NULL
+        // _PyDict_GetDictKeyVersionFromSplitDict:
+        // arg3 = arg2->ma_keys
+        emit_load64_mem(Dst, arg3_idx, arg2_idx, offsetof(PyDictObject, ma_keys));
+        emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeysObject, dk_version_tag), (uint64_t)la->u.split_dict_cache.splitdict_keys_version);
+        | branch_ne >1
+        // res = arg4[splitdict_index]
+        emit_load64_mem(Dst, res_idx, arg4_idx, sizeof(PyObject*) * la->u.split_dict_cache.splitdict_index);
+        // attr can be NULL
+        emit_cmp64_imm(Dst, res_idx, 0);
+        | branch_eq >3
+        *emit_load_attr_res_0_helper = 1; // makes sure we emit label 3
+        emit_incref(Dst, res_idx);
+    }
+}
+
 // returns 0 if IC generation succeeded
 static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opcache) {
     if (co_opcache == NULL || !jit_use_ics)
@@ -2164,39 +2324,13 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             ++jit_stat_load_method_total;
 
         _PyOpcache_LoadAttr *la = &co_opcache->u.la;
-        if (co_opcache->num_failed == 0 && co_opcache->u.la.type_ver != 0) {
-            int version_zero = (la->cache_type == LA_CACHE_VALUE_CACHE_DICT && la->u.value_cache.dict_ver == 0) ||
-                (la->cache_type == LA_CACHE_IDX_SPLIT_DICT && la->u.split_dict_cache.splitdict_keys_version == 0);
-
-            if (version_zero == 1 && la->cache_type == LA_CACHE_IDX_SPLIT_DICT) {
-                // This case is currently impossible since it will always be a miss and we don't cache
-                // misses, so it's untested.
-                fprintf(stderr, "untested jit case");
-                abort();
-            }
-
-            int checked_type_tp_dictoffset = 0;
-            if (la->cache_type != LA_CACHE_BUILTIN && la->cache_type != LA_CACHE_DATA_DESCR && la->cache_type != LA_CACHE_SLOT_CACHE) {
-                checked_type_tp_dictoffset = 1;
-                // fail the cache if dictoffset<0 rather than do the lengthier dict_ptr computation
-                if (version_zero) {
-                    if (la->type_tp_dictoffset < 0)
-                        return -1;
-                } else {
-                    if (la->type_tp_dictoffset <= 0)
-                        return -1;
-                }
-            }
+        if (co_opcache->num_failed == 0 && co_opcache->u.la.type_ver != 0 &&
+            emit_inline_cache_loadattr_supported(la)) {
 
             if (opcode == LOAD_ATTR)
                 ++jit_stat_load_attr_inline;
             else
                 ++jit_stat_load_method_inline;
-
-            int emit_load_attr_res_0_helper = 0;
-
-            // In comparison to the LOAD_METHOD cache, label 2 is when we know the version checks have
-            // passed, but there's an additional tp_descr_get check that we have to do
 
             PyObject* const_val = deferred_vs_peek_const(Dst);
             RefStatus ref_status = 0;
@@ -2231,138 +2365,9 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 }
             }
 
-            // loadAttrCache
-            if (la->cache_type == LA_CACHE_BUILTIN) {
-                | type_check arg1_idx, la->type, >1
-            } else {
-                // PyTypeObject *arg2 = Py_TYPE(obj)
-                emit_load64_mem(Dst, arg2_idx, arg1_idx,  offsetof(PyObject, ob_type));
-                | type_version_check, arg2_idx, la->type_ver, >1
-
-                if (la->cache_type == LA_CACHE_DATA_DESCR) {
-                    // save the obj so we can access it after the call
-                    | mov tmp_preserved_reg, arg1
-
-                    PyObject* descr = la->u.descr_cache.descr;
-                    emit_mov_imm(Dst, arg5_idx, (uint64_t)descr);
-                    emit_load64_mem(Dst, arg2_idx, arg5_idx, offsetof(PyObject, ob_type));
-                    | type_version_check, arg2_idx, la->u.descr_cache.descr_type_ver, >1
-
-                    // res = descr->ob_type->tp_descr_get(descr, owner, (PyObject *)owner->ob_type);
-                    | mov arg1, arg5
-                    | mov arg2, tmp_preserved_reg
-                    emit_load64_mem(Dst, arg3_idx, tmp_preserved_reg_idx, offsetof(PyObject, ob_type));
-                    emit_call_ext_func(Dst, descr->ob_type->tp_descr_get);
-                    | mov arg1, tmp_preserved_reg // restore the obj so that the decref code works
-                    // attr can be NULL
-                    emit_cmp64_imm(Dst, res_idx, 0);
-                    | branch_eq >3
-                    emit_load_attr_res_0_helper = 1; // makes sure we emit label 3
-                } else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
-                    // nothing todo
-                } else if (version_zero && la->type_tp_dictoffset == 0) {
-                    // tp_dict_offset==0 implies dict_ptr==NULL implies dict version (either split keys or not) is 0
-                } else {
-                    if (!checked_type_tp_dictoffset) {
-                        JIT_ASSERT(0, "");
-                    }
-                    // Now loadAttrCache splits into two cases, but the first step on both
-                    // is to load the dict pointer and check if it's null
-
-                    // arg2 = *(obj + dictoffset)
-                    emit_load64_mem(Dst, arg2_idx, arg1_idx, la->type_tp_dictoffset);
-                    emit_cmp64_imm(Dst, arg2_idx, 0);
-                    if (version_zero) {
-                        // null dict is always a cache hit
-                        | branch_eq >2
-                    } else {
-                        // null dict is always a cache miss
-                        | branch_eq >1
-                    }
-                }
-            }
-
-            if (la->cache_type == LA_CACHE_OFFSET_CACHE)
-            {
-                // if (mp->ma_keys->dk_size != dk_size) goto slow_path;
-                emit_load64_mem(Dst, res_idx, arg2_idx, offsetof(PyDictObject, ma_keys));
-                emit_cmp64_mem_imm(Dst, res_idx, offsetof(PyDictKeysObject, dk_size), (uint64_t)la->u.offset_cache.dk_size);
-                | branch_ne >1
-
-                // if (mp->ma_keys->dk_lookup == lookdict_split) goto slow_path;
-                emit_cmp64_mem_imm(Dst, res_idx, offsetof(PyDictKeysObject, dk_lookup), (uint64_t)lookdict_split);
-                | branch_eq >1
-
-                // PyDictKeyEntry *arg3 = (PyDictKeyEntry*)(mp->ma_keys->dk_indices + offset);
-                uint64_t total_offset = offsetof(PyDictKeysObject, dk_indices) + la->u.offset_cache.offset;
-                emit_add_or_sub_imm(Dst, arg3_idx, res_idx, total_offset);
-
-                // if (ep->me_key != key) goto slow_path;
-                emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeyEntry, me_key), (uint64_t)PyTuple_GET_ITEM(Dst->co_names, oparg));
-                | branch_ne >1
-
-                // res = ep->me_value;
-                emit_load64_mem(Dst, res_idx, arg3_idx, offsetof(PyDictKeyEntry, me_value));
-                emit_incref(Dst, res_idx);
-            } else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
-                emit_load64_mem(Dst, res_idx, arg1_idx, la->u.slot_cache.offset);
-                // attr can be NULL
-                emit_cmp64_imm(Dst, res_idx, 0);
-                // we can't just jump to label 3 because it would output a different exception message
-                // instead jump to the slow path
-                | branch_eq >1
-                emit_incref(Dst, res_idx);
-            } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT || la->cache_type == LA_CACHE_BUILTIN) {
-                if (version_zero && la->type_tp_dictoffset == 0) {
-                    // Already guarded
-                } else if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
-                    emit_cmp64_mem_imm(Dst, arg2_idx, offsetof(PyDictObject, ma_values), 0);
-                    | branch_eq >1 // fail if dict->ma_values == NULL
-                    // _PyDict_GetDictKeyVersionFromSplitDict:
-                    // arg3 = arg2->ma_keys
-                    emit_load64_mem(Dst, arg3_idx, arg2_idx, offsetof(PyDictObject, ma_keys));
-                    emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeysObject, dk_version_tag), (uint64_t)la->u.value_cache.dict_ver);
-                    | branch_ne >1
-                } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT) {
-                    emit_cmp64_mem_imm(Dst, arg2_idx, offsetof(PyDictObject, ma_version_tag), (uint64_t)la->u.value_cache.dict_ver);
-                    | branch_ne >1
-                } else {
-                    // Already guarded
-                }
-                | 2:
-                PyObject* r = la->u.value_cache.obj;
-                emit_mov_imm(Dst, res_idx, (uint64_t)r);
-
-                // In theory we could remove some of these checks, since we could prove that tp_descr_get wouldn't
-                // be able to change.  But we have to do that determination at cache-set time, because that's the
-                // only time we know that the cached value is alive.  So it's unclear if it's worth it, especially
-                // for the complexity.
-                if (la->guard_tp_descr_get) {
-                    emit_load64_mem(Dst, arg2_idx, res_idx, offsetof(PyObject, ob_type));
-                    emit_cmp64_mem_imm(Dst, arg2_idx, offsetof(PyTypeObject, tp_descr_get), 0);
-                    | branch_ne >1
-                }
-
-                if (!IS_IMMORTAL(r))
-                    emit_incref(Dst, res_idx);
-            } else if (la->cache_type == LA_CACHE_IDX_SPLIT_DICT) {
-                // arg4 = dict->ma_values
-                emit_load64_mem(Dst, arg4_idx, arg2_idx, offsetof(PyDictObject, ma_values));
-                emit_cmp64_imm(Dst, arg4_idx, 0);
-                | branch_eq >1 // fail if dict->ma_values == NULL
-                // _PyDict_GetDictKeyVersionFromSplitDict:
-                // arg3 = arg2->ma_keys
-                emit_load64_mem(Dst, arg3_idx, arg2_idx, offsetof(PyDictObject, ma_keys));
-                emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeysObject, dk_version_tag), (uint64_t)la->u.split_dict_cache.splitdict_keys_version);
-                | branch_ne >1
-                // res = arg4[splitdict_index]
-                emit_load64_mem(Dst, res_idx, arg4_idx, sizeof(PyObject*) * la->u.split_dict_cache.splitdict_index);
-                // attr can be NULL
-                emit_cmp64_imm(Dst, res_idx, 0);
-                | branch_eq >3
-                emit_load_attr_res_0_helper = 1; // makes sure we emit label 3
-                emit_incref(Dst, res_idx);
-            }
+            int meth_found = la->meth_found;
+            int emit_load_attr_res_0_helper = 0;
+            emit_inline_cache_loadattr_entry(Dst, opcode, oparg, la, &emit_load_attr_res_0_helper);
 
             |4:
             if (jit_stats_enabled) {
@@ -2373,7 +2378,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                     emit_decref(Dst, arg1_idx, 1 /*= preserve res */);
                 }
             } else {
-                if (la->meth_found) {
+                if (meth_found) {
                     emit_write_vs(Dst, res_idx, 1 /*=top*/);
                     | mov res, arg1
                 } else {
@@ -2385,43 +2390,46 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             |5:
             // fallthrough to next opcode
 
-            switch_section(Dst, SECTION_COLD);
-            | 1:
-            if (jit_stats_enabled) {
-                emit_inc_qword_ptr(Dst, opcode == LOAD_ATTR ? &jit_stat_load_attr_miss : &jit_stat_load_method_miss, 1 /*=can use tmp_reg*/);
-            }
-            if (opcode == LOAD_ATTR) {
-                | mov arg2, arg1
-                if (ref_status == BORROWED) { // helper function needs a owned value
-                    emit_incref(Dst, arg2_idx);
-                }
-                emit_mov_imm2(Dst, arg1_idx, PyTuple_GET_ITEM(Dst->co_names, oparg),
-                                    arg3_idx, co_opcache);
-            } else {
-                emit_mov_imm2(Dst, arg1_idx, PyTuple_GET_ITEM(Dst->co_names, oparg),
-                                    arg2_idx, co_opcache);
-            }
-            emit_call_ext_func(Dst, get_aot_func_addr(Dst, opcode, oparg, co_opcache != 0 /*= use op cache */));
-            emit_if_res_0_error(Dst);
-            | branch <5 // jump to the common code which pushes the result
-
-            if (emit_load_attr_res_0_helper) { // we only emit this code if it's used
-                |3:
-                | mov tmp_preserved_reg, arg1
-                emit_mov_imm(Dst, arg2_idx, (uint64_t)PyTuple_GET_ITEM(Dst->co_names, oparg));
-                emit_call_ext_func(Dst, loadAttrCacheAttrNotFound);
-                | mov arg1, tmp_preserved_reg
-                emit_cmp64_imm(Dst, res_idx, 0);
-                | branch_ne <4 // jump to the common code which decrefs the obj and pushes the result
-                if (ref_status == OWNED) {
-                    emit_decref(Dst, tmp_preserved_reg_idx, 0 /*=  don't preserve res */);
-                }
+            // slowpath
+            {
+                switch_section(Dst, SECTION_COLD);
+                | 1:
                 if (jit_stats_enabled) {
-                    emit_inc_qword_ptr(Dst, opcode == LOAD_ATTR ? &jit_stat_load_attr_hit : &jit_stat_load_method_hit, 1 /*=can use tmp_reg*/);
+                    emit_inc_qword_ptr(Dst, opcode == LOAD_ATTR ? &jit_stat_load_attr_miss : &jit_stat_load_method_miss, 1 /*=can use tmp_reg*/);
                 }
-                | branch ->error
+                if (opcode == LOAD_ATTR) {
+                    | mov arg2, arg1
+                    if (ref_status == BORROWED) { // helper function needs a owned value
+                        emit_incref(Dst, arg2_idx);
+                    }
+                    emit_mov_imm2(Dst, arg1_idx, PyTuple_GET_ITEM(Dst->co_names, oparg),
+                                        arg3_idx, co_opcache);
+                } else {
+                    emit_mov_imm2(Dst, arg1_idx, PyTuple_GET_ITEM(Dst->co_names, oparg),
+                                        arg2_idx, co_opcache);
+                }
+                emit_call_ext_func(Dst, get_aot_func_addr(Dst, opcode, oparg, co_opcache != 0 /*= use op cache */));
+                emit_if_res_0_error(Dst);
+                | branch <5 // jump to the common code which pushes the result
+
+                if (emit_load_attr_res_0_helper) { // we only emit this code if it's used
+                    |3:
+                    | mov tmp_preserved_reg, arg1
+                    emit_mov_imm(Dst, arg2_idx, (uint64_t)PyTuple_GET_ITEM(Dst->co_names, oparg));
+                    emit_call_ext_func(Dst, loadAttrCacheAttrNotFound);
+                    | mov arg1, tmp_preserved_reg
+                    emit_cmp64_imm(Dst, res_idx, 0);
+                    | branch_ne <4 // jump to the common code which decrefs the obj and pushes the result
+                    if (ref_status == OWNED) {
+                        emit_decref(Dst, tmp_preserved_reg_idx, 0 /*=  don't preserve res */);
+                    }
+                    if (jit_stats_enabled) {
+                        emit_inc_qword_ptr(Dst, opcode == LOAD_ATTR ? &jit_stat_load_attr_hit : &jit_stat_load_method_hit, 1 /*=can use tmp_reg*/);
+                    }
+                    | branch ->error
+                }
+                switch_section(Dst, SECTION_CODE);
             }
-            switch_section(Dst, SECTION_CODE);
 
             deferred_vs_push(Dst, REGISTER, res_idx);
             return 0;
