@@ -94,6 +94,7 @@ typedef struct {
             int64_t offset; /* offset in bytes from the start of the PyObject to the slot */
         } slot_cache;
     } u;
+    short type_tp_dictoffset;  /* tp_dictoffset of type */
     char cache_type;
     char meth_found; // used by LOAD_METHOD: can we do the method descriptor optimization or not
     char guard_tp_descr_get; // do we have to guard on Py_TYPE(u.value_cache.obj)->tp_descr_get == NULL
@@ -121,6 +122,7 @@ typedef struct {
             int64_t offset; /* offset in bytes from the start of the PyObject to the slot */
         } slot_cache;
     } u;
+    short type_tp_dictoffset;  /* tp_dictoffset of type */
     char cache_type;
 } _PyOpcache_StoreAttr;
 

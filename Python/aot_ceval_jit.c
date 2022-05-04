@@ -2162,16 +2162,9 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             ++jit_stat_load_attr_total;
         else
             ++jit_stat_load_method_total;
+
+        _PyOpcache_LoadAttr *la = &co_opcache->u.la;
         if (co_opcache->num_failed == 0 && co_opcache->u.la.type_ver != 0) {
-            if (opcode == LOAD_ATTR)
-                ++jit_stat_load_attr_inline;
-            else
-                ++jit_stat_load_method_inline;
-
-            _PyOpcache_LoadAttr *la = &co_opcache->u.la;
-
-            int emit_load_attr_res_0_helper = 0;
-
             int version_zero = (la->cache_type == LA_CACHE_VALUE_CACHE_DICT && la->u.value_cache.dict_ver == 0) ||
                 (la->cache_type == LA_CACHE_IDX_SPLIT_DICT && la->u.split_dict_cache.splitdict_keys_version == 0);
 
@@ -2181,6 +2174,26 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 fprintf(stderr, "untested jit case");
                 abort();
             }
+
+            int checked_type_tp_dictoffset = 0;
+            if (la->cache_type != LA_CACHE_BUILTIN && la->cache_type != LA_CACHE_DATA_DESCR && la->cache_type != LA_CACHE_SLOT_CACHE) {
+                checked_type_tp_dictoffset = 1;
+                // fail the cache if dictoffset<0 rather than do the lengthier dict_ptr computation
+                if (version_zero) {
+                    if (la->type_tp_dictoffset < 0)
+                        return -1;
+                } else {
+                    if (la->type_tp_dictoffset <= 0)
+                        return -1;
+                }
+            }
+
+            if (opcode == LOAD_ATTR)
+                ++jit_stat_load_attr_inline;
+            else
+                ++jit_stat_load_method_inline;
+
+            int emit_load_attr_res_0_helper = 0;
 
             // In comparison to the LOAD_METHOD cache, label 2 is when we know the version checks have
             // passed, but there's an additional tp_descr_get check that we have to do
@@ -2247,33 +2260,17 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                     emit_load_attr_res_0_helper = 1; // makes sure we emit label 3
                 } else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
                     // nothing todo
-                } else {
-                    // _PyObject_GetDictPtr
-                    // arg2 = PyType(obj)->tp_dictoffset
-                    emit_load64_mem(Dst, arg2_idx, arg2_idx, offsetof(PyTypeObject, tp_dictoffset));
-
-                    emit_cmp64_imm(Dst, arg2_idx, 0);
-                    // je -> tp_dictoffset == 0
+                } else if (version_zero && la->type_tp_dictoffset == 0) {
                     // tp_dict_offset==0 implies dict_ptr==NULL implies dict version (either split keys or not) is 0
-                    // Also, fail the cache if dictoffset<0 rather than do the lengthier dict_ptr computation
-                    // TODO some of the checks here might be redundant with the tp_version_tag check (specifies a class)
-                    // and the fact that we successfully wrote the cache the first time.
-                    if (version_zero) {
-                        // offset==0 => automatic version check success
-                        | branch_eq >2
-                        // offset<0 => failure
-                        | branch_lt >1
-                    } else {
-                        // automatic failure if dict_offset is zero or if it is negative
-                        | branch_le >1
+                } else {
+                    if (!checked_type_tp_dictoffset) {
+                        JIT_ASSERT(0, "");
                     }
-
                     // Now loadAttrCache splits into two cases, but the first step on both
                     // is to load the dict pointer and check if it's null
 
                     // arg2 = *(obj + dictoffset)
-@ARM                | ldr arg2, [arg1, arg2]
-@X86                | mov arg2, [arg1 + arg2]
+                    emit_load64_mem(Dst, arg2_idx, arg1_idx, la->type_tp_dictoffset);
                     emit_cmp64_imm(Dst, arg2_idx, 0);
                     if (version_zero) {
                         // null dict is always a cache hit
@@ -2316,7 +2313,9 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 | branch_eq >1
                 emit_incref(Dst, res_idx);
             } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT || la->cache_type == LA_CACHE_BUILTIN) {
-                if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
+                if (version_zero && la->type_tp_dictoffset == 0) {
+                    // Already guarded
+                } else if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
                     emit_cmp64_mem_imm(Dst, arg2_idx, offsetof(PyDictObject, ma_values), 0);
                     | branch_eq >1 // fail if dict->ma_values == NULL
                     // _PyDict_GetDictKeyVersionFromSplitDict:
@@ -2429,10 +2428,14 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
         }
     } else if (opcode == STORE_ATTR) {
         ++jit_stat_store_attr_total;
-        if (co_opcache->num_failed == 0 && co_opcache->u.sa.type_ver != 0 && co_opcache->optimized) {
-            ++jit_stat_store_attr_inline;
+        _PyOpcache_StoreAttr *sa = &co_opcache->u.sa;
+        if (co_opcache->num_failed == 0 && sa->type_ver != 0 && co_opcache->optimized) {
+            if (sa->cache_type == SA_CACHE_IDX_SPLIT_DICT && sa->type_tp_dictoffset <= 0) {
+                // fail the cache if dictoffset<=0 rather than do the lengthier dict_ptr computation
+                return -1;
+            }
 
-            _PyOpcache_StoreAttr *sa = &co_opcache->u.sa;
+            ++jit_stat_store_attr_inline;
 
             // we only jit this cache type for now
             if (sa->cache_type != SA_CACHE_SLOT_CACHE) {

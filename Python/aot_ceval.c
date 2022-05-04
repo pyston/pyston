@@ -953,7 +953,12 @@ setupStoreAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache) {
     assert(sa->u.split_dict_cache.splitdict_index >= 0);
 
 common_cached:
+    if (tp->tp_dictoffset < SHRT_MIN || tp->tp_dictoffset > SHRT_MAX) {
+        co_opcache->optimized = 0; // we already modified the cache entry
+        return -1; // can't fit in our cache
+    }
     co_opcache->optimized = 1;
+    sa->type_tp_dictoffset = (short)tp->tp_dictoffset;
     sa->type_ver = tp->tp_version_tag;
     return 0;
 }
@@ -1156,9 +1161,6 @@ setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObje
             if (descr)
                 return -1;
 
-            // because we verfied that _PyType_Lookup(tp, name) == NULL, we don't need to emit this guard
-            la->guard_tp_descr_get = 0;
-
             // if this is a split dict we will cache the index of it in the value array (=LA_CACHE_IDX_SPLIT_DICT)
             // else we directly cache the value of the dict entry and guard on the exact dict version (=LA_CACHE_VALUE_CACHE_DICT)
             // if LA_CACHE_VALUE_CACHE_DICT is frequently resulting in a cache miss we switch to caching the offset of
@@ -1184,6 +1186,10 @@ setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObje
                 la->u.value_cache.obj = res;
                 la->u.value_cache.dict_ver = getDictVersionFromDictPtr(dictptr);
             }
+
+            // because we verfied that _PyType_Lookup(tp, name) == NULL, we don't need to emit this guard
+            la->guard_tp_descr_get = 0;
+
             goto common_cached;
         }
         else {
@@ -1221,7 +1227,12 @@ setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObje
     la->u.value_cache.obj = res;
 
 common_cached:
+    if (tp->tp_dictoffset < SHRT_MIN || tp->tp_dictoffset > SHRT_MAX) {
+        co_opcache->optimized = 0; // we already modified the cache entry
+        return -1; // can't fit in our cache
+    }
     co_opcache->optimized = 1;
+    la->type_tp_dictoffset = (short)tp->tp_dictoffset;
     la->meth_found = meth_found;
     if (la->cache_type != LA_CACHE_BUILTIN)
         la->type_ver = tp->tp_version_tag;
