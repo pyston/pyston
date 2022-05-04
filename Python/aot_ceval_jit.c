@@ -2971,7 +2971,9 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 emit_cmp64_mem_imm(Dst, f_idx, get_fastlocal_offset(unicode_concat), 0 /* = value */);
                 | branch_eq ->error
                 // skip STORE_FAST
-                emit_jump_by_n_bytecodes(Dst, 2, inst_idx);
+                int dst_idx = inst_idx+2;
+                JIT_ASSERT(dst_idx >= 0 && dst_idx < Dst->num_opcodes, "");
+                | branch =>dst_idx
                 ++jit_stat_unicode_concat;
             }
 
