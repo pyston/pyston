@@ -840,6 +840,21 @@ static uint64_t getSplitDictKeysVersionFromDictPtr(PyObject** dictptr) {
     return _PyDict_GetDictKeyVersionFromSplitDict((PyObject*)dict);
 }
 
+int setItemSplitDictCache(PyObject* dict, Py_ssize_t splitdict_index, PyObject* v, PyObject* name) {
+    int err = _PyDict_SetItemFromSplitDict(dict, name, splitdict_index, v);
+    if (err < 0 && PyErr_ExceptionMatches(PyExc_KeyError)) {
+        PyErr_SetObject(PyExc_AttributeError, name);
+    }
+    return err;
+}
+int setItemInitSplitDictCache(PyObject** dictptr, PyObject* obj, PyObject* v, Py_ssize_t splitdict_index,PyObject* name) {
+    int err = _PyDict_SetItemInitialFromSplitDict(Py_TYPE(obj), dictptr, name, splitdict_index, v);
+    if (err < 0 && PyErr_ExceptionMatches(PyExc_KeyError)) {
+        PyErr_SetObject(PyExc_AttributeError, name);
+    }
+    return err;
+}
+
 int __attribute__((always_inline)) __attribute__((visibility("hidden")))
 storeAttrCache(PyObject* owner, PyObject* name, PyObject* v, _PyOpcache *co_opcache, int* err) {
     _PyOpcache_StoreAttr *sa = &co_opcache->u.sa;
@@ -886,18 +901,20 @@ storeAttrCache(PyObject* owner, PyObject* name, PyObject* v, _PyOpcache *co_opca
         if (_PyDict_GetDictKeyVersionFromKeys((PyObject*)keys) != sa->u.split_dict_cache.splitdict_keys_version)
             return -1;
 
-        *err = _PyDict_SetItemInitialFromSplitDict(tp, dictptr, name, sa->u.split_dict_cache.splitdict_index, v);
+        *err = setItemInitSplitDictCache(dictptr, owner, v, sa->u.split_dict_cache.splitdict_index, name);
+
+        // mark that we hit the dict not initalized path
+        sa->cache_type = SA_CACHE_IDX_SPLIT_DICT_INIT;
     } else {
         // check if this dict has the same keys as the cached one
         if (sa->u.split_dict_cache.splitdict_keys_version != getSplitDictKeysVersionFromDictPtr(dictptr))
             return -1;
 
-        *err = _PyDict_SetItemFromSplitDict(*dictptr, name, sa->u.split_dict_cache.splitdict_index, v);
+        *err = setItemSplitDictCache(*dictptr, sa->u.split_dict_cache.splitdict_index, v, name);
+
+        // mark that we hit the dict already initalized path
+        sa->cache_type = SA_CACHE_IDX_SPLIT_DICT;
     }
-
-    if (*err < 0 && PyErr_ExceptionMatches(PyExc_KeyError))
-        PyErr_SetObject(PyExc_AttributeError, name);
-
 
 hit:
     co_opcache->num_failed = 0;

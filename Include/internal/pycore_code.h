@@ -105,10 +105,11 @@ enum _PyOpcache_StoreAttr_Types {
 
     // caching an index inside instance splitdict, guarded by the splitdict keys version (dict->ma_keys->dk_version_tag)
     SA_CACHE_IDX_SPLIT_DICT = 0,
+    SA_CACHE_IDX_SPLIT_DICT_INIT = 1, // same as the first but means we hit the dict not initialized path
 
     // caching the offset to attribute slot inside a python object.
     // used for __slots__
-    SA_CACHE_SLOT_CACHE = 1,
+    SA_CACHE_SLOT_CACHE = 2,
 };
 
 typedef struct {
