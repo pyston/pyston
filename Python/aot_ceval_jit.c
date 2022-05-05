@@ -252,6 +252,8 @@ PyObject * method_vectorcall_FASTCALL_KEYWORDS(PyObject *func, PyObject *const *
 PyObject * method_vectorcall_VARARGS(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 PyObject * method_vectorcall_VARARGS_KEYWORDS(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 
+PyObject* PySlice_NewSteal(PyObject *start, PyObject *stop, PyObject *step);
+
 static void decref_array(PyObject** vec, int n) {
     for (int i = -1; i >= -n; i--) {
         Py_DECREF(vec[i]);
@@ -2974,7 +2976,9 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 emit_cmp64_mem_imm(Dst, f_idx, get_fastlocal_offset(unicode_concat), 0 /* = value */);
                 | branch_eq ->error
                 // skip STORE_FAST
-                emit_jump_by_n_bytecodes(Dst, 2, inst_idx);
+                int dst_idx = inst_idx+2;
+                JIT_ASSERT(dst_idx >= 0 && dst_idx < Dst->num_opcodes, "");
+                | branch =>dst_idx
                 ++jit_stat_unicode_concat;
             }
 
@@ -3402,21 +3406,20 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         }
 
         case BUILD_SLICE:
-        {
-            RefStatus ref_status[3];
             if (oparg == 3) {
-                deferred_vs_pop3(Dst, arg3_idx, arg2_idx, arg1_idx, ref_status);
+                deferred_vs_pop3_owned(Dst, arg3_idx, arg2_idx, arg1_idx);
             } else {
-                emit_mov_imm(Dst, arg3_idx, 0);
-                deferred_vs_pop2(Dst, arg2_idx, arg1_idx, &ref_status[1]);
-                ref_status[0] = BORROWED;
+                emit_mov_imm(Dst, arg3_idx, (uint64_t)Py_None);
+                if (!IS_IMMORTAL(Py_None)) {
+                    emit_incref(Dst, arg3_idx);
+                }
+                deferred_vs_pop2_owned(Dst, arg2_idx, arg1_idx);
             }
             deferred_vs_convert_reg_to_stack(Dst);
-            emit_call_decref_args3(Dst, PySlice_New, arg3_idx, arg2_idx, arg1_idx, ref_status);
+            emit_call_ext_func(Dst, PySlice_NewSteal);
             emit_if_res_0_error(Dst);
             deferred_vs_push(Dst, REGISTER, res_idx);
             break;
-        }
 
         case BUILD_TUPLE:
             // empty tuple optimization
