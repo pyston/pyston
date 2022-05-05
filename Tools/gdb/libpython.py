@@ -101,7 +101,7 @@ ENCODING = locale.getpreferredencoding()
 
 FRAME_INFO_OPTIMIZED_OUT = '(frame information optimized out)'
 UNABLE_READ_INFO_PYTHON_FRAME = 'Unable to read information on python frame'
-EVALFRAME = ('_PyEval_EvalFrameDefault', '_PyEval_EvalFrame_AOT')
+EVALFRAME = '_PyEval_EvalFrameDefault'
 
 class NullPyObjectPtr(RuntimeError):
     pass
@@ -1540,7 +1540,7 @@ class Frame(object):
 
     def is_evalframe(self):
         '''Is this a _PyEval_EvalFrameDefault frame?'''
-        if self._gdbframe.name() in EVALFRAME:
+        if self._gdbframe.name() == EVALFRAME:
             '''
             I believe we also need to filter on the inline
             struct frame_id.inline_depth, only regarding frames with
