@@ -168,7 +168,7 @@ PyObject* cmp_outcomePyCmp_EXC_MATCH(PyObject *v, PyObject *w) {
 int storeAttrCache(PyObject* owner, PyObject* name, PyObject* v, _PyOpcache *co_opcache, int* err);
 int setupStoreAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache);
 int loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject** res, int *meth_found);
-int setupLoadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject* res, int is_load_method);
+int setupLoadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject* res, int is_load_method, int inside_interpreter);
 
 
 JIT_HELPER1(PRINT_EXPR, value) {
@@ -1249,7 +1249,7 @@ JIT_HELPER_WITH_NAME_OPCACHE_AOT1(LOAD_ATTR_CACHED, owner) {
 #endif
 
     if (res) {
-        if (setupLoadAttrCache(owner, name, co_opcache, res, 0/*= not LOAD_METHOD*/)) {
+        if (setupLoadAttrCache(owner, name, co_opcache, res, 0/*= not LOAD_METHOD*/, 0 /*not inside_interpreter */)) {
             // don't use the cache anymore
             SET_JIT_AOT_FUNC(JIT_HELPER_LOAD_ATTR);
         }
@@ -1581,7 +1581,7 @@ JIT_HELPER_WITH_NAME_OPCACHE_AOT(LOAD_METHOD_CACHED) {
         goto_error;
     }
 
-    if (setupLoadAttrCache(obj, name, co_opcache, meth, 1 /*= LOAD_METHOD*/)) {
+    if (setupLoadAttrCache(obj, name, co_opcache, meth, 1 /*= LOAD_METHOD*/, 0 /*not inside_interpreter */)) {
         // don't use the cache anymore
         SET_JIT_AOT_FUNC(JIT_HELPER_LOAD_METHOD);
     }

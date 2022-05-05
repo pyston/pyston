@@ -64,6 +64,9 @@ enum _PyOpcache_LoadAttr_Types {
     // store a borrowed reference, and second we know the tp_version_tag won't change.)
     // This lets us constant-fold a number of the checks when we jit this load.
     LA_CACHE_BUILTIN = 6,
+
+    // Used for polymorphic sites where we store an array of _PyOpcaches
+    LA_CACHE_POLYMORPHIC = 7,
 };
 typedef struct {
     union {
@@ -93,11 +96,17 @@ typedef struct {
         struct {
             int64_t offset; /* offset in bytes from the start of the PyObject to the slot */
         } slot_cache;
+        struct {
+            struct _PyOpcache* caches; // pointer to array of _PyOpcaches with num_entries
+            char num_entries;
+            char num_used;
+        } poly_cache;
     } u;
     short type_tp_dictoffset;  /* tp_dictoffset of type */
     char cache_type;
     char meth_found; // used by LOAD_METHOD: can we do the method descriptor optimization or not
     char guard_tp_descr_get; // do we have to guard on Py_TYPE(u.value_cache.obj)->tp_descr_get == NULL
+    uint8_t type_hash; // used as heuristic to decide if cache entry should be rewritten or switched to polymorphic
 } _PyOpcache_LoadAttr;
 
 enum _PyOpcache_StoreAttr_Types {
