@@ -766,11 +766,8 @@ PyEval_EvalFrameEx(PyFrameObject *f, int throwflag)
     return interp->eval_frame(f, throwflag);
 }
 
+#ifndef ENABLE_AOT
 PyObject* _Py_HOT_FUNCTION
-// unfortunately bolt fails instrumenting this function when it's compiled with standard O level.
-#if PYSTON_SPEEDUPS
-__attribute__((optimize("-Os")))
-#endif
 _PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
 {
 #ifdef DXPAIRS
@@ -905,6 +902,9 @@ _PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
 #define FAST_DISPATCH() goto fast_next_opcode
 #define DISPATCH() continue
 #endif
+
+// Hacky: close this ifdef early here so that we can get the macros for the other functions
+#endif // ifndef ENABLE_AOT
 
 
 /* Tuple access macros */
@@ -1102,6 +1102,8 @@ _PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
 #define OPCACHE_STAT_GLOBAL_OPT()
 
 #endif
+
+#ifndef ENABLE_AOT
 
 /* Start of code */
 
@@ -3848,6 +3850,7 @@ exit_eval_frame:
 
     return _Py_CheckFunctionResult(NULL, retval, "PyEval_EvalFrameEx");
 }
+#endif // ifndef ENABLE_AOT
 
 static void
 format_missing(PyThreadState *tstate, const char *kind,

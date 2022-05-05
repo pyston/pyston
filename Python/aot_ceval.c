@@ -4801,7 +4801,7 @@ exit_yielding:
 // Entry point when executing a python function.
 // We check if we can use a JIT compiled version or have to use the Interpreter
 PyObject* _Py_HOT_FUNCTION
-_PyEval_EvalFrame_AOT(PyFrameObject *f, int throwflag)
+_PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
 {
     PyObject* retval = NULL;
     _PyRuntimeState * const runtime = &_PyRuntime;
@@ -6783,8 +6783,6 @@ PyInit_aot_ceval(void)
         return NULL;
 
     jit_start();
-
-    PyThreadState_Get()->interp->eval_frame = _PyEval_EvalFrame_AOT;
 
 
 #if PROFILE_OPCODES
