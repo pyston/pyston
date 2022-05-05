@@ -46,6 +46,16 @@ Typically with Python one will download and install pre-compiled packages, but w
 
 Many packages have build-time dependencies that you will need to install to get them to work. For example to `pip install cryptography` you need a Rust compiler, such as by doing `sudo apt-get install rustc`.
 
+## History
+
+Pyston was started at Dropbox in 2014 in order to reduce the costs of its rapidly-growing Python server fleet. That version of Pyston is now called "Pyston v1", and is located [here](https://github.com/pyston/pyston_v1). Pyston v1 was a from-scratch implementation of Python 2.7 that featured a conservative tracing garbage collector and a LLVM-based compilation tier. The tracing garbage collector was eventually replaced with reference counting, and a faster-to-compile baseline JIT was added as well.
+
+At the same time that Pyston was being developed, Dropbox was in-parallel investigating other languages as the primary development language for the company. In 2017 it was decided that this was the preferrable approach, and the Pyston project was shut down. At this time Pyston v1 was able to run the Dropbox codebase, but with several caveats such as increased memory and numerous small compatibility challenges.
+
+In 2019 the Pyston developers regrouped without a corporate sponsor and started investigating alternative approaches to speeding up Python. They ended up deciding to fork CPython 3.8, and by early 2020 they restarted the project in a new codebase, and called it "Pyston v2". The first version of Pyston v2 was released in late 2020.
+
+In mid-2021 the Pyston developers joined Anaconda, which since then has provided funding for the project and packaging expertise.
+
 # Building Pyston
 
 ## Build dependencies
