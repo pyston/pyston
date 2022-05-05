@@ -114,6 +114,7 @@ typedef enum RefStatus {
 typedef enum Section {
     SECTION_CODE,
     SECTION_COLD,
+    SECTION_DEOPT,
     SECTION_ENTRY,
     SECTION_OPCODE_ADDR,
 } Section;
@@ -672,7 +673,7 @@ static unsigned long jit_stat_load_method_poly, jit_stat_load_method_poly_entrie
 @X86|.arch x64
 
 // section layout is same as specified here from left to right
-|.section entry, code, cold, opcode_addr
+|.section entry, code, cold, deopt, opcode_addr
 
 ////////////////////////////////
 // REGISTER DEFINITIONS
@@ -767,6 +768,8 @@ static void switch_section(Jit* Dst, Section new_section) {
         |.code
     } else if (new_section == SECTION_COLD) {
         |.cold
+    } else if (new_section == SECTION_DEOPT) {
+        |.deopt
     } else if (new_section == SECTION_ENTRY) {
         |.entry
     } else if (new_section == SECTION_OPCODE_ADDR) {
@@ -2703,7 +2706,7 @@ static void emit_instr_start(Jit* Dst, int inst_idx, int opcode, int oparg) {
         // if we deferred stack operations we have to emit a special deopt path
         if (Dst->deferred_vs_next || num_extended_arg) {
             | branch_ne >1
-            switch_section(Dst, SECTION_COLD);
+            switch_section(Dst, SECTION_DEOPT);
             |1:
             deferred_vs_emit(Dst);
 
@@ -2736,7 +2739,7 @@ static void emit_instr_start(Jit* Dst, int inst_idx, int opcode, int oparg) {
         // if we deferred stack operations we have to emit a special deopt path
         if (Dst->deferred_vs_next || num_extended_arg) {
             | branch_ne >1
-            switch_section(Dst, SECTION_COLD);
+            switch_section(Dst, SECTION_DEOPT);
             |1:
             // compares ceval->tracing_possible == 0 (32bit)
             emit_tracing_possible_check(Dst);
