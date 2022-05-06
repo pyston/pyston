@@ -116,7 +116,7 @@ static Knowledge* getTypeFact(Value* v, FactSet& facts) {
 }
 
 extern "C" {
-PyObject* _PyEval_EvalFrame_AOT(PyFrameObject*, int);
+PyObject* _PyEval_EvalFrameDefault(PyFrameObject*, int);
 PyObject *method_vectorcall(PyObject *method, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 }
 
@@ -204,13 +204,13 @@ bool PystolFactDeriver::deriveFacts(Value* v, FactSet& facts, LLVMEvaluator& eva
         // _is::eval_frame
         typedef struct _is _is;
         Knowledge& k = facts[LOCFOR(_is, eval_frame)];
-        // We fix eval_frame to _PyEval_EvalFrame_AOT since we know we are running with that to get to this trace.
+        // We fix eval_frame to _PyEval_EvalFrameDefault since we know we are running with that to get to this trace.
         // This means that it becomes more difficult to change the frame evaluation function a second time,
         // but I think it's ok if we don't support that.
         if (!k.known_value || k.known_at) {
             // Hack, we just need a pointer type
             Type* t = v->getType()->getPointerTo();
-            k.known_value = eval.GVToConst(GenericValue((void*)_PyEval_EvalFrame_AOT), t);
+            k.known_value = eval.GVToConst(GenericValue((void*)_PyEval_EvalFrameDefault), t);
             k.known_at = NULL;
             changed = true;
         }

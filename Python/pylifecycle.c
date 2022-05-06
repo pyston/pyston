@@ -605,12 +605,6 @@ pycore_init_types(void)
 #ifdef ENABLE_AOT
 void PyInit_aot_ceval();
 void aot_exit();
-#else
-// Define this function so that we can resolve it during trace-optimization,
-// but it doesn't need to be functional.
-PyObject* _PyEval_EvalFrame_AOT(PyFrameObject *f, int throwflag) {
-    Py_FatalError("AOT called but not enabled");
-}
 #endif
 
 static PyStatus
