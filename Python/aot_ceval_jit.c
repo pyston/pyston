@@ -281,7 +281,6 @@ static void* __attribute__ ((const)) get_addr_of_helper_func(int opcode, int opa
         JIT_HELPER_ADDR(GET_ANEXT);
         JIT_HELPER_ADDR(GET_AWAITABLE);
         JIT_HELPER_ADDR(YIELD_FROM);
-        JIT_HELPER_ADDR(YIELD_VALUE);
         JIT_HELPER_ADDR(POP_EXCEPT);
         JIT_HELPER_ADDR(POP_FINALLY);
         JIT_HELPER_ADDR(END_ASYNC_FOR);
@@ -3686,6 +3685,20 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             deferred_vs_apply(Dst);
             break;
 
+        case YIELD_VALUE:
+            if (co->co_flags & CO_ASYNC_GENERATOR) {
+                RefStatus ref_status = deferred_vs_pop1(Dst, arg1_idx);
+                deferred_vs_apply(Dst);
+                emit_call_decref_args1(Dst, _PyAsyncGenValueWrapperNew, arg1_idx, &ref_status);
+                emit_if_res_0_error(Dst);
+            } else {
+                deferred_vs_pop1_owned(Dst, res_idx);
+                deferred_vs_apply(Dst);
+            }
+            emit_store64_mem(Dst, vsp_idx, f_idx, offsetof(PyFrameObject, f_stacktop));
+            | branch ->exit_yielding
+            break;
+
         default:
             // compiler complains if the first line after a label is a declaration and not a statement:
             (void)0;
@@ -3711,7 +3724,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 case GET_AITER:
                 case GET_AWAITABLE:
                 case YIELD_FROM:
-                case YIELD_VALUE:
                 case END_ASYNC_FOR:
                 case UNPACK_SEQUENCE:
                 case UNPACK_EX:
@@ -3857,7 +3869,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 // they are tightly coupled with the C helper functions
                 // be careful when introducing new paths / updating cpython
                 case YIELD_FROM:
-                case YIELD_VALUE:
                     // res is the PyObject* returned
                     // res == 0 means error
                     // res == 1 means execute next opcode (=fallthrough)

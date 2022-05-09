@@ -371,24 +371,6 @@ JIT_HELPER1(YIELD_FROM, v) {
     return retval;
 }
 
-JIT_HELPER1(YIELD_VALUE, retval) {
-    //PyObject* retval = POP();
-
-    if (co->co_flags & CO_ASYNC_GENERATOR) {
-        PyObject *w = _PyAsyncGenValueWrapperNew(retval);
-        Py_DECREF(retval);
-        if (w == NULL) {
-            retval = NULL;
-            goto_error;
-        }
-        retval = w;
-    }
-
-    f->f_stacktop = stack_pointer;
-    // goto exit_yielding;
-    return retval;
-}
-
 JIT_HELPER(POP_EXCEPT) {
     PyObject *type, *value, *traceback;
     _PyErr_StackItem *exc_info;
