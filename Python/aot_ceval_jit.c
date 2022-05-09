@@ -1960,6 +1960,14 @@ static void emit_jump_if_true(Jit* Dst, int oparg, RefStatus ref_status) {
     // continue here
 }
 
+static void emit_exit_yielding_label(Jit* Dst) {
+    |->exit_yielding:
+    // to differentiate from a normal return we set the second lowest bit
+@ARM| orr real_res, res, #2
+@X86| or real_res, 2
+    | branch ->return
+}
+
 static _PyOpcache* get_opcache_entry(PyCodeObject* co, int inst_idx) {
     _PyOpcache* co_opcache = NULL;
     if (co->co_opcache != NULL) {
@@ -2808,7 +2816,11 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
     // did we emit the * label already?
     int end_finally_label = 0;
+    int exit_yielding_label = 0;
     int deref_error_label = 0;
+
+    int exception_unwind_label_used = 0;
+    int exit_yielding_label_used = 0;
 
     Dst->old_line_number = -1;
     Dst->emitted_trace_check_for_line = 0;
@@ -3454,6 +3466,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 emit_adjust_vs(Dst, -2);
                 emit_call_ext_func(Dst, _PyErr_Restore);
                 | branch ->exception_unwind
+                exception_unwind_label_used = 1;
                 switch_section(Dst, SECTION_CODE);
             }
             break;
@@ -3696,7 +3709,13 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 deferred_vs_apply(Dst);
             }
             emit_store64_mem(Dst, vsp_idx, f_idx, offsetof(PyFrameObject, f_stacktop));
-            | branch ->exit_yielding
+            exit_yielding_label_used = 1;
+            if (exit_yielding_label) {
+                | branch ->exit_yielding
+            } else {
+                emit_exit_yielding_label(Dst);
+                exit_yielding_label = 1;
+            }
             break;
 
         default:
@@ -3876,12 +3895,14 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                     emit_if_res_0_error(Dst);
                     emit_cmp64_imm(Dst, res_idx, 1);
                     | branch_ne ->exit_yielding
+                    exit_yielding_label_used = 1;
                     break;
 
                 case RAISE_VARARGS:
                     // res == 0 means error
                     // res == 2 means goto exception_unwind
                     emit_if_res_0_error(Dst);
+                    exception_unwind_label_used = 1;
                     | branch ->exception_unwind
                     break;
 
@@ -3890,6 +3911,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                     // res == 2 means goto exception_unwind
                     emit_cmp64_imm(Dst, res_idx, 2);
                     | branch_eq ->exception_unwind
+                    exception_unwind_label_used = 1;
                     emit_jump_by_n_bytecodes(Dst, oparg, inst_idx);
                     break;
 
@@ -3982,16 +4004,16 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
 
 
-    // TODO: only emit a label if we actually generated an instruction which needs it
-    |->exception_unwind:
-    emit_mov_imm(Dst, real_res_idx, 1);
-    | branch ->return
+    if (exception_unwind_label_used) {
+        |->exception_unwind:
+        emit_mov_imm(Dst, real_res_idx, 1);
+        | branch ->return
+    }
 
-    |->exit_yielding:
-    // to differentiate from a normal return we set the second lowest bit
-@ARM| orr real_res, res, #2
-@X86| or real_res, 2
-    | branch ->return
+    if (exit_yielding_label_used && exit_yielding_label == 0) {
+        emit_exit_yielding_label(Dst);
+        exit_yielding_label = 1;
+    }
 
     |->handle_signal_res_in_use:
     // we have to preserve res because it's used by our deferred stack optimizations
