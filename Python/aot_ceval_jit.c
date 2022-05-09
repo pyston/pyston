@@ -1031,7 +1031,7 @@ static void emit_cmp64_mem_imm(Jit* Dst, int r_mem, long offset, unsigned long v
 static void emit_cmp32_mem_imm(Jit* Dst, int r_mem, long offset, unsigned long val) {
 @ARMemit_load32_mem(Dst, get_tmp_reg(r_mem), r_mem, offset);
 @ARMemit_cmp32_imm(Dst, get_tmp_reg(r_mem), val);
-@X86| cmp qword [Rq(r_mem)+ offset], (unsigned int)val
+@X86| cmp dword [Rq(r_mem)+ offset], (unsigned int)val
 }
 
 // returns 1 if we can encode it in one instruction and 0 if we need multiple
