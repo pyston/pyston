@@ -604,11 +604,13 @@ static char* calculate_jmp_targets(Jit* Dst) {
                 break;
 
             case YIELD_FROM:
-            case YIELD_VALUE:
                 is_jmp_target[inst_idx + 0] = 1;
                 is_jmp_target[inst_idx + 1] = 1;
                 break;
 
+            case YIELD_VALUE:
+                is_jmp_target[inst_idx + 1] = 1;
+                break;
 
             case EXTENDED_ARG:
                 oldoparg = oparg << 8;
