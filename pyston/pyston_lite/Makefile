@@ -34,18 +34,24 @@ clean:
 ######
 # The rest of this file is for testing things:
 
-env:
+env: pyston_lite.so
 	$(PYTHON) -m venv env
-
-env/update.stamp: env pyston_lite.so
-	./env/bin/pip install -r ../pgo_requirements.txt
 	cp pyston_lite.so pyston_lite_autoload.pth env/lib/$(DIR)/site-packages/
+
+env/update.stamp: env
+	./env/bin/pip install -r ../pgo_requirements.txt
 	touch $@
 
 
 ENV:=PYSTON=1 SHOW_OPCACHE_STATS=1 JIT_PERF_MAP=1
 BENCH:=../macrobenchmarks/benchmarks/bm_flaskblogging/run_benchmark.py --legacy
 
+
+# test_code has a bug when run with another client that calls RequestCodeExtraIndex
+# note: the testsuite doesn't pass for my Ubuntu system cpython, but it does pass
+# if I reconfigure this makefile to use a manually-built cpython
+testsuite: env
+	PYSTON=1 ./env/bin/python -m test -j0 -x test_code
 
 bench: env/update.stamp
 	$(ENV) ./env/bin/python $(BENCH)

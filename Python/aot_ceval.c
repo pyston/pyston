@@ -1153,7 +1153,7 @@ loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject*
         else
             Py_INCREF(*res);
 #endif
-    } else {
+    } else if (la->cache_type == LA_CACHE_DATA_DESCR) {
         PyObject* descr = la->u.descr_cache.descr;
         if (unlikely(Py_TYPE(descr)->tp_version_tag != la->u.descr_cache.descr_type_ver))
             return -1;
@@ -1163,6 +1163,9 @@ loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject*
         // can be null, call into tp_getattro specific handler
         if (*res == NULL)
             *res = loadAttrCacheAttrNotFound(owner, name);
+    } else {
+        fprintf("bad cache type %d\n", la->cache_type);
+        abort();
     }
 
     co_opcache->num_failed = 0;
