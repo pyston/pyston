@@ -29,6 +29,9 @@ clean:
 	rm -rf *.o *.so env
 
 
+package: aot_ceval_jit.gen.c
+	docker run --rm -e PLAT=manylinux2014_x86_64 -v `pwd`/../../:/io quay.io/pypa/manylinux2014_x86_64 bash /io/pyston/pyston_lite/build_wheels.sh
+
 
 
 ######
