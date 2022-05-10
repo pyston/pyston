@@ -6976,7 +6976,12 @@ PyObject* enable_pyston_lite(PyObject* _m) {
         Py_RETURN_NONE;
     initialized = 1;
 
-    fprintf(stderr, "jit initialized\n");
+    if (PySys_GetObject("pyston_version_info")) {
+        //fprintf(stderr, "refusing to load pyston_lite into pyston since that doesn't work\n");
+        Py_RETURN_NONE;
+    }
+
+    //fprintf(stderr, "jit initialized\n");
     Py_AtExit(aot_exit);
 
     Py_True->ob_refcnt += (1LL<<48);
