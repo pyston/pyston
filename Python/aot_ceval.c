@@ -6973,6 +6973,43 @@ _PyCode_InitOpcache_Pyston(PyCodeObject *co)
     return 0;
 }
 
+#define NUM_GENERATIONS 3
+#define FROM_GC(g) ((PyObject *)(((PyGC_Head *)g)+1))
+#define GEN_HEAD(state, n) (&(state)->generations[n].head)
+#define GC_NEXT _PyGCHead_NEXT
+#define GC_PREV _PyGCHead_PREV
+static void clear_opcaches() {
+    // We want to find all the code objects, but I think the best we can
+    // do is iterate through all the function objects (by traversing the GC heap)
+    // and looking at their attached code objects. Code objects are not gc-managed,
+    // so it's possible that this misses some, but in the common case it shouldn't.
+
+    // Implementation based on gc_get_objects_impl
+    struct _gc_runtime_state *state = &_PyRuntime.gc;
+    for (int i = 0; i < NUM_GENERATIONS; i++) {
+        PyGC_Head* head = GEN_HEAD(state, i);
+        PyGC_Head* gc;
+
+        for (gc = GC_NEXT(head); gc != head; gc = GC_NEXT(gc)) {
+            PyObject *op = FROM_GC(gc);
+            if (op->ob_type != &PyFunction_Type)
+                continue;
+
+            PyCodeObject* code = (PyCodeObject*)((PyFunctionObject*)op)->func_code;
+            if (code->co_opcache) {
+                PyMem_FREE(code->co_opcache);
+                code->co_opcache = NULL;
+            }
+            if (code->co_opcache_map) {
+                PyMem_FREE(code->co_opcache_map);
+                code->co_opcache_map = NULL;
+            }
+            code->co_opcache_flag = 0;
+            code->co_opcache_size = 0;
+        }
+    }
+}
+
 PyObject* enable_pyston_lite(PyObject* _m) {
     static int initialized = 0;
     if (initialized)
@@ -6983,6 +7020,8 @@ PyObject* enable_pyston_lite(PyObject* _m) {
         //fprintf(stderr, "refusing to load pyston_lite into pyston since that doesn't work\n");
         Py_RETURN_NONE;
     }
+
+    clear_opcaches();
 
     //fprintf(stderr, "jit initialized\n");
     Py_AtExit(aot_exit);

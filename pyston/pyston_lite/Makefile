@@ -42,6 +42,9 @@ env/update.stamp: env
 	./env/bin/pip install -r ../pgo_requirements.txt
 	touch $@
 
+test: env
+	./env/bin/python ../test/pyston_lite_midexecution.py
+
 
 ENV:=PYSTON=1 SHOW_OPCACHE_STATS=1 JIT_PERF_MAP=1
 BENCH:=../macrobenchmarks/benchmarks/bm_flaskblogging/run_benchmark.py --legacy
