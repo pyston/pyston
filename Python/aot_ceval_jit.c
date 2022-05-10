@@ -1799,6 +1799,22 @@ static void deferred_vs_pop_n(Jit* Dst, int num, const int* const regs, RefStatu
         // This just does a linear search but because we only have very few num_deferred entries this should not be a perf problem.
         // (most of the times it's 2-3 entries and can't be more than DEFERRED_VS_MAX)
         DeferredValueStackEntry* entry = &GET_DEFERRED[-i-1];
+
+        // using 'res' as a destination while it's used in by a deferred value stack entry needs
+        // to be handled specially.
+        // e.g. if the stack looks like this: REGISTER(res), FAST(0) and we call pop1
+        // which moves FAST(0) into 'res' we would overwrite 'res' and the
+        // REGISTER(res) entry would be corrupt...
+        if (Dst->deferred_vs_res_used && regs[i] == res_idx) {
+            if (entry->loc == REGISTER && entry->val == res_idx) {
+                // nothing todo the destination is res and the source too.
+                // we can just use it
+            } else {
+                // we have to move register 'res' into a free register or into a stack slot
+                deferred_vs_convert_reg_to_stack(Dst);
+            }
+        }
+
         int found_duplicate = 0;
         if (entry->loc == CONST || entry->loc == FAST) {
             for (int prev=0; prev < i; ++prev) {
