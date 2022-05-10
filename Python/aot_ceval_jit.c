@@ -106,6 +106,12 @@
 #define JIT_ASSERT(x, m, ...) assert(x)
 #endif
 
+#ifdef PYSTON_LITE
+#define ENABLE_DEFINED_TRACKING 0
+#else
+#define ENABLE_DEFINED_TRACKING 1
+#endif
+
 #define DEFERRED_VS_MAX         16 /* used by STORE_SUBSCR */
 #define NUM_MANUAL_STACK_SLOTS   2 /* used by STORE_SUBSCR */
 
@@ -191,11 +197,13 @@ typedef struct Jit {
 
     char* is_jmp_target; // need to be free()d
 
+#if ENABLE_DEFINED_TRACKING
     // this keeps track of which fast local variable we know are set (!= 0)
     // if we don't know if they are set or if they are 0 is defined will be 0
     // currently we only track definedness inside a basic block and in addition the function args
     // TODO: could use a bitvector instead of a byte per local variable
     char* known_defined; // need to be free()d
+#endif
 
     // used by emit_instr_start to keep state across calls
     int old_line_number;
@@ -682,6 +690,7 @@ static char* calculate_jmp_targets(Jit* Dst) {
     return is_jmp_target;
 }
 
+#if ENABLE_DEFINED_TRACKING
 // returns if any of the functions arguments get deleted (checks for DELETE_FAST)
 static int check_func_args_never_deleted(Jit* Dst) {
     const int num_args = Dst->co->co_argcount;
@@ -707,6 +716,7 @@ static int check_func_args_never_deleted(Jit* Dst) {
     }
     return 1;
 }
+#endif
 
 static int8_t* mem_chunk = NULL;
 static size_t mem_chunk_bytes_remaining = 0;
@@ -727,7 +737,6 @@ static unsigned long jit_stat_load_attr_poly, jit_stat_load_attr_poly_entries;
 static unsigned long jit_stat_load_method_poly, jit_stat_load_method_poly_entries;
 
 #define ENABLE_DEFERRED_RES_PUSH 1
-#define ENABLE_DEFINED_TRACKING 1
 #define ENABLE_AVOID_SIG_TRACE_CHECK 1
 
 @ARM|.arch arm64
@@ -2752,8 +2761,10 @@ static void emit_instr_start(Jit* Dst, int inst_idx, int opcode, int oparg) {
             return;
 
         case LOAD_FAST:
+#if ENABLE_DEFINED_TRACKING
             if (Dst->known_defined[oparg])
                 return; // don't do a sig check if we know the load can't throw
+#endif
             break;
 
         case STORE_FAST:
@@ -2912,8 +2923,10 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
     jit.is_jmp_target = calculate_jmp_targets(Dst);
 
+#if ENABLE_DEFINED_TRACKING
     jit.known_defined = (char*)malloc(co->co_nlocals);
     const int funcs_args_are_always_defined = check_func_args_never_deleted(Dst);
+#endif
 
     // did we emit the * label already?
     int end_finally_label = 0;
@@ -2938,14 +2951,16 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             deferred_vs_apply(Dst);
         }
 
+#if ENABLE_DEFINED_TRACKING
         // if we can jump to this opcode or it's the first in the function
         // we reset the definedness info.
-        if (ENABLE_DEFINED_TRACKING && (inst_idx == 0 || Dst->is_jmp_target[inst_idx])) {
+        if ((inst_idx == 0 || Dst->is_jmp_target[inst_idx])) {
             memset(Dst->known_defined, 0, co->co_nlocals);
             for (int i=0; funcs_args_are_always_defined && i<co->co_argcount; ++i) {
                 Dst->known_defined[i] = 1; // function arg is defined
             }
         }
+#endif
 
         // set jump target for current inst index
         // we can later jump here via =>oparg etc..
@@ -2976,7 +2991,12 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             break;
 
         case LOAD_FAST:
-            if (!Dst->known_defined[oparg] /* can be null */) {
+        {
+            int known_defined = 0;
+#if ENABLE_DEFINED_TRACKING
+            known_defined = Dst->known_defined[oparg];
+#endif
+            if (!known_defined /* can be null */) {
                 emit_cmp64_mem_imm(Dst, f_idx, get_fastlocal_offset(oparg), 0 /* = value */);
                 | branch_eq >1
                 switch_section(Dst, SECTION_COLD);
@@ -2985,11 +3005,14 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 | branch ->unboundlocal_error // arg1 must be oparg!
                 switch_section(Dst, SECTION_CODE);
 
+#if ENABLE_DEFINED_TRACKING
                 Dst->known_defined[oparg] = 1;
+#endif
             }
 
             deferred_vs_push(Dst, FAST, oparg);
             break;
+        }
 
         case LOAD_CONST:
             deferred_vs_push(Dst, CONST, (unsigned long)PyTuple_GET_ITEM(Dst->co_consts, oparg));
@@ -3002,13 +3025,18 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             deferred_vs_apply_if_same_var(Dst, oparg);
             emit_load64_mem(Dst, arg1_idx, f_idx, get_fastlocal_offset(oparg));
             emit_store64_mem(Dst, new_value_reg, f_idx, get_fastlocal_offset(oparg));
-            if (Dst->known_defined[oparg]) {
+            int known_defined = 0;
+#if ENABLE_DEFINED_TRACKING
+            known_defined = Dst->known_defined[oparg];
+#endif
+            if (known_defined) {
                 emit_decref(Dst, arg1_idx, 0 /* don't preserve res */);
             } else {
                 emit_xdecref(Dst, arg1_idx);
             }
-            if (ENABLE_DEFINED_TRACKING)
-                Dst->known_defined[oparg] = 1;
+#if ENABLE_DEFINED_TRACKING
+            Dst->known_defined[oparg] = 1;
+#endif
             break;
         }
 
@@ -3016,7 +3044,11 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         {
             deferred_vs_apply_if_same_var(Dst, oparg);
             emit_load64_mem(Dst, arg2_idx, f_idx, get_fastlocal_offset(oparg));
-            if (!Dst->known_defined[oparg] /* can be null */) {
+            int known_defined = 0;
+#if ENABLE_DEFINED_TRACKING
+            known_defined = Dst->known_defined[oparg];
+#endif
+            if (!known_defined /* can be null */) {
                 emit_cmp64_imm(Dst, arg2_idx, 0);
                 | branch_eq >1
 
@@ -3028,7 +3060,9 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             }
             emit_store64_mem_imm(Dst, 0 /*= value */, f_idx, get_fastlocal_offset(oparg));
             emit_decref(Dst, arg2_idx, 0 /*= don't preserve res */);
+#if ENABLE_DEFINED_TRACKING
             Dst->known_defined[oparg] = 0;
+#endif
             break;
         }
 
@@ -4472,8 +4506,10 @@ cleanup:
     dasm_free(Dst);
     free(Dst->is_jmp_target);
     Dst->is_jmp_target = NULL;
+#if ENABLE_DEFINED_TRACKING
     free(Dst->known_defined);
     Dst->known_defined = NULL;
+#endif
 
     // For reasonable bytecode we won't have any hints
     // left because we will have consumed them all. But
