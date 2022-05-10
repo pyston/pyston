@@ -38,7 +38,27 @@
 #include <ctype.h>
 #include <sys/mman.h>
 
+#ifdef PYSTON_LITE
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
+#define Py_INCREF_IMMORTAL Py_INCREF
+#define Py_DECREF_IMMORTAL Py_DECREF
+
+PyObject *
+_PyDict_LoadGlobalEx(PyDictObject *globals, PyDictObject *builtins, PyObject *key, int *out_wasglobal);
+
+int _PyCode_InitOpcache_Pyston(PyCodeObject *co);
+
+#define PyTuple_New_Nonzeroed PyTuple_New
+#define PyTuple_Pack3(a, b, c) PyTuple_Pack(3, a, b, c)
+
+#define PYSTON_SPEEDUPS 0
+
+static int code_jitfunc_index = -1;
+#else
 #include "aot.h"
+#endif
 
 #ifdef Py_DEBUG
 /* For debugging the interpreter: */
@@ -54,17 +74,25 @@
 /* Private API for the LOAD_METHOD opcode. */
 extern int _PyObject_GetMethod(PyObject *, PyObject *, PyObject **);
 
+#ifndef PYSTON_LITE
 uint64_t _PyDict_GetDictKeyVersionFromSplitDict(PyObject *op);
 uint64_t _PyDict_GetDictKeyVersionFromKeys(PyObject *op);
 PyObject *_PyDict_GetItemFromSplitDict(PyObject *op, Py_ssize_t index);
 int _PyDict_SetItemFromSplitDict(PyObject *op, PyObject *key, Py_ssize_t index, PyObject* value);
 int _PyDict_SetItemInitialFromSplitDict(PyTypeObject *tp, PyObject **dict_ptr, PyObject *key, Py_ssize_t index, PyObject* value);
 Py_ssize_t _PyDict_GetItemIndexSplitDict(PyObject *op, PyObject *key);
+#endif
 
 typedef PyObject *(*callproc)(PyObject *, PyObject *, PyObject *);
 
+#ifdef PYSTON_LITE
+#define CALL_FUNCTION_CEVAL call_function_ceval_fast
+#else
+#define CALL_FUNCTION_CEVAL call_function_ceval
+#endif
+
 /* Forward declarations */
-/*Py_LOCAL_INLINE(PyObject *)*/ PyObject * call_function_ceval(
+PyObject * CALL_FUNCTION_CEVAL(
     PyThreadState *tstate, PyObject ***pp_stack,
     Py_ssize_t oparg, PyObject *kwnames);
 /*static*/ PyObject * do_call_core(
@@ -838,6 +866,7 @@ static uint64_t getDictVersionFromDictPtr(PyObject** dictptr) {
     return dict->ma_version_tag;
 }
 
+#ifndef PYSTON_LITE
 static uint64_t getSplitDictKeysVersionFromDictPtr(PyObject** dictptr) {
     if (dictptr == NULL)
         return 0;
@@ -867,9 +896,13 @@ int setItemInitSplitDictCache(PyObject** dictptr, PyObject* obj, PyObject* v, Py
     }
     return err;
 }
+#endif
 
 int __attribute__((always_inline)) __attribute__((visibility("hidden")))
 storeAttrCache(PyObject* owner, PyObject* name, PyObject* v, _PyOpcache *co_opcache, int* err) {
+#ifdef PYSTON_LITE
+    return -1;
+#else
     _PyOpcache_StoreAttr *sa = &co_opcache->u.sa;
     PyTypeObject *tp = Py_TYPE(owner);
 
@@ -935,10 +968,14 @@ hit:
     storeattr_hits++;
 #endif
     return 0;
+#endif
 }
 
 int __attribute__((always_inline)) __attribute__((visibility("hidden")))
 setupStoreAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache) {
+#ifdef PYSTON_LITE
+    return -1;
+#else
     _PyOpcache_StoreAttr *sa = &co_opcache->u.sa;
     PyTypeObject *tp = Py_TYPE(obj);
 
@@ -992,11 +1029,17 @@ common_cached:
     sa->type_tp_dictoffset = (short)tp->tp_dictoffset;
     sa->type_ver = tp->tp_version_tag;
     return 0;
+#endif
 }
 
 PyObject* slot_tp_getattr_hook_simple(PyObject *self, PyObject *name);
 PyObject* slot_tp_getattr_hook_simple_not_found(PyObject *self, PyObject *name);
+#ifdef PYSTON_LITE
+static void* module_getattro_value;
+#define module_getattro module_getattro_value
+#else
 PyObject* module_getattro(PyObject *_m, PyObject *name);
+#endif
 PyObject* module_getattro_not_found(PyObject *_m, PyObject *name);
 
 PyObject* loadAttrCacheAttrNotFound(PyObject *owner, PyObject *name) {
@@ -1070,12 +1113,19 @@ loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject*
         if (*res == NULL)
             return -1;
         Py_INCREF(*res);
-    } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT || la->cache_type == LA_CACHE_BUILTIN)
+    } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT ||
+#ifndef PYSTON_LITE
+            la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT ||
+#endif
+            la->cache_type == LA_CACHE_BUILTIN)
     {
+#ifndef PYSTON_LITE
         if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
             if (la->u.value_cache.dict_ver != getSplitDictKeysVersionFromDictPtr(dictptr))
                 return -1;
-        } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT) {
+        } else
+#endif
+        if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT) {
             if (la->u.value_cache.dict_ver != getDictVersionFromDictPtr(dictptr))
                 return -1;
         } else {
@@ -1089,6 +1139,7 @@ loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject*
         *res = la->u.value_cache.obj;
         assert(*res); // must be set because otherwise we would not have cached the value
         Py_INCREF(*res);
+#ifndef PYSTON_LITE
     } else if (la->cache_type == LA_CACHE_IDX_SPLIT_DICT) {
         // check if this dict has the same keys as the cached one
         if (la->u.split_dict_cache.splitdict_keys_version != getSplitDictKeysVersionFromDictPtr(dictptr))
@@ -1101,6 +1152,7 @@ loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject*
             *res = loadAttrCacheAttrNotFound(owner, name);
         else
             Py_INCREF(*res);
+#endif
     } else {
         PyObject* descr = la->u.descr_cache.descr;
         if (unlikely(Py_TYPE(descr)->tp_version_tag != la->u.descr_cache.descr_type_ver))
@@ -1276,11 +1328,15 @@ setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObje
             // the hashtable entry which does not require us to guard on the exact dict version - but retrieval
             // is more expensive (=LA_CACHE_OFFSET_CACHE)
             if (_PyDict_HasSplitTable((PyDictObject*)dict)) {
+#ifdef PYSTON_LITE
+                return -1;
+#else
                 la->cache_type = LA_CACHE_IDX_SPLIT_DICT;
                 la->u.split_dict_cache.splitdict_keys_version = getSplitDictKeysVersionFromDictPtr(dictptr);
                 la->u.split_dict_cache.splitdict_index = _PyDict_GetItemIndexSplitDict(dict, name);
                 // <0 means we did not find the attribute but this should never happen
                 assert(la->u.split_dict_cache.splitdict_index >= 0);
+#endif
             } else if (co_opcache->num_failed >= 2) {
                 Py_ssize_t dk_size;
                 int64_t offset = _PyDict_GetItemOffset((PyDictObject*)dict, name, &dk_size);
@@ -1325,10 +1381,17 @@ setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObje
         // guard on the instance dict shape if the instance dict is a splitdict and does not contain the attribute name as key.
         // else we will create guard which will check for the exact dict version (=less generic)
         int is_split_dict = dict && _PyDict_HasSplitTable((PyDictObject*)dict);
+#ifdef PYSTON_LITE
+        if (is_split_dict) {
+            return -1;
+        }
+#else
         if (is_split_dict && _PyDict_GetItemIndexSplitDict(dict, name) == -1) {
             la->u.value_cache.dict_ver = getSplitDictKeysVersionFromDictPtr(dictptr);
             la->cache_type = LA_CACHE_VALUE_CACHE_SPLIT_DICT;
-        } else {
+        }
+#endif
+        else {
             la->u.value_cache.dict_ver = getDictVersionFromDictPtr(dictptr);
             la->cache_type = LA_CACHE_VALUE_CACHE_DICT;
         }
@@ -1406,9 +1469,15 @@ typedef struct {
 
 typedef JitRetVal (*JitFunc)(PyFrameObject* frame, PyThreadState * const tstate, PyObject** sp);
 
+#ifdef PYSTON_LITE
+JitFunc jit_func_lite(PyCodeObject* co, PyThreadState* tstate);
+void jit_start_lite();
+void jit_finish_lite();
+#else
 JitFunc jit_func(PyCodeObject* co, PyThreadState* tstate);
 void jit_start();
 void jit_finish();
+#endif
 static long opcache_min_runs = OPCACHE_MIN_RUNS;
 static long jit_min_runs = JIT_MIN_RUNS;
 
@@ -1419,6 +1488,9 @@ _PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObje
 __attribute__((noinline)) static PyObject* _Py_HOT_FUNCTION
 _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState * const tstate, PyObject** stack_pointer, int can_use_jit, int jit_first_trace_for_line);
 
+#ifdef PYSTON_LITE
+static
+#endif
 PyObject* _Py_HOT_FUNCTION
 _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState * const tstate, PyObject** stack_pointer, int can_use_jit, int jit_first_trace_for_line)
 {
@@ -1513,8 +1585,10 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 /* Import the static jump table */
 #ifdef PYSTON_LITE
 #include "../../Python/opcode_targets.h"
+#define INIT_OPCACHE _PyCode_InitOpcache_Pyston
 #else
 #include "opcode_targets.h"
+#define INIT_OPCACHE _PyCode_InitOpcache
 #endif
 
 #define TARGET(op) \
@@ -1779,7 +1853,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
     do { \
         if (co->co_opcache_map == NULL && \
             co->co_opcache_flag >= opcache_min_runs && co->co_opcache_flag <= opcache_min_runs+OPCACHE_INC_FUNC_ENTRY) { \
-            if (_PyCode_InitOpcache(co) < 0) { \
+            if (INIT_OPCACHE(co) < 0) { \
                 return NULL; \
             } \
             opcache_code_objects_extra_mem += \
@@ -1799,7 +1873,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
     do { \
         if (co->co_opcache_map == NULL && \
             co->co_opcache_flag >= opcache_min_runs && co->co_opcache_flag <= opcache_min_runs+OPCACHE_INC_FUNC_ENTRY) { \
-            if (_PyCode_InitOpcache(co) < 0) { \
+            if (INIT_OPCACHE(co) < 0) { \
                 return NULL; \
             } \
         } \
@@ -1808,6 +1882,35 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 #endif
 
 // increments the number of times this loop got ececuted and if the threshold is hit JIT func and do OSR.
+#ifdef PYSTON_LITE
+#define HANDLE_JUMP_BACKWARD_OSR() \
+    do {  \
+        ++co->co_opcache_flag;  \
+        OPCACHE_INIT_IF_HIT_THRESHOLD();  \
+        /* check if we should switch over to the JIT (OSR) */  \
+        if (co->co_opcache_flag > jit_min_runs && can_use_jit \
+            && !_Py_TracingPossible(ceval)) { /* don't OSR if tracing is enabled because we seem to skip a line */ \
+            void* code = JIT_FUNC_FAILED; \
+            _PyCode_GetExtra((PyObject*)co, code_jitfunc_index, &code); \
+            if (code == NULL) { \
+                code = jit_func_lite(co, tstate);  \
+                if (code) {  \
+                    _PyCode_SetExtra((PyObject*)co, code_jitfunc_index, code); \
+                    /* JUMPTO() did not update f->f_lasti  \
+                    (it still points to the JUMP_ABSOLUTE - not the destination of the jump)  \
+                     update f->f_lasti manually like DISPATCH() would do because  \
+                     we can only enter the machine code at jump targets. */ \
+                    f->f_lasti = INSTR_OFFSET() - 2; /* -2 because our JIT entry is always adding two */ \
+                    return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)code); \
+                } else { \
+                    /* never try again to JIT compile this python function */ \
+                    _PyCode_SetExtra((PyObject*)co, code_jitfunc_index, JIT_FUNC_FAILED); \
+                    can_use_jit = 0; \
+                } \
+            } \
+        } \
+    } while (0)
+#else
 #define HANDLE_JUMP_BACKWARD_OSR() \
     do {  \
         ++co->co_opcache_flag;  \
@@ -1830,6 +1933,8 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
             } \
         } \
     } while (0)
+#endif
+
 
 /* Start of code */
 #if PROFILE_OPCODES
@@ -1838,30 +1943,52 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 
     co = f->f_code;
 
-    if (can_use_jit && co->co_jit_code == 0 && co->co_opcache_flag >= jit_min_runs /* jit after that many calls or gen yields */) {
-        // JIT assumes opcache is always on
-        if (co->co_opcache_map == NULL) {
-            _PyCode_InitOpcache(co);
-        }
-#if 0
-        struct timespec start, end;
-        clock_gettime(CLOCK_REALTIME, &start);
-        co->co_jit_code = jit_func(co, tstate);
-        clock_gettime(CLOCK_REALTIME, &end);
-        long time = 1000*1000 * (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1000;
-        static long totaltime = 0;
-        totaltime += time;
-        printf("Took %ldus to jit %s (totaltime: %ld us)\n",
-                time, PyUnicode_AsUTF8(co->co_name), totaltime);
+    if (can_use_jit && co->co_opcache_flag >= jit_min_runs /* jit after that many calls or gen yields */) {
+#ifdef PYSTON_LITE
+        void* code = JIT_FUNC_FAILED;
+        _PyCode_GetExtra((PyObject*)co, code_jitfunc_index, &code);
 #else
-        co->co_jit_code = jit_func(co, tstate);
+        void* code = co->co_jit_code;
 #endif
-        if (co->co_jit_code) {
-            return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)co->co_jit_code);
-        } else {
-            // never try again to JIT compile this python function
-            co->co_jit_code = JIT_FUNC_FAILED;
-            can_use_jit = 0;
+
+        if (code == NULL) {
+            // JIT assumes opcache is always on
+            if (co->co_opcache_map == NULL) {
+                INIT_OPCACHE(co);
+            }
+#if 0
+            struct timespec start, end;
+            clock_gettime(CLOCK_REALTIME, &start);
+            co->co_jit_code = jit_func_lite(co, tstate);
+            clock_gettime(CLOCK_REALTIME, &end);
+            long time = 1000*1000 * (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1000;
+            static long totaltime = 0;
+            totaltime += time;
+            printf("Took %ldus to jit %s (totaltime: %ld us)\n",
+                    time, PyUnicode_AsUTF8(co->co_name), totaltime);
+#else
+#ifdef PYSTON_LITE
+            code = jit_func_lite(co, tstate);
+#else
+            code = jit_func(co, tstate);
+#endif
+#endif
+            if (code) {
+#ifdef PYSTON_LITE
+                _PyCode_SetExtra((PyObject*)co, code_jitfunc_index, code);
+#else
+                co->co_jit_code = code;
+#endif
+                return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)code);
+            } else {
+                // never try again to JIT compile this python function
+#ifdef PYSTON_LITE
+                _PyCode_SetExtra((PyObject*)co, code_jitfunc_index, JIT_FUNC_FAILED);
+#else
+                co->co_jit_code = JIT_FUNC_FAILED;
+#endif
+                can_use_jit = 0;
+            }
         }
     }
 
@@ -4327,7 +4454,7 @@ lm_before_dispatch:
                    `callable` will be POPed by call_function.
                    NULL will will be POPed manually later.
                 */
-                res = call_function_ceval(tstate, &sp, oparg, NULL);
+                res = CALL_FUNCTION_CEVAL(tstate, &sp, oparg, NULL);
                 stack_pointer = sp;
                 (void)POP(); /* POP the NULL. */
             }
@@ -4344,7 +4471,7 @@ lm_before_dispatch:
                   We'll be passing `oparg + 1` to call_function, to
                   make it accept the `self` as a first argument.
                 */
-                res = call_function_ceval(tstate, &sp, oparg + 1, NULL);
+                res = CALL_FUNCTION_CEVAL(tstate, &sp, oparg + 1, NULL);
                 stack_pointer = sp;
             }
 
@@ -4358,7 +4485,7 @@ lm_before_dispatch:
             PREDICTED(CALL_FUNCTION);
             PyObject **sp, *res;
             sp = stack_pointer;
-            res = call_function_ceval(tstate, &sp, oparg, NULL);
+            res = CALL_FUNCTION_CEVAL(tstate, &sp, oparg, NULL);
             stack_pointer = sp;
             PUSH(res);
             if (res == NULL) {
@@ -4373,7 +4500,7 @@ lm_before_dispatch:
             names = POP();
             assert(PyTuple_CheckExact(names) && PyTuple_GET_SIZE(names) <= oparg);
             sp = stack_pointer;
-            res = call_function_ceval(tstate, &sp, oparg, names);
+            res = CALL_FUNCTION_CEVAL(tstate, &sp, oparg, names);
             stack_pointer = sp;
             PUSH(res);
             Py_DECREF(names);
@@ -4817,8 +4944,14 @@ exit_yielding:
 
 // Entry point when executing a python function.
 // We check if we can use a JIT compiled version or have to use the Interpreter
+#ifdef PYSTON_LITE
+static PyObject* _Py_HOT_FUNCTION
+_PyEval_EvalFrame_AOT
+#else
 PyObject* _Py_HOT_FUNCTION
-_PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
+_PyEval_EvalFrameDefault
+#endif
+(PyFrameObject *f, int throwflag)
 {
     PyObject* retval = NULL;
     _PyRuntimeState * const runtime = &_PyRuntime;
@@ -4872,7 +5005,12 @@ _PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
     f->f_stacktop = NULL;       /* remains NULL unless yield suspends frame */
     f->f_executing = 1;
 
+#ifdef PYSTON_LITE
+    JitFunc jit_code = JIT_FUNC_FAILED;
+    _PyCode_GetExtra((PyObject*)f->f_code, code_jitfunc_index, &jit_code);
+#else
     JitFunc jit_code = f->f_code->co_jit_code;
+#endif
 
     // The jit assumes that globals and builtins are dicts so that it doesn't have to check them.
     // It looks like they are not changeable for a given frame, so we only have to check once
@@ -5997,7 +6135,10 @@ if (tstate->use_tracing && tstate->c_profilefunc) { \
     x = call; \
     }
 
-static PyObject *
+#ifndef PYSTON_LITE
+static
+#endif
+PyObject *
 trace_call_function(PyThreadState *tstate,
                     PyObject *func,
                     PyObject **args, Py_ssize_t nargs,
@@ -6725,11 +6866,17 @@ static void showStats(const char* name, long hits, long misses, long uncached, l
            100.0 * hits / total, 100.0 * misses / total,
            100.0 * uncached / total, 100.0 * warmup / total);
 }
+
 void aot_exit()
 {
 #if OPCACHE_STATS
     char* env = getenv("SHOW_OPCACHE_STATS");
     if (env && atoi(env)) {
+#ifdef PYSTON_LITE
+        printf("Initialized %ld opcaches (pyston lite)\n", opcache_code_objects);
+#else
+        printf("Initialized %ld opcaches (pyston full)\n", opcache_code_objects);
+#endif
         showStats("LOAD_ATTR", loadattr_hits, loadattr_misses, loadattr_uncached, loadattr_noopcache);
         showStats("STORE_ATTR", storeattr_hits, storeattr_misses, storeattr_uncached, storeattr_noopcache);
         showStats("LOAD_METHOD", loadmethod_hits, loadmethod_misses, loadmethod_uncached, loadmethod_noopcache);
@@ -6772,9 +6919,118 @@ void aot_exit()
     }
 #endif
 
+#ifdef PYSTON_LITE
+    jit_finish_lite();
+#else
     jit_finish();
+#endif
 }
 void aot_ceval_opcode_profile(){}
+
+#ifdef PYSTON_LITE
+int
+_PyCode_InitOpcache_Pyston(PyCodeObject *co)
+{
+    Py_ssize_t co_size = PyBytes_Size(co->co_code) / sizeof(_Py_CODEUNIT);
+    co->co_opcache_map = (unsigned char *)PyMem_Calloc(co_size, 1);
+    if (co->co_opcache_map == NULL) {
+        return -1;
+    }
+
+    _Py_CODEUNIT *opcodes = (_Py_CODEUNIT*)PyBytes_AS_STRING(co->co_code);
+    Py_ssize_t opts = 0;
+
+    for (Py_ssize_t i = 0; i < co_size;) {
+        unsigned char opcode = _Py_OPCODE(opcodes[i]);
+        i++;  // 'i' is now aligned to (next_instr - first_instr)
+
+        if (opcode == LOAD_GLOBAL || opcode == LOAD_METHOD || opcode == LOAD_ATTR /*|| opcode == STORE_ATTR*/) {
+            opts++;
+            co->co_opcache_map[i] = (unsigned char)opts;
+            if (opts > 254) {
+                break;
+            }
+        }
+    }
+
+    if (opts) {
+        co->co_opcache = (_PyOpcache *)PyMem_Calloc(opts, sizeof(_PyOpcache));
+        if (co->co_opcache == NULL) {
+            PyMem_FREE(co->co_opcache_map);
+            return -1;
+        }
+    }
+    else {
+        PyMem_FREE(co->co_opcache_map);
+        co->co_opcache_map = NULL;
+        co->co_opcache = NULL;
+    }
+
+    co->co_opcache_size = (unsigned char)opts;
+    return 0;
+}
+
+PyObject* enable_pyston_lite(PyObject* _m) {
+    static int initialized = 0;
+    if (initialized)
+        Py_RETURN_NONE;
+    initialized = 1;
+
+    fprintf(stderr, "jit initialized\n");
+    Py_AtExit(aot_exit);
+
+    Py_True->ob_refcnt += (1LL<<48);
+    Py_False->ob_refcnt += (1LL<<48);
+
+    jit_start_lite();
+
+    // TODO: add free func
+    code_jitfunc_index = _PyEval_RequestCodeExtraIndex(NULL);
+
+    PyThreadState_Get()->interp->eval_frame = _PyEval_EvalFrame_AOT;
+
+#if PROFILE_OPCODES
+    opcode_profile_enabled = getenv("PRINT_OP_PROF") != NULL;
+#endif
+    char* val = getenv("JIT_MIN_RUNS");
+    if (val) {
+        jit_min_runs = atoll(val);
+        // adjust opcache thresholds too because the JIT can only emit efficient
+        // code for the caches if the opcache got used a few times.
+        if (jit_min_runs / 2 < opcache_min_runs)
+            opcache_min_runs = jit_min_runs / 2;
+    }
+    val = getenv("OPCACHE_MIN_RUNS");
+    if (val) {
+        opcache_min_runs = atoll(val);
+    }
+
+    Py_RETURN_NONE;
+}
+
+static PyMethodDef PystonLiteMethods[] = {
+    {"enable",  enable_pyston_lite, METH_NOARGS,
+     "Enable all the Pyston optimizations."},
+    {NULL, NULL, 0, NULL}        /* Sentinel */
+};
+
+static struct PyModuleDef pystonlitemodule = {
+    PyModuleDef_HEAD_INIT,
+    "pyston_lite",
+    NULL,
+    -1,
+    &PystonLiteMethods
+};
+
+PyMODINIT_FUNC PyInit_pyston_lite(void) {
+    PyObject* m = PyModule_Create(&pystonlitemodule);
+    if (!m) return NULL;
+
+    module_getattro_value = m->ob_type->tp_getattro;
+
+    return m;
+}
+#else
 
 static PyMethodDef aot_cevalMethods[] = {
     {"test",  aot_ceval_test, METH_VARARGS, "Run test"},
@@ -6820,4 +7076,4 @@ PyInit_aot_ceval(void)
 
     return m;
 }
-
+#endif

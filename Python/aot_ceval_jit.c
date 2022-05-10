@@ -83,6 +83,10 @@
 #include "setobject.h"
 #include "structmember.h"
 
+#ifdef PYSTON_LITE
+#define IS_IMMORTAL(x) (0)
+#endif
+
 // enable runtime checks to catch jit compiler bugs
 //#define JIT_DEBUG 1
 
@@ -224,7 +228,21 @@ typedef struct Jit {
 #include <sys/mman.h>
 #include <ctype.h>
 
-#ifndef PYSTON_LITE
+#ifdef PYSTON_LITE
+PyObject* cmp_outcome(PyThreadState *tstate, int, PyObject *v, PyObject *w);
+PyObject* PyNumber_PowerNone(PyObject *v, PyObject *w);
+PyObject* PyNumber_InPlacePowerNone(PyObject *v, PyObject *w);
+PyObject* call_function_ceval_no_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);
+PyObject* call_function_ceval_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg, PyObject* kwnames);
+PyObject* cmp_outcomePyCmp_LT(PyObject *v, PyObject *w);
+PyObject* cmp_outcomePyCmp_LE(PyObject *v, PyObject *w);
+PyObject* cmp_outcomePyCmp_EQ(PyObject *v, PyObject *w);
+PyObject* cmp_outcomePyCmp_NE(PyObject *v, PyObject *w);
+PyObject* cmp_outcomePyCmp_GT(PyObject *v, PyObject *w);
+PyObject* cmp_outcomePyCmp_GE(PyObject *v, PyObject *w);
+PyObject* cmp_outcomePyCmp_IN(PyObject *v, PyObject *w);
+PyObject* cmp_outcomePyCmp_NOT_IN(PyObject *v, PyObject *w);
+#else
 #include "aot.h"
 #endif
 #include "aot_ceval_jit_helper.h"
@@ -247,23 +265,40 @@ PyObject* cmp_outcomePyCmp_EXC_MATCH(PyObject *v, PyObject *w);
 
 int eval_breaker_jit_helper();
 PyObject* loadAttrCacheAttrNotFound(PyObject *owner, PyObject *name);
+#ifndef PYSTON_LITE
 int setItemSplitDictCache(PyObject* dict, Py_ssize_t splitdict_index, PyObject* v, PyObject* name);
 int setItemInitSplitDictCache(PyObject** dictptr, PyObject* obj, PyObject* v, Py_ssize_t splitdict_index,PyObject* name);
+#endif
 
 PyObject * import_name(PyThreadState *, PyFrameObject *,
                               PyObject *, PyObject *, PyObject *);
 PyObject * import_from(PyThreadState *, PyObject *, PyObject *);
 void format_exc_unbound(PyThreadState *tstate, PyCodeObject *co, int oparg);
 
-Py_ssize_t lookdict_split(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject **value_addr);
 
+#ifdef PYSTON_LITE
+void* lookdict_split_value;
+static void* method_vectorcall_NOARGS_value;
+static void* method_vectorcall_O_value;
+static void* method_vectorcall_FASTCALL_value;
+static void* method_vectorcall_FASTCALL_KEYWORDS_value;
+static void* method_vectorcall_VARARGS_value;
+static void* method_vectorcall_VARARGS_KEYWORDS_value;
+#define method_vectorcall_NOARGS method_vectorcall_NOARGS_value
+#define method_vectorcall_O method_vectorcall_O_value
+#define method_vectorcall_FASTCALL method_vectorcall_FASTCALL_value
+#define method_vectorcall_FASTCALL_KEYWORDS method_vectorcall_FASTCALL_KEYWORDS_value
+#define method_vectorcall_VARARGS method_vectorcall_VARARGS_value
+#define method_vectorcall_VARARGS_KEYWORDS method_vectorcall_VARARGS_KEYWORDS_value
+#else
+Py_ssize_t lookdict_split(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject **value_addr);
 PyObject * method_vectorcall_NOARGS(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 PyObject * method_vectorcall_O(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 PyObject * method_vectorcall_FASTCALL(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 PyObject * method_vectorcall_FASTCALL_KEYWORDS(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 PyObject * method_vectorcall_VARARGS(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 PyObject * method_vectorcall_VARARGS_KEYWORDS(PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
-
+#endif
 PyObject* PySlice_NewSteal(PyObject *start, PyObject *stop, PyObject *step);
 
 static void decref_array(PyObject** vec, int n) {
@@ -342,14 +377,17 @@ static void* __attribute__ ((const)) get_addr_of_helper_func(int opcode, int opa
 
 static void* __attribute__ ((const)) get_addr_of_aot_func(int opcode, int oparg, int opcache_available) {
     #define OPCODE_STATIC(x, func) if (opcode == x) return (func)
+#ifdef PYSTON_LITE
+    #define OPCODE_PROFILE(x, func) OPCODE_STATIC(x, func)
+#else
     #define OPCODE_PROFILE(x, func) OPCODE_STATIC(x, jit_use_aot ? func##Profile : func)
+#endif
 
     OPCODE_PROFILE(UNARY_POSITIVE, PyNumber_Positive);
     OPCODE_PROFILE(UNARY_NEGATIVE, PyNumber_Negative);
     OPCODE_PROFILE(UNARY_INVERT, PyNumber_Invert);
 
-    // special case we reuse PyObject_IsTrue
-    OPCODE_STATIC(UNARY_NOT, jit_use_aot ? PyObject_IsTrueProfile : PyObject_IsTrue);
+    OPCODE_PROFILE(UNARY_NOT, PyObject_IsTrue);
 
     OPCODE_PROFILE(GET_ITER, PyObject_GetIter);
 
@@ -403,15 +441,30 @@ static void* __attribute__ ((const)) get_addr_of_aot_func(int opcode, int oparg,
     }
 
     if (opcode == COMPARE_OP) {
+#ifndef PYSTON_LITE
+        if (jit_use_aot) {
+            switch (oparg) {
+            case PyCmp_LT: return cmp_outcomePyCmp_LTProfile;
+            case PyCmp_LE: return cmp_outcomePyCmp_LEProfile;
+            case PyCmp_EQ: return cmp_outcomePyCmp_EQProfile;
+            case PyCmp_NE: return cmp_outcomePyCmp_NEProfile;
+            case PyCmp_GT: return cmp_outcomePyCmp_GTProfile;
+            case PyCmp_GE: return cmp_outcomePyCmp_GEProfile;
+            case PyCmp_IN: return cmp_outcomePyCmp_INProfile;
+            case PyCmp_NOT_IN: return cmp_outcomePyCmp_NOT_INProfile;
+            }
+        }
+#endif
+
         switch (oparg) {
-        case PyCmp_LT: return jit_use_aot ? cmp_outcomePyCmp_LTProfile : cmp_outcomePyCmp_LT;
-        case PyCmp_LE: return jit_use_aot ? cmp_outcomePyCmp_LEProfile : cmp_outcomePyCmp_LE;
-        case PyCmp_EQ: return jit_use_aot ? cmp_outcomePyCmp_EQProfile : cmp_outcomePyCmp_EQ;
-        case PyCmp_NE: return jit_use_aot ? cmp_outcomePyCmp_NEProfile : cmp_outcomePyCmp_NE;
-        case PyCmp_GT: return jit_use_aot ? cmp_outcomePyCmp_GTProfile : cmp_outcomePyCmp_GT;
-        case PyCmp_GE: return jit_use_aot ? cmp_outcomePyCmp_GEProfile : cmp_outcomePyCmp_GE;
-        case PyCmp_IN: return jit_use_aot ? cmp_outcomePyCmp_INProfile : cmp_outcomePyCmp_IN;
-        case PyCmp_NOT_IN: return jit_use_aot ? cmp_outcomePyCmp_NOT_INProfile : cmp_outcomePyCmp_NOT_IN;
+        case PyCmp_LT: return cmp_outcomePyCmp_LT;
+        case PyCmp_LE: return cmp_outcomePyCmp_LE;
+        case PyCmp_EQ: return cmp_outcomePyCmp_EQ;
+        case PyCmp_NE: return cmp_outcomePyCmp_NE;
+        case PyCmp_GT: return cmp_outcomePyCmp_GT;
+        case PyCmp_GE: return cmp_outcomePyCmp_GE;
+        case PyCmp_IN: return cmp_outcomePyCmp_IN;
+        case PyCmp_NOT_IN: return cmp_outcomePyCmp_NOT_IN;
 
         // we don't create type specific version for those so use non Profile final versions
         case PyCmp_BAD: return cmp_outcomePyCmp_BAD;
@@ -847,7 +900,11 @@ static void switch_section(Jit* Dst, Section new_section) {
 // compares r_type_idx->tp_version_tag with type_ver
 // branches to false_branch on inequality else continues
 |.macro type_version_check, r_type_idx, type_ver, false_branch
-|| emit_cmp64_mem_imm(Dst, r_type_idx, offsetof(PyTypeObject, tp_version_tag), (uint64_t)type_ver);
+#ifdef PYSTON_LITE
+|| emit_cmp32_mem_imm(Dst, r_type_idx, offsetof(PyTypeObject, tp_version_tag), (unsigned int)type_ver);
+#else
+|| emit_cmp64_mem_imm(Dst, r_type_idx, offsetof(PyTypeObject, tp_version_tag), (unsigned int)type_ver);
+#endif
 |  branch_ne false_branch
 |.endmacro
 
@@ -1939,7 +1996,11 @@ static void emit_jump_if_false(Jit* Dst, int oparg, RefStatus ref_status) {
 
     switch_section(Dst, SECTION_COLD);
     |1:
-    void* func = jit_use_aot ? PyObject_IsTrueProfile : PyObject_IsTrue;
+    void* func = PyObject_IsTrue;
+#ifndef PYSTON_LITE
+    if (jit_use_aot)
+        func = PyObject_IsTrueProfile;
+#endif
     emit_call_decref_args1(Dst, func, arg1_idx, &ref_status);
     emit_cmp32_imm(Dst, res_idx, 0);
     emit_je_to_bytecode_n(Dst, oparg);
@@ -1959,7 +2020,11 @@ static void emit_jump_if_true(Jit* Dst, int oparg, RefStatus ref_status) {
 
     switch_section(Dst, SECTION_COLD);
     |1:
-    void* func = jit_use_aot ? PyObject_IsTrueProfile : PyObject_IsTrue;
+    void* func = PyObject_IsTrue;
+#ifndef PYSTON_LITE
+    if (jit_use_aot)
+        func = PyObject_IsTrueProfile;
+#endif
     emit_call_decref_args1(Dst, func, arg1_idx, &ref_status);
     emit_cmp32_imm(Dst, res_idx, 0);
     emit_jg_to_bytecode_n(Dst, oparg);
@@ -2025,8 +2090,12 @@ static int emit_special_binary_subscr(Jit* Dst, int inst_idx, PyObject* const_va
         switch_section(Dst, SECTION_COLD);
     }
     |1:
+#ifdef PYSTON_LITE
+    void* func = PyObject_GetItem;
+#else
     emit_mov_imm(Dst, arg3_idx, n);
     void* func = jit_use_aot ? PyObject_GetItemLongProfile : PyObject_GetItemLong;
+#endif
     emit_call_decref_args2(Dst, func, arg2_idx, arg1_idx, ref_status);
     emit_if_res_0_error(Dst);
     if (use_cold_section) {
@@ -2114,15 +2183,21 @@ static int emit_special_compare_op(Jit* Dst, int oparg, RefStatus ref_status[2])
 }
 
 static int emit_inline_cache_loadattr_is_version_zero(_PyOpcache_LoadAttr *la) {
+#ifdef PYSTON_LITE
+    int version_zero = (la->cache_type == LA_CACHE_VALUE_CACHE_DICT && la->u.value_cache.dict_ver == 0);
+#else
     int version_zero = (la->cache_type == LA_CACHE_VALUE_CACHE_DICT && la->u.value_cache.dict_ver == 0) ||
         (la->cache_type == LA_CACHE_IDX_SPLIT_DICT && la->u.split_dict_cache.splitdict_keys_version == 0);
+#endif
 
+#ifndef PYSTON_LITE
     if (version_zero == 1 && la->cache_type == LA_CACHE_IDX_SPLIT_DICT) {
         // This case is currently impossible since it will always be a miss and we don't cache
         // misses, so it's untested.
         fprintf(stderr, "untested jit case");
         abort();
     }
+#endif
     return version_zero;
 }
 
@@ -2213,7 +2288,11 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
         | branch_ne >1
 
         // if (mp->ma_keys->dk_lookup == lookdict_split) goto slow_path;
+#ifdef PYSTON_LITE
+        emit_cmp64_mem_imm(Dst, res_idx, offsetof(PyDictKeysObject, dk_lookup), (uint64_t)lookdict_split_value);
+#else
         emit_cmp64_mem_imm(Dst, res_idx, offsetof(PyDictKeysObject, dk_lookup), (uint64_t)lookdict_split);
+#endif
         | branch_eq >1
 
         // PyDictKeyEntry *arg3 = (PyDictKeyEntry*)(mp->ma_keys->dk_indices + offset);
@@ -2235,10 +2314,16 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
         // instead jump to the slow path
         | branch_eq >1
         emit_incref(Dst, res_idx);
-    } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT || la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT || la->cache_type == LA_CACHE_BUILTIN) {
+    } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT ||
+#ifndef PYSTON_LITE
+            la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT ||
+#endif
+            la->cache_type == LA_CACHE_BUILTIN) {
         if (version_zero && la->type_tp_dictoffset == 0) {
             // Already guarded
-        } else if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
+        }
+#ifndef PYSTON_LITE
+        else if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
             emit_cmp64_mem_imm(Dst, arg2_idx, offsetof(PyDictObject, ma_values), 0);
             | branch_eq >1 // fail if dict->ma_values == NULL
             // _PyDict_GetDictKeyVersionFromSplitDict:
@@ -2246,7 +2331,9 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
             emit_load64_mem(Dst, arg3_idx, arg2_idx, offsetof(PyDictObject, ma_keys));
             emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeysObject, dk_version_tag), (uint64_t)la->u.value_cache.dict_ver);
             | branch_ne >1
-        } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT) {
+        }
+#endif
+        else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT) {
             emit_cmp64_mem_imm(Dst, arg2_idx, offsetof(PyDictObject, ma_version_tag), (uint64_t)la->u.value_cache.dict_ver);
             | branch_ne >1
         } else {
@@ -2268,7 +2355,9 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
 
         if (!IS_IMMORTAL(r))
             emit_incref(Dst, res_idx);
-    } else if (la->cache_type == LA_CACHE_IDX_SPLIT_DICT) {
+    }
+#ifndef PYSTON_LITE
+    else if (la->cache_type == LA_CACHE_IDX_SPLIT_DICT) {
         // arg4 = dict->ma_values
         emit_load64_mem(Dst, arg4_idx, arg2_idx, offsetof(PyDictObject, ma_values));
         emit_cmp64_imm(Dst, arg4_idx, 0);
@@ -2286,6 +2375,7 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
         *emit_load_attr_res_0_helper = 1; // makes sure we emit label 3
         emit_incref(Dst, res_idx);
     }
+#endif
 }
 
 // returns 0 if IC generation succeeded
@@ -2518,11 +2608,13 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
         ++jit_stat_store_attr_total;
         _PyOpcache_StoreAttr *sa = &co_opcache->u.sa;
         if (co_opcache->num_failed == 0 && sa->type_ver != 0 && co_opcache->optimized) {
+#ifndef PYSTON_LITE
             if ((sa->cache_type == SA_CACHE_IDX_SPLIT_DICT || sa->cache_type == SA_CACHE_IDX_SPLIT_DICT_INIT)
                 && sa->type_tp_dictoffset <= 0) {
                 // fail the cache if dictoffset<=0 rather than do the lengthier dict_ptr computation
                 return -1;
             }
+#endif
 
             ++jit_stat_store_attr_inline;
 
@@ -2544,6 +2636,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 }
                 emit_xdecref(Dst, res_idx);
             } else {
+#ifndef PYSTON_LITE
                 if (sa->cache_type == SA_CACHE_IDX_SPLIT_DICT) {
                     // arg1 = *(obj + dictoffset)
                     emit_load64_mem(Dst, arg1_idx, arg2_idx, sa->type_tp_dictoffset);
@@ -2591,6 +2684,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                     emit_if_res_32b_not_0_error(Dst);
                 }
 
+#endif
             }
             if (jit_stats_enabled) {
                 emit_inc_qword_ptr(Dst, &jit_stat_store_attr_hit, 1 /*=can use tmp_reg*/);
@@ -2777,7 +2871,11 @@ static void emit_instr_start(Jit* Dst, int inst_idx, int opcode, int oparg) {
 #if JIT_DEBUG
 __attribute__((optimize("-O0"))) // enable to make "source tools/dis_jit_gdb.py" work
 #endif
+#ifdef PYSTON_LITE
+void* jit_func_lite(PyCodeObject* co, PyThreadState* tstate) {
+#else
 void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
+#endif
     if (mem_bytes_used_max <= mem_bytes_used) // stop emitting code we used up all memory
         return NULL;
 
@@ -3232,7 +3330,11 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                                 // Convert stack to tuple:
                                 emit_add_or_sub_imm(Dst, arg1_idx, vsp_idx, -8 * num_args + 8);
                                 emit_mov_imm(Dst, arg2_idx, num_args - 1);
+#ifdef PYSTON_LITE
+                                emit_call_ext_func(Dst, _PyTuple_FromArray);
+#else
                                 emit_call_ext_func(Dst, _PyTuple_FromArray_Borrowed);
+#endif
                                 emit_if_res_0_error(Dst);
                                 | mov tmp_preserved_reg, res
 
@@ -3244,7 +3346,11 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
                                 | mov arg1, tmp_preserved_reg
                                 | mov tmp_preserved_reg, res
+#ifdef PYSTON_LITE
+                                emit_decref(Dst, arg1_idx, 0);
+#else
                                 emit_call_ext_func(Dst, _PyTuple_Decref_Borrowed);
+#endif
                                 | mov res, tmp_preserved_reg
 
                             } else {
@@ -3569,7 +3675,11 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         case BUILD_LIST:
             deferred_vs_convert_reg_to_stack(Dst);
             emit_mov_imm(Dst, arg1_idx, oparg);
+#ifdef PYSTON_LITE
+            emit_call_ext_func(Dst, opcode == BUILD_LIST ? PyList_New : PyTuple_New);
+#else
             emit_call_ext_func(Dst, opcode == BUILD_LIST ? PyList_New : PyTuple_New_Nonzeroed);
+#endif
             emit_if_res_0_error(Dst);
             if (oparg) {
                 // PyTupleObject stores the elements directly inside the object
@@ -4397,7 +4507,7 @@ failed:
     goto cleanup;
 }
 
-void show_jit_stats() {
+static void show_jit_stats() {
     fprintf(stderr, "jit: successfully compiled %d functions, failed to compile %d functions\n", jit_num_funcs, jit_num_failed);
     fprintf(stderr, "jit: took %ld ms to compile all functions\n", total_compilation_time_in_us/1000);
     fprintf(stderr, "jit: %ld bytes used (%.1f%% of allocated)\n", mem_bytes_used, 100.0 * mem_bytes_used / mem_bytes_allocated);
@@ -4419,7 +4529,11 @@ jit_stat_##name##_inline, jit_stat_##name##_total, #opcode, jit_stat_##name##_hi
     fprintf(stderr, "jit: num polymorphic LOAD_METHOD sites: %lu with %lu entries\n", jit_stat_load_method_poly, jit_stat_load_method_poly_entries);
 }
 
+#ifdef PYSTON_LITE
+void jit_start_lite() {
+#else
 void jit_start() {
+#endif
     if (getenv("JIT_PERF_MAP") != NULL) {
         char buf[80];
         snprintf(buf, 80, "/tmp/perf-%d.map", getpid());
@@ -4452,9 +4566,28 @@ void jit_start() {
     val = getenv("JIT_USE_ICS");
     if (val)
         jit_use_ics = atoi(val);
+
+#ifdef PYSTON_LITE
+    // This is to get the value of lookdict_split, which is a static function:
+    PyDictKeysObject* tmp_keys = _PyDict_NewKeysForClass();
+    lookdict_split_value = tmp_keys->dk_lookup;
+    // Unfortunately I can't find an easy way to deallocate this temporary object.
+
+    // To get the values of these functions we have to find methods that use them, and then fish the value out:
+    method_vectorcall_NOARGS_value = ((PyMethodDescrObject*)PyDict_GetItemString(PyList_Type.tp_dict, "clear"))->vectorcall;
+    method_vectorcall_O_value = ((PyMethodDescrObject*)PyDict_GetItemString(PyList_Type.tp_dict, "append"))->vectorcall;
+    method_vectorcall_FASTCALL_value = ((PyMethodDescrObject*)PyDict_GetItemString(PyList_Type.tp_dict, "pop"))->vectorcall;
+    method_vectorcall_FASTCALL_KEYWORDS_value = ((PyMethodDescrObject*)PyDict_GetItemString(PyList_Type.tp_dict, "sort"))->vectorcall;
+    method_vectorcall_VARARGS_value = ((PyMethodDescrObject*)PyDict_GetItemString(PyBytes_Type.tp_dict, "count"))->vectorcall;
+    method_vectorcall_VARARGS_KEYWORDS_value = ((PyMethodDescrObject*)PyDict_GetItemString(PyUnicode_Type.tp_dict, "format"))->vectorcall;
+#endif
 }
 
+#ifdef PYSTON_LITE
+void jit_finish_lite() {
+#else
 void jit_finish() {
+#endif
     if (jit_stats_enabled)
         show_jit_stats();
 

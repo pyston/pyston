@@ -35,15 +35,19 @@ enum _PyOpcache_LoadAttr_Types {
     // (only used if the more powerful LA_CACHE_IDX_SPLIT_DICT or LA_CACHE_VALUE_CACHE_SPLIT_DICT is not possible)
     LA_CACHE_VALUE_CACHE_DICT = 0,
 
+#ifndef PYSTON_LITE
     // caching an index inside instance splitdict, guarded by the splitdict keys version (dict->ma_keys->dk_version_tag)
     LA_CACHE_IDX_SPLIT_DICT = 1,
+#endif
 
     // caching a data descriptor object, guarded by data descriptor types version
     LA_CACHE_DATA_DESCR = 2,
 
+#ifndef PYSTON_LITE
     // caching an object from the type, guarded by instance splitdict keys version (dict->ma_keys->dk_version_tag)
     // (making sure the attribute is not getting overwritten in the instance dict)
     LA_CACHE_VALUE_CACHE_SPLIT_DICT = 3,
+#endif
 
     // caching the offset to the instance dict entry inside the hash table.
     // Works for non split dicts but retrieval is slower than LA_CACHE_VALUE_CACHE_DICT
@@ -112,9 +116,11 @@ typedef struct {
 enum _PyOpcache_StoreAttr_Types {
     // we always guard on the type version - in addition:
 
+#ifndef PYSTON_LITE
     // caching an index inside instance splitdict, guarded by the splitdict keys version (dict->ma_keys->dk_version_tag)
     SA_CACHE_IDX_SPLIT_DICT = 0,
     SA_CACHE_IDX_SPLIT_DICT_INIT = 1, // same as the first but means we hit the dict not initialized path
+#endif
 
     // caching the offset to attribute slot inside a python object.
     // used for __slots__

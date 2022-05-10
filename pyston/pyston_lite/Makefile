@@ -43,7 +43,7 @@ env/update.stamp: env pyston_lite.so
 	touch $@
 
 
-ENV:=PYSTON=1 SHOW_JIT_STATS=1 SHOW_OPCACHE_STATS=1 JIT_PERF_MAP=1
+ENV:=PYSTON=1 SHOW_OPCACHE_STATS=1 JIT_PERF_MAP=1
 BENCH:=../macrobenchmarks/benchmarks/bm_flaskblogging/run_benchmark.py --legacy
 
 
