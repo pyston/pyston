@@ -72,7 +72,12 @@
 #include "pycore_tupleobject.h"
 
 #include "code.h"
+#ifdef PYSTON_LITE
+// Use the cpython version of this file:
+#include "dict-common.h"
+#else
 #include "../Objects/dict-common.h"
+#endif
 #include "dictobject.h"
 #include "frameobject.h"
 #include "opcode.h"

@@ -4,7 +4,8 @@
 #include "pycore_pyerrors.h"
 #include "pycore_pystate.h"
 
-#include "../../Objects/dict-common.h"
+// Use the cpython version of this file:
+#include "dict-common.h"
 #include "frameobject.h"
 #include "moduleobject.h"
 #include "opcode.h"
