@@ -51,6 +51,7 @@ BENCH:=../macrobenchmarks/benchmarks/bm_flaskblogging/run_benchmark.py --legacy
 # note: the testsuite doesn't pass for my Ubuntu system cpython, but it does pass
 # if I reconfigure this makefile to use a manually-built cpython
 testsuite: env
+	PYSTON=1 ./env/bin/python -c 'import test.support; test.support.check_impl_detail = lambda **kw: False; import test.test_code; test.test_code.test_main()'
 	PYSTON=1 ./env/bin/python -m test -j0 -x test_code
 
 bench: env/update.stamp
