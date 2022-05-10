@@ -20,6 +20,5 @@ setup(name="pyston_lite",
       description="A JIT for Python",
       author="The Pyston Team",
       url="https://www.github.com/pyston/pyston",
-      # packages=["pyston_lite_autoload"],
       ext_modules=[ext],
 )
