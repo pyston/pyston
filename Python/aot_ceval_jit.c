@@ -1675,11 +1675,16 @@ static RefStatus deferred_vs_peek(Jit* Dst, int r_idx, int num) {
     return ref_status;
 }
 
-static void deferred_vs_peek_owned(Jit* Dst, int r_idx, int num) {
-    RefStatus ref_status = deferred_vs_peek(Dst, r_idx, num);
+// increfs borrowed references
+static void emit_make_owned(Jit* Dst, int r_idx, RefStatus ref_status) {
     if (ref_status == BORROWED) {
         emit_incref(Dst, r_idx);
     }
+}
+
+static void deferred_vs_peek_owned(Jit* Dst, int r_idx, int num) {
+    RefStatus ref_status = deferred_vs_peek(Dst, r_idx, num);
+    emit_make_owned(Dst, r_idx, ref_status);
 }
 
 // checks if register 'res' is used and if so either moves it to 'preserve_reg2' or to the stack
@@ -1872,8 +1877,7 @@ static RegAndStatus deferred_vs_pop1_anyreg(Jit* Dst, int preferred_reg_idx, int
 }
 static int deferred_vs_pop1_anyreg_owned(Jit* Dst, int preferred_reg_idx) {
     RegAndStatus ret = deferred_vs_pop1_anyreg(Dst, preferred_reg_idx, 0);
-    if (ret.ref_status == BORROWED)
-        emit_incref(Dst, ret.reg_idx);
+    emit_make_owned(Dst, ret.reg_idx, ret.ref_status);
     return ret.reg_idx;
 }
 
@@ -1890,9 +1894,7 @@ static void deferred_vs_pop_n_owned(Jit* Dst, int num, const int* const regs) {
     RefStatus ref_status[num];
     deferred_vs_pop_n(Dst, num, regs, ref_status);
     for (int i=0; i<num; ++i) {
-        if (ref_status[i] == BORROWED) {
-            emit_incref(Dst, regs[i]);
-        }
+        emit_make_owned(Dst, regs[i], ref_status[i]);
     }
 }
 static void deferred_vs_pop1_owned(Jit* Dst, int r_idx1) {
@@ -2067,9 +2069,7 @@ static int emit_special_store_subscr(Jit* Dst, int inst_idx, int opcode, int opa
     | type_check arg1_idx, cached_type, >1
     emit_cmp64_mem_imm(Dst, arg1_idx, offsetof(PyVarObject, ob_size), n /* = value */);
     | branch_le_unsigned >1
-    if (ref_status[2] == BORROWED /* this is the new value */ ) {
-        emit_incref(Dst, arg3_idx);
-    }
+    emit_make_owned(Dst, arg3_idx, ref_status[2]); /* this is the new value */
     emit_load64_mem(Dst, arg4_idx, arg1_idx, offsetof(PyListObject, ob_item));
     emit_load64_mem(Dst, res_idx, arg4_idx, n*sizeof(PyObject*));
     emit_store64_mem(Dst, arg3_idx, arg4_idx, n*sizeof(PyObject*));
@@ -2481,9 +2481,8 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 }
                 if (opcode == LOAD_ATTR) {
                     | mov arg2, arg1
-                    if (ref_status == BORROWED) { // helper function needs a owned value
-                        emit_incref(Dst, arg2_idx);
-                    }
+                    // helper function needs a owned value
+                    emit_make_owned(Dst, arg2_idx, ref_status);
                     emit_mov_imm2(Dst, arg1_idx, PyTuple_GET_ITEM(Dst->co_names, oparg),
                                         arg3_idx, co_opcache);
                 } else {
@@ -2536,9 +2535,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             | type_version_check, arg1_idx, sa->type_ver, >1
 
             if (sa->cache_type == SA_CACHE_SLOT_CACHE) {
-                if (ref_status[1] == BORROWED) {
-                    emit_incref(Dst, arg3_idx);
-                }
+                emit_make_owned(Dst, arg3_idx, ref_status[1]);
                 emit_load64_mem(Dst, res_idx, arg2_idx, sa->u.slot_cache.offset);
                 emit_store64_mem(Dst, arg3_idx, arg2_idx, sa->u.slot_cache.offset);
                 if (ref_status[0] == OWNED) {
@@ -2608,12 +2605,8 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                     emit_inc_qword_ptr(Dst, &jit_stat_store_attr_miss, 1 /*=can use tmp_reg*/);
                 }
                 // slow path expects owned objects
-                if (ref_status[0] == BORROWED) {
-                    emit_incref(Dst, arg2_idx);
-                }
-                if (ref_status[1] == BORROWED) {
-                    emit_incref(Dst, arg3_idx);
-                }
+                emit_make_owned(Dst, arg2_idx, ref_status[0]);
+                emit_make_owned(Dst, arg3_idx, ref_status[1]);
                 emit_mov_imm2(Dst, arg1_idx, PyTuple_GET_ITEM(Dst->co_names, oparg),
                                 arg4_idx, co_opcache);
 
