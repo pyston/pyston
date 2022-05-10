@@ -11,17 +11,26 @@
 
 #include "Python.h"
 #include "pycore_ceval.h"
+#ifdef PYSTON_LITE
+// make sure this points to the Pyston version of this file:
+#include "../../Include/internal/pycore_code.h"
+#else
 #include "pycore_code.h"
+#endif
 #include "pycore_object.h"
 #include "pycore_pyerrors.h"
 #include "pycore_pylifecycle.h"
 #include "pycore_pystate.h"
 #include "pycore_tupleobject.h"
 
+
 #include "code.h"
 #include "dictobject.h"
 #include "frameobject.h"
 #include "opcode.h"
+#ifdef PYSTON_LITE
+#undef WITH_DTRACE
+#endif
 #include "pydtrace.h"
 #include "setobject.h"
 #include "structmember.h"
@@ -212,7 +221,11 @@ static long loadglobal_hits = 0, loadglobal_misses = 0, loadglobal_uncached = 0,
 #include <errno.h>
 #endif
 #include "pythread.h"
+#ifdef PYSTON_LITE
+#include "../../Python/ceval_gil.h"
+#else
 #include "ceval_gil.h"
+#endif
 
 #if 0
 int
@@ -1498,7 +1511,11 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 
 #if USE_COMPUTED_GOTOS
 /* Import the static jump table */
+#ifdef PYSTON_LITE
+#include "../../Python/opcode_targets.h"
+#else
 #include "opcode_targets.h"
+#endif
 
 #define TARGET(op) \
     op: \

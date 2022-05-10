@@ -59,7 +59,12 @@
 
 #include "Python.h"
 #include "pycore_ceval.h"
+#ifdef PYSTON_LITE
+// make sure this points to the Pyston version of this file:
+#include "../../Include/internal/pycore_code.h"
+#else
 #include "pycore_code.h"
+#endif
 #include "pycore_object.h"
 #include "pycore_pyerrors.h"
 #include "pycore_pylifecycle.h"
@@ -71,6 +76,9 @@
 #include "dictobject.h"
 #include "frameobject.h"
 #include "opcode.h"
+#ifdef PYSTON_LITE
+#undef WITH_DTRACE
+#endif
 #include "pydtrace.h"
 #include "setobject.h"
 #include "structmember.h"
@@ -216,7 +224,9 @@ typedef struct Jit {
 #include <sys/mman.h>
 #include <ctype.h>
 
+#ifndef PYSTON_LITE
 #include "aot.h"
+#endif
 #include "aot_ceval_jit_helper.h"
 
 // used if JIT_PERF_MAP is enabled
