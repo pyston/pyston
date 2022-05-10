@@ -46,6 +46,15 @@
 
 #include "aot_ceval_jit_helper.h"
 
+#define OPCACHE_STATS 0
+
+#if OPCACHE_STATS
+extern long loadattr_hits, loadattr_misses, loadattr_uncached, loadattr_noopcache;
+extern long storeattr_hits, storeattr_misses, storeattr_uncached, storeattr_noopcache;
+extern long loadmethod_hits, loadmethod_misses, loadmethod_uncached, loadmethod_noopcache;
+extern long loadglobal_hits, loadglobal_misses, loadglobal_uncached, loadglobal_noopcache;
+#endif
+
 extern int _PyObject_GetMethod(PyObject *, PyObject *, PyObject **);
 PyObject * call_function_ceval(
     PyThreadState *tstate, PyObject ***pp_stack,

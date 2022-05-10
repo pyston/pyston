@@ -148,10 +148,10 @@ static size_t opcache_global_opts = 0;
 static size_t opcache_global_hits = 0;
 static size_t opcache_global_misses = 0;
 
-static long loadattr_hits = 0, loadattr_misses = 0, loadattr_uncached = 0, loadattr_noopcache = 0;
-static long storeattr_hits = 0, storeattr_misses = 0, storeattr_uncached = 0, storeattr_noopcache = 0;
-static long loadmethod_hits = 0, loadmethod_misses = 0, loadmethod_uncached = 0, loadmethod_noopcache = 0;
-static long loadglobal_hits = 0, loadglobal_misses = 0, loadglobal_uncached = 0, loadglobal_noopcache = 0;
+long loadattr_hits = 0, loadattr_misses = 0, loadattr_uncached = 0, loadattr_noopcache = 0;
+long storeattr_hits = 0, storeattr_misses = 0, storeattr_uncached = 0, storeattr_noopcache = 0;
+long loadmethod_hits = 0, loadmethod_misses = 0, loadmethod_uncached = 0, loadmethod_noopcache = 0;
+long loadglobal_hits = 0, loadglobal_misses = 0, loadglobal_uncached = 0, loadglobal_noopcache = 0;
 #endif
 
 #define GIL_REQUEST _Py_atomic_load_relaxed(&ceval->gil_drop_request)
