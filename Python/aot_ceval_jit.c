@@ -914,11 +914,11 @@ static void switch_section(Jit* Dst, Section new_section) {
 // compares r_type_idx->tp_version_tag with type_ver
 // branches to false_branch on inequality else continues
 |.macro type_version_check, r_type_idx, type_ver, false_branch
-#ifdef PYSTON_LITE
+||#ifdef PYSTON_LITE
 || emit_cmp32_mem_imm(Dst, r_type_idx, offsetof(PyTypeObject, tp_version_tag), (unsigned int)type_ver);
-#else
+||#else
 || emit_cmp64_mem_imm(Dst, r_type_idx, offsetof(PyTypeObject, tp_version_tag), (unsigned int)type_ver);
-#endif
+||#endif
 |  branch_ne false_branch
 |.endmacro
 
