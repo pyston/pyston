@@ -1474,8 +1474,11 @@ typedef JitRetVal (*JitFunc)(PyFrameObject* frame, PyThreadState * const tstate,
 
 #ifdef PYSTON_LITE
 JitFunc jit_func_lite(PyCodeObject* co, PyThreadState* tstate);
+#define jit_func jit_func_lite
 void jit_start_lite();
+#define jit_start jit_start_lite
 void jit_finish_lite();
+#define jit_finish jit_finish_lite
 #else
 JitFunc jit_func(PyCodeObject* co, PyThreadState* tstate);
 void jit_start();
@@ -1485,6 +1488,28 @@ static long opcache_min_runs = OPCACHE_MIN_RUNS;
 static long jit_min_runs = JIT_MIN_RUNS;
 
 #define JIT_FUNC_FAILED ((JitFunc)0x1)
+
+#ifdef PYSTON_LITE
+static inline void* getJitCode(PyCodeObject* code) {
+    // _PyCode_GetExtra writes jit_code in all non-internal-error cases
+    void* jit_code = JIT_FUNC_FAILED;
+    _PyCode_GetExtra((PyObject*)code, code_jitfunc_index, &jit_code);
+    return jit_code;
+}
+
+static inline void setJitCode(PyCodeObject* code, void* jit_code) {
+    _PyCode_SetExtra((PyObject*)code, code_jitfunc_index, jit_code);
+}
+
+#else
+static inline void* getJitCode(PyCodeObject* code) {
+    return code->co_jit_code;
+}
+
+static inline void setJitCode(PyCodeObject* code, void* jit_code) {
+    code->co_jit_code = jit_code;
+}
+#endif
 
 static PyObject* _Py_HOT_FUNCTION
 _PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObject** stack_pointer, JitFunc jit_code);
@@ -1885,7 +1910,6 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 #endif
 
 // increments the number of times this loop got ececuted and if the threshold is hit JIT func and do OSR.
-#ifdef PYSTON_LITE
 #define HANDLE_JUMP_BACKWARD_OSR() \
     do {  \
         ++co->co_opcache_flag;  \
@@ -1893,12 +1917,11 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
         /* check if we should switch over to the JIT (OSR) */  \
         if (co->co_opcache_flag > jit_min_runs && can_use_jit \
             && !_Py_TracingPossible(ceval)) { /* don't OSR if tracing is enabled because we seem to skip a line */ \
-            void* code = JIT_FUNC_FAILED; \
-            _PyCode_GetExtra((PyObject*)co, code_jitfunc_index, &code); \
+            void* code = getJitCode(co); \
             if (code == NULL) { \
-                code = jit_func_lite(co, tstate);  \
+                code = jit_func(co, tstate);  \
                 if (code) {  \
-                    _PyCode_SetExtra((PyObject*)co, code_jitfunc_index, code); \
+                    setJitCode(co, code); \
                     /* JUMPTO() did not update f->f_lasti  \
                     (it still points to the JUMP_ABSOLUTE - not the destination of the jump)  \
                      update f->f_lasti manually like DISPATCH() would do because  \
@@ -1907,36 +1930,12 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
                     return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)code); \
                 } else { \
                     /* never try again to JIT compile this python function */ \
-                    _PyCode_SetExtra((PyObject*)co, code_jitfunc_index, JIT_FUNC_FAILED); \
+                    setJitCode(co, JIT_FUNC_FAILED); \
                     can_use_jit = 0; \
                 } \
             } \
         } \
     } while (0)
-#else
-#define HANDLE_JUMP_BACKWARD_OSR() \
-    do {  \
-        ++co->co_opcache_flag;  \
-        OPCACHE_INIT_IF_HIT_THRESHOLD();  \
-        /* check if we should switch over to the JIT (OSR) */  \
-        if (co->co_opcache_flag > jit_min_runs && can_use_jit && co->co_jit_code == NULL  \
-            && !_Py_TracingPossible(ceval)) { /* don't OSR if tracing is enabled because we seem to skip a line */ \
-            co->co_jit_code = jit_func(co, tstate);  \
-            if (co->co_jit_code) {  \
-                /* JUMPTO() did not update f->f_lasti  \
-                (it still points to the JUMP_ABSOLUTE - not the destination of the jump)  \
-                 update f->f_lasti manually like DISPATCH() would do because  \
-                 we can only enter the machine code at jump targets. */ \
-                f->f_lasti = INSTR_OFFSET() - 2; /* -2 because our JIT entry is always adding two */ \
-                return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)co->co_jit_code); \
-            } else { \
-                /* never try again to JIT compile this python function */ \
-                co->co_jit_code = JIT_FUNC_FAILED; \
-                can_use_jit = 0; \
-            } \
-        } \
-    } while (0)
-#endif
 
 
 /* Start of code */
@@ -1947,12 +1946,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
     co = f->f_code;
 
     if (can_use_jit && co->co_opcache_flag >= jit_min_runs /* jit after that many calls or gen yields */) {
-#ifdef PYSTON_LITE
-        void* code = JIT_FUNC_FAILED;
-        _PyCode_GetExtra((PyObject*)co, code_jitfunc_index, &code);
-#else
-        void* code = co->co_jit_code;
-#endif
+        void* code = getJitCode(co);
 
         if (code == NULL) {
             // JIT assumes opcache is always on
@@ -1970,26 +1964,14 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
             printf("Took %ldus to jit %s (totaltime: %ld us)\n",
                     time, PyUnicode_AsUTF8(co->co_name), totaltime);
 #else
-#ifdef PYSTON_LITE
-            code = jit_func_lite(co, tstate);
-#else
             code = jit_func(co, tstate);
 #endif
-#endif
             if (code) {
-#ifdef PYSTON_LITE
-                _PyCode_SetExtra((PyObject*)co, code_jitfunc_index, code);
-#else
-                co->co_jit_code = code;
-#endif
+                setJitCode(co, code);
                 return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)code);
             } else {
                 // never try again to JIT compile this python function
-#ifdef PYSTON_LITE
-                _PyCode_SetExtra((PyObject*)co, code_jitfunc_index, JIT_FUNC_FAILED);
-#else
-                co->co_jit_code = JIT_FUNC_FAILED;
-#endif
+                setJitCode(co, JIT_FUNC_FAILED);
                 can_use_jit = 0;
             }
         }
@@ -5008,12 +4990,7 @@ _PyEval_EvalFrameDefault
     f->f_stacktop = NULL;       /* remains NULL unless yield suspends frame */
     f->f_executing = 1;
 
-#ifdef PYSTON_LITE
-    JitFunc jit_code = JIT_FUNC_FAILED;
-    _PyCode_GetExtra((PyObject*)f->f_code, code_jitfunc_index, &jit_code);
-#else
-    JitFunc jit_code = f->f_code->co_jit_code;
-#endif
+    JitFunc jit_code = getJitCode(f->f_code);
 
     // The jit assumes that globals and builtins are dicts so that it doesn't have to check them.
     // It looks like they are not changeable for a given frame, so we only have to check once
@@ -6922,11 +6899,7 @@ void aot_exit()
     }
 #endif
 
-#ifdef PYSTON_LITE
-    jit_finish_lite();
-#else
     jit_finish();
-#endif
 }
 void aot_ceval_opcode_profile(){}
 
@@ -6990,7 +6963,7 @@ PyObject* enable_pyston_lite(PyObject* _m) {
     Py_True->ob_refcnt += (1LL<<48);
     Py_False->ob_refcnt += (1LL<<48);
 
-    jit_start_lite();
+    jit_start();
 
     // TODO: add free func
     code_jitfunc_index = _PyEval_RequestCodeExtraIndex(NULL);
