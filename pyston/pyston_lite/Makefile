@@ -64,13 +64,13 @@ perf_bench: env/update.stamp
 	DISABLE_PYSTONFULL=1 $(ENV) perf record -o perf_lite.data ./env/bin/python $(BENCH)
 	$(MAKE) perf_report
 perf_report:
-	perf report -i perf_lite.data -n
+	perf report -i perf_lite.data -n --objdump=../../pyston/tools/perf_jit.py
 
 perf_bench_baseline: env/update.stamp
 	DISABLE_PYSTONFULL=1 $(patsubst PYSTON=1,,$(ENV)) perf record -o perf_baseline.data ./env/bin/python $(BENCH)
 	$(MAKE) perf_report_baseline
 perf_report_baseline:
-	perf report -i perf_baseline.data -n
+	perf report -i perf_baseline.data -n --objdump=../../pyston/tools/perf_jit.py
 
 dbg_bench: env/update.stamp
 	DISABLE_PYSTONFULL=1 $(ENV) gdb --args ./env/bin/python $(BENCH) 1000000
@@ -85,7 +85,7 @@ perf_bench_full:
 	$(ENV) LD_LIBRARY_PATH=../../build/unoptshared_install/usr/lib:$$LD_LIBRARY_PATH perf record -o perf_full.data ../../build/unoptshared_env/bin/python $(BENCH)
 	$(MAKE) perf_report_full
 perf_report_full:
-	perf report -i perf_full.data -n
+	perf report -i perf_full.data -n --objdump=../../pyston/tools/perf_jit.py
 
 dbg_bench_full:
 	$(MAKE) -C ../.. build/unoptshared_env/update.stamp
