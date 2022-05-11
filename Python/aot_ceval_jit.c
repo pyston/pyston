@@ -1116,6 +1116,10 @@ static void emit_write_vs(Jit* Dst, int r_idx, int stack_offset) {
     deferred_vs_apply(Dst);
     emit_store64_mem(Dst, r_idx, vsp_idx, -8*stack_offset);
 }
+static void emit_write_imm_vs(Jit* Dst, unsigned long val, int stack_offset) {
+    deferred_vs_apply(Dst);
+    emit_store64_mem_imm(Dst, val, vsp_idx, -8*stack_offset);
+}
 
 // emits: *(long*)r_idx += diff
 // diff must be either -1 or 1
@@ -2480,8 +2484,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                     emit_write_vs(Dst, res_idx, 1 /*=top*/);
                     | mov res, arg1
                 } else {
-                    emit_mov_imm(Dst, tmp_idx, 0);
-                    emit_write_vs(Dst, tmp_idx, 1 /*=top*/);
+                    emit_write_imm_vs(Dst, 0 /*=value*/, 1 /*=top*/);
                     emit_decref(Dst, arg1_idx, 1 /*= preserve res */);
                 }
             }
