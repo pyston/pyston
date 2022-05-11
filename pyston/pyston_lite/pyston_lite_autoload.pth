@@ -1,1 +1,1 @@
-import os, sys; exec("""sys.path.append("/home/kmod/pyston/pyston/pyston_lite"); ("PYSTON" in os.environ) and __import__("pyston_lite").enable()""")
+import os, sys; exec("""("PYSTON" in os.environ) and __import__("pyston_lite").enable()""")
