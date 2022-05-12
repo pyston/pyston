@@ -114,6 +114,7 @@ typedef enum RefStatus {
 typedef enum Section {
     SECTION_CODE,
     SECTION_COLD,
+    SECTION_DEOPT,
     SECTION_ENTRY,
     SECTION_OPCODE_ADDR,
 } Section;
@@ -281,7 +282,6 @@ static void* __attribute__ ((const)) get_addr_of_helper_func(int opcode, int opa
         JIT_HELPER_ADDR(GET_ANEXT);
         JIT_HELPER_ADDR(GET_AWAITABLE);
         JIT_HELPER_ADDR(YIELD_FROM);
-        JIT_HELPER_ADDR(YIELD_VALUE);
         JIT_HELPER_ADDR(POP_EXCEPT);
         JIT_HELPER_ADDR(POP_FINALLY);
         JIT_HELPER_ADDR(END_ASYNC_FOR);
@@ -605,11 +605,13 @@ static char* calculate_jmp_targets(Jit* Dst) {
                 break;
 
             case YIELD_FROM:
-            case YIELD_VALUE:
                 is_jmp_target[inst_idx + 0] = 1;
                 is_jmp_target[inst_idx + 1] = 1;
                 break;
 
+            case YIELD_VALUE:
+                is_jmp_target[inst_idx + 1] = 1;
+                break;
 
             case EXTENDED_ARG:
                 oldoparg = oparg << 8;
@@ -671,7 +673,7 @@ static unsigned long jit_stat_load_method_poly, jit_stat_load_method_poly_entrie
 @X86|.arch x64
 
 // section layout is same as specified here from left to right
-|.section entry, code, cold, opcode_addr
+|.section entry, code, cold, deopt, opcode_addr
 
 ////////////////////////////////
 // REGISTER DEFINITIONS
@@ -766,6 +768,8 @@ static void switch_section(Jit* Dst, Section new_section) {
         |.code
     } else if (new_section == SECTION_COLD) {
         |.cold
+    } else if (new_section == SECTION_DEOPT) {
+        |.deopt
     } else if (new_section == SECTION_ENTRY) {
         |.entry
     } else if (new_section == SECTION_OPCODE_ADDR) {
@@ -1111,6 +1115,10 @@ static void emit_read_vs(Jit* Dst, int r_idx, int stack_offset) {
 static void emit_write_vs(Jit* Dst, int r_idx, int stack_offset) {
     deferred_vs_apply(Dst);
     emit_store64_mem(Dst, r_idx, vsp_idx, -8*stack_offset);
+}
+static void emit_write_imm_vs(Jit* Dst, unsigned long val, int stack_offset) {
+    deferred_vs_apply(Dst);
+    emit_store64_mem_imm(Dst, val, vsp_idx, -8*stack_offset);
 }
 
 // emits: *(long*)r_idx += diff
@@ -1671,11 +1679,16 @@ static RefStatus deferred_vs_peek(Jit* Dst, int r_idx, int num) {
     return ref_status;
 }
 
-static void deferred_vs_peek_owned(Jit* Dst, int r_idx, int num) {
-    RefStatus ref_status = deferred_vs_peek(Dst, r_idx, num);
+// increfs borrowed references
+static void emit_make_owned(Jit* Dst, int r_idx, RefStatus ref_status) {
     if (ref_status == BORROWED) {
         emit_incref(Dst, r_idx);
     }
+}
+
+static void deferred_vs_peek_owned(Jit* Dst, int r_idx, int num) {
+    RefStatus ref_status = deferred_vs_peek(Dst, r_idx, num);
+    emit_make_owned(Dst, r_idx, ref_status);
 }
 
 // checks if register 'res' is used and if so either moves it to 'preserve_reg2' or to the stack
@@ -1790,6 +1803,22 @@ static void deferred_vs_pop_n(Jit* Dst, int num, const int* const regs, RefStatu
         // This just does a linear search but because we only have very few num_deferred entries this should not be a perf problem.
         // (most of the times it's 2-3 entries and can't be more than DEFERRED_VS_MAX)
         DeferredValueStackEntry* entry = &GET_DEFERRED[-i-1];
+
+        // using 'res' as a destination while it's used in by a deferred value stack entry needs
+        // to be handled specially.
+        // e.g. if the stack looks like this: REGISTER(res), FAST(0) and we call pop1
+        // which moves FAST(0) into 'res' we would overwrite 'res' and the
+        // REGISTER(res) entry would be corrupt...
+        if (Dst->deferred_vs_res_used && regs[i] == res_idx) {
+            if (entry->loc == REGISTER && entry->val == res_idx) {
+                // nothing todo the destination is res and the source too.
+                // we can just use it
+            } else {
+                // we have to move register 'res' into a free register or into a stack slot
+                deferred_vs_convert_reg_to_stack(Dst);
+            }
+        }
+
         int found_duplicate = 0;
         if (entry->loc == CONST || entry->loc == FAST) {
             for (int prev=0; prev < i; ++prev) {
@@ -1868,8 +1897,7 @@ static RegAndStatus deferred_vs_pop1_anyreg(Jit* Dst, int preferred_reg_idx, int
 }
 static int deferred_vs_pop1_anyreg_owned(Jit* Dst, int preferred_reg_idx) {
     RegAndStatus ret = deferred_vs_pop1_anyreg(Dst, preferred_reg_idx, 0);
-    if (ret.ref_status == BORROWED)
-        emit_incref(Dst, ret.reg_idx);
+    emit_make_owned(Dst, ret.reg_idx, ret.ref_status);
     return ret.reg_idx;
 }
 
@@ -1886,9 +1914,7 @@ static void deferred_vs_pop_n_owned(Jit* Dst, int num, const int* const regs) {
     RefStatus ref_status[num];
     deferred_vs_pop_n(Dst, num, regs, ref_status);
     for (int i=0; i<num; ++i) {
-        if (ref_status[i] == BORROWED) {
-            emit_incref(Dst, regs[i]);
-        }
+        emit_make_owned(Dst, regs[i], ref_status[i]);
     }
 }
 static void deferred_vs_pop1_owned(Jit* Dst, int r_idx1) {
@@ -1959,6 +1985,14 @@ static void emit_jump_if_true(Jit* Dst, int oparg, RefStatus ref_status) {
 
     |3:
     // continue here
+}
+
+static void emit_exit_yielding_label(Jit* Dst) {
+    |->exit_yielding:
+    // to differentiate from a normal return we set the second lowest bit
+@ARM| orr real_res, res, #2
+@X86| or real_res, 2
+    | branch ->return
 }
 
 static _PyOpcache* get_opcache_entry(PyCodeObject* co, int inst_idx) {
@@ -2055,9 +2089,7 @@ static int emit_special_store_subscr(Jit* Dst, int inst_idx, int opcode, int opa
     | type_check arg1_idx, cached_type, >1
     emit_cmp64_mem_imm(Dst, arg1_idx, offsetof(PyVarObject, ob_size), n /* = value */);
     | branch_le_unsigned >1
-    if (ref_status[2] == BORROWED /* this is the new value */ ) {
-        emit_incref(Dst, arg3_idx);
-    }
+    emit_make_owned(Dst, arg3_idx, ref_status[2]); /* this is the new value */
     emit_load64_mem(Dst, arg4_idx, arg1_idx, offsetof(PyListObject, ob_item));
     emit_load64_mem(Dst, res_idx, arg4_idx, n*sizeof(PyObject*));
     emit_store64_mem(Dst, arg3_idx, arg4_idx, n*sizeof(PyObject*));
@@ -2452,8 +2484,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                     emit_write_vs(Dst, res_idx, 1 /*=top*/);
                     | mov res, arg1
                 } else {
-                    emit_mov_imm(Dst, tmp_idx, 0);
-                    emit_write_vs(Dst, tmp_idx, 1 /*=top*/);
+                    emit_write_imm_vs(Dst, 0 /*=value*/, 1 /*=top*/);
                     emit_decref(Dst, arg1_idx, 1 /*= preserve res */);
                 }
             }
@@ -2469,9 +2500,8 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 }
                 if (opcode == LOAD_ATTR) {
                     | mov arg2, arg1
-                    if (ref_status == BORROWED) { // helper function needs a owned value
-                        emit_incref(Dst, arg2_idx);
-                    }
+                    // helper function needs a owned value
+                    emit_make_owned(Dst, arg2_idx, ref_status);
                     emit_mov_imm2(Dst, arg1_idx, PyTuple_GET_ITEM(Dst->co_names, oparg),
                                         arg3_idx, co_opcache);
                 } else {
@@ -2524,9 +2554,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             | type_version_check, arg1_idx, sa->type_ver, >1
 
             if (sa->cache_type == SA_CACHE_SLOT_CACHE) {
-                if (ref_status[1] == BORROWED) {
-                    emit_incref(Dst, arg3_idx);
-                }
+                emit_make_owned(Dst, arg3_idx, ref_status[1]);
                 emit_load64_mem(Dst, res_idx, arg2_idx, sa->u.slot_cache.offset);
                 emit_store64_mem(Dst, arg3_idx, arg2_idx, sa->u.slot_cache.offset);
                 if (ref_status[0] == OWNED) {
@@ -2596,12 +2624,8 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                     emit_inc_qword_ptr(Dst, &jit_stat_store_attr_miss, 1 /*=can use tmp_reg*/);
                 }
                 // slow path expects owned objects
-                if (ref_status[0] == BORROWED) {
-                    emit_incref(Dst, arg2_idx);
-                }
-                if (ref_status[1] == BORROWED) {
-                    emit_incref(Dst, arg3_idx);
-                }
+                emit_make_owned(Dst, arg2_idx, ref_status[0]);
+                emit_make_owned(Dst, arg3_idx, ref_status[1]);
                 emit_mov_imm2(Dst, arg1_idx, PyTuple_GET_ITEM(Dst->co_names, oparg),
                                 arg4_idx, co_opcache);
 
@@ -2694,7 +2718,7 @@ static void emit_instr_start(Jit* Dst, int inst_idx, int opcode, int oparg) {
         // if we deferred stack operations we have to emit a special deopt path
         if (Dst->deferred_vs_next || num_extended_arg) {
             | branch_ne >1
-            switch_section(Dst, SECTION_COLD);
+            switch_section(Dst, SECTION_DEOPT);
             |1:
             deferred_vs_emit(Dst);
 
@@ -2727,7 +2751,7 @@ static void emit_instr_start(Jit* Dst, int inst_idx, int opcode, int oparg) {
         // if we deferred stack operations we have to emit a special deopt path
         if (Dst->deferred_vs_next || num_extended_arg) {
             | branch_ne >1
-            switch_section(Dst, SECTION_COLD);
+            switch_section(Dst, SECTION_DEOPT);
             |1:
             // compares ceval->tracing_possible == 0 (32bit)
             emit_tracing_possible_check(Dst);
@@ -2809,7 +2833,11 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
     // did we emit the * label already?
     int end_finally_label = 0;
+    int exit_yielding_label = 0;
     int deref_error_label = 0;
+
+    int exception_unwind_label_used = 0;
+    int exit_yielding_label_used = 0;
 
     Dst->old_line_number = -1;
     Dst->emitted_trace_check_for_line = 0;
@@ -3455,6 +3483,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 emit_adjust_vs(Dst, -2);
                 emit_call_ext_func(Dst, _PyErr_Restore);
                 | branch ->exception_unwind
+                exception_unwind_label_used = 1;
                 switch_section(Dst, SECTION_CODE);
             }
             break;
@@ -3686,6 +3715,26 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             deferred_vs_apply(Dst);
             break;
 
+        case YIELD_VALUE:
+            if (co->co_flags & CO_ASYNC_GENERATOR) {
+                RefStatus ref_status = deferred_vs_pop1(Dst, arg1_idx);
+                deferred_vs_apply(Dst);
+                emit_call_decref_args1(Dst, _PyAsyncGenValueWrapperNew, arg1_idx, &ref_status);
+                emit_if_res_0_error(Dst);
+            } else {
+                deferred_vs_pop1_owned(Dst, res_idx);
+                deferred_vs_apply(Dst);
+            }
+            emit_store64_mem(Dst, vsp_idx, f_idx, offsetof(PyFrameObject, f_stacktop));
+            exit_yielding_label_used = 1;
+            if (exit_yielding_label) {
+                | branch ->exit_yielding
+            } else {
+                emit_exit_yielding_label(Dst);
+                exit_yielding_label = 1;
+            }
+            break;
+
         default:
             // compiler complains if the first line after a label is a declaration and not a statement:
             (void)0;
@@ -3711,7 +3760,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 case GET_AITER:
                 case GET_AWAITABLE:
                 case YIELD_FROM:
-                case YIELD_VALUE:
                 case END_ASYNC_FOR:
                 case UNPACK_SEQUENCE:
                 case UNPACK_EX:
@@ -3857,7 +3905,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 // they are tightly coupled with the C helper functions
                 // be careful when introducing new paths / updating cpython
                 case YIELD_FROM:
-                case YIELD_VALUE:
                     // res is the PyObject* returned
                     // res == 0 means error
                     // res == 1 means execute next opcode (=fallthrough)
@@ -3865,12 +3912,14 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                     emit_if_res_0_error(Dst);
                     emit_cmp64_imm(Dst, res_idx, 1);
                     | branch_ne ->exit_yielding
+                    exit_yielding_label_used = 1;
                     break;
 
                 case RAISE_VARARGS:
                     // res == 0 means error
                     // res == 2 means goto exception_unwind
                     emit_if_res_0_error(Dst);
+                    exception_unwind_label_used = 1;
                     | branch ->exception_unwind
                     break;
 
@@ -3879,6 +3928,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                     // res == 2 means goto exception_unwind
                     emit_cmp64_imm(Dst, res_idx, 2);
                     | branch_eq ->exception_unwind
+                    exception_unwind_label_used = 1;
                     emit_jump_by_n_bytecodes(Dst, oparg, inst_idx);
                     break;
 
@@ -3971,16 +4021,16 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 
 
 
-    // TODO: only emit a label if we actually generated an instruction which needs it
-    |->exception_unwind:
-    emit_mov_imm(Dst, real_res_idx, 1);
-    | branch ->return
+    if (exception_unwind_label_used) {
+        |->exception_unwind:
+        emit_mov_imm(Dst, real_res_idx, 1);
+        | branch ->return
+    }
 
-    |->exit_yielding:
-    // to differentiate from a normal return we set the second lowest bit
-@ARM| orr real_res, res, #2
-@X86| or real_res, 2
-    | branch ->return
+    if (exit_yielding_label_used && exit_yielding_label == 0) {
+        emit_exit_yielding_label(Dst);
+        exit_yielding_label = 1;
+    }
 
     |->handle_signal_res_in_use:
     // we have to preserve res because it's used by our deferred stack optimizations

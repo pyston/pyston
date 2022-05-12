@@ -762,8 +762,12 @@ PyEval_EvalFrame(PyFrameObject *f) {
 PyObject *
 PyEval_EvalFrameEx(PyFrameObject *f, int throwflag)
 {
+#ifdef ENABLE_AOT
+    return _PyEval_EvalFrameDefault(f, throwflag);
+#else
     PyInterpreterState *interp = _PyInterpreterState_GET_UNSAFE();
     return interp->eval_frame(f, throwflag);
+#endif
 }
 
 #ifndef ENABLE_AOT
