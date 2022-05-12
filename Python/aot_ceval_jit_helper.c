@@ -683,7 +683,10 @@ JIT_HELPER_WITH_NAME(DELETE_GLOBAL) {
     DISPATCH();
 }
 
-JIT_HELPER_WITH_NAME(LOAD_NAME) {
+JIT_HELPER_WITH_NAME_OPCACHE_AOT(LOAD_NAME) {
+    if (f->f_locals == f->f_globals) {
+        return JIT_HELPER_LOAD_GLOBAL(name, co_opcache);
+    }
     //PyObject *name = GETITEM(names, oparg);
     PyObject *locals = f->f_locals;
     PyObject *v;

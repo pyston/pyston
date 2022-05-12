@@ -443,6 +443,7 @@ static void* __attribute__ ((const)) get_addr_of_aot_func(int opcode, int oparg,
     OPCODE_PROFILE(DELETE_SUBSCR, PyObject_DelItem);
 
     OPCODE_STATIC(LOAD_GLOBAL, JIT_HELPER_LOAD_GLOBAL);
+    OPCODE_STATIC(LOAD_NAME, JIT_HELPER_LOAD_NAME);
     if (opcache_available) {
         OPCODE_STATIC(LOAD_ATTR, JIT_HELPER_LOAD_ATTR_CACHED);
         OPCODE_STATIC(STORE_ATTR, JIT_HELPER_STORE_ATTR_CACHED);
@@ -2762,7 +2763,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
     if (!co_opcache->optimized)
         return 1;
 
-    if (opcode == LOAD_GLOBAL)  {
+    if (opcode == LOAD_GLOBAL || opcode == LOAD_NAME)  {
         ++jit_stat_load_global_total;
         // The co_opcache->num_failed==0 check is to try to avoid writing out inline
         // caches that might end up missing, since we currently don't rewrite them.
@@ -2779,6 +2780,11 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             deferred_vs_convert_reg_to_stack(Dst);
 
             emit_load64_mem(Dst, arg3_idx, f_idx, offsetof(PyFrameObject, f_globals));
+            if (opcode == LOAD_NAME) {
+                emit_load64_mem(Dst, arg2_idx, f_idx, offsetof(PyFrameObject, f_locals));
+                | cmp arg3, arg2
+                | branch_ne >1
+            }
 
             if (lg->cache_type == LG_GLOBAL) {
                 emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictObject, ma_version_tag), (uint64_t)lg->u.global_cache.globals_ver);
@@ -4391,6 +4397,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 // and a 4th arg which is a pointer to the func address so it can patch itself
                 case LOAD_METHOD:
                 case LOAD_GLOBAL:
+                case LOAD_NAME:
                     // Often the name and opcache pointers are close to each other,
                     // so instead of doing two 64-bit moves, we can do the second
                     // one as a lea off the first one and save a few bytes
@@ -4893,7 +4900,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             } else if (opcode == LOAD_FAST || opcode == STORE_FAST || opcode == DELETE_FAST) {
                 PyObject* name = PyTuple_GET_ITEM(co->co_varnames, oparg | extended_arg);
                 fprintf(perf_map_opcode_map, " (%.60s)\n", PyUnicode_AsUTF8(name));
-            } else if (opcode == LOAD_ATTR || opcode == STORE_ATTR || opcode == DELETE_ATTR || opcode == LOAD_METHOD || opcode == LOAD_GLOBAL) {
+            } else if (opcode == LOAD_ATTR || opcode == STORE_ATTR || opcode == DELETE_ATTR || opcode == LOAD_METHOD || opcode == LOAD_GLOBAL || opcode == LOAD_NAME) {
                 PyObject* name = PyTuple_GET_ITEM(co->co_names, oparg | extended_arg);
                 fprintf(perf_map_opcode_map, " (%.60s)\n", PyUnicode_AsUTF8(name));
             } else {
