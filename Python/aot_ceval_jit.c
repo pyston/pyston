@@ -916,8 +916,8 @@ static void switch_section(Jit* Dst, Section new_section) {
 |.macro type_version_check, r_type_idx, type_ver, false_branch
 ||#ifdef PYSTON_LITE
 || JIT_ASSERT(Py_TPFLAGS_VALID_VERSION_TAG == (1UL << 19), "need to update these offsets");
-@ARM|| emit_load32_mem(Dst, get_tmp_reg(r_type_idx), r_type_idx, offsetof(PyTypeObject, tp_flags))
-@ARM|  tbz get_tmp_reg(r_type_idx), 19, false_branch // Test Bit Zero: jump to false_branch if bit 19 is zero
+@ARM|| emit_load32_mem(Dst, get_tmp_reg(r_type_idx), r_type_idx, offsetof(PyTypeObject, tp_flags));
+@ARM|  tbz Rw(get_tmp_reg(r_type_idx)), #19, false_branch // Test Bit Zero: jump to false_branch if bit 19 is zero
 @X86|| emit_test8_mem_imm(Dst, r_type_idx, offsetof(PyTypeObject, tp_flags) + 2, 0x08);
 @X86|  branch_eq false_branch
 || emit_cmp32_mem_imm(Dst, r_type_idx, offsetof(PyTypeObject, tp_version_tag), (unsigned int)type_ver);
@@ -938,9 +938,15 @@ static int fits_in_12bit_with_12bit_rshift(long val) {
 }
 @ARM_END
 
+// On ARM, we try to put the JIT code close to the code that it calls
+// to try to take advantage of efficient relative addressing.
+// This is a representative function that we might try to call, which
+// we will try to locate the code near, as well as measure offsets against.
+#define LAYOUT_TARGET (PyObject_IsTrue)
+
 static int can_use_relative_call(void *addr) {
     // bl only supports +-128MB - for additional safety we try to stay +-64MB away from this AOT symbol.
-@ARMreturn labs((int64_t)addr-(int64_t)PyObject_IsTrueProfile) < 64*1024*1024;
+@ARMreturn labs((int64_t)addr-(int64_t)LAYOUT_TARGET) < 64*1024*1024;
 @X86return IS_32BIT_VAL((long)addr);
 }
 
@@ -4380,7 +4386,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         // can only address +-128MB from current IP. And this allows us to use bl for most calls.
         void* new_chunk = MAP_FAILED;
         // try allocate memory 25MB after this AOT func.
-        char* start_addr = (char*)(((uint64_t)PyObject_IsTrueProfile + 25*1024*1024 + 4095) / 4096 * 4096);
+        char* start_addr = (char*)(((uint64_t)LAYOUT_TARGET + 25*1024*1024 + 4095) / 4096 * 4096);
         for (int i=0; i<8 && new_chunk == MAP_FAILED; ++i, start_addr += 5*1024*1024) {
             // MAP_FIXED_NOREPLACE is available from linux 4.17, but older glibc don't define it.
             // Older kernel will ignore this flag and will try to allocate the address supplied as hint
