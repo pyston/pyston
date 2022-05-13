@@ -16,7 +16,7 @@ ext = PystonLiteExtension(
 )
 
 setup(name="pyston_lite",
-      version="0.1",
+      version="2.3.3.1",
       description="A JIT for Python",
       author="The Pyston Team",
       url="https://www.github.com/pyston/pyston",

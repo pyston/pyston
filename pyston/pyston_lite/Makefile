@@ -44,8 +44,9 @@ upload_wheels: env
 	./env/bin/twine upload wheelhouse/*manylinux*.whl || true
 
 test_packages:
+	rm -rf /tmp/env
 	python3.8 -m venv /tmp/env
-	/tmp/env/bin/pip install pyston_lite_autoload
+	/tmp/env/bin/pip install --upgrade pyston_lite_autoload
 	time /tmp/env/bin/python -c 'for i in range(100000000): pass'
 	DISABLE_PYSTON=1 time /tmp/env/bin/python -c 'for i in range(100000000): pass'
 
