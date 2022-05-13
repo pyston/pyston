@@ -17,7 +17,12 @@
 
 #include "Python.h"
 #include "pycore_ceval.h"
+#ifdef PYSTON_LITE
+// make sure this points to the Pyston version of this file:
+#include "../../Include/internal/pycore_code.h"
+#else
 #include "pycore_code.h"
+#endif
 #include "pycore_object.h"
 #include "pycore_pyerrors.h"
 #include "pycore_pylifecycle.h"
@@ -28,15 +33,33 @@
 #include "dictobject.h"
 #include "frameobject.h"
 #include "opcode.h"
+#ifdef PYSTON_LITE
+#undef WITH_DTRACE
+#endif
 #include "pydtrace.h"
 #include "setobject.h"
 #include "structmember.h"
 
 #include <ctype.h>
 
+#ifdef PYSTON_LITE
+#define SET_JIT_AOT_FUNC(JIT_HELPER_STORE_ATTR) (0)
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#else
 #include "aot.h"
+#endif
 
 #include "aot_ceval_jit_helper.h"
+
+#define OPCACHE_STATS 0
+
+#if OPCACHE_STATS
+extern long loadattr_hits, loadattr_misses, loadattr_uncached, loadattr_noopcache;
+extern long storeattr_hits, storeattr_misses, storeattr_uncached, storeattr_noopcache;
+extern long loadmethod_hits, loadmethod_misses, loadmethod_uncached, loadmethod_noopcache;
+extern long loadglobal_hits, loadglobal_misses, loadglobal_uncached, loadglobal_noopcache;
+#endif
 
 extern int _PyObject_GetMethod(PyObject *, PyObject *, PyObject **);
 PyObject * call_function_ceval(

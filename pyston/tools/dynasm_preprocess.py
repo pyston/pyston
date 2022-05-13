@@ -116,6 +116,8 @@ def preprocess(filename_in, filename_out):
                     raise_exc("Unknown architecture: " + line_stripped)
             else:
                 file.write("\n" if skip else line)
+                if line_stripped.startswith("|") or (line_stripped.startswith("#") and '\\' not in line_stripped):
+                    file.write('#line %d "%s"\n' % (lineno + 1, filename_in))
 
 
 if __name__ == "__main__":
