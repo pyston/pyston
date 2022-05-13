@@ -31,9 +31,10 @@ clean:
 
 package: package_jit package_autoload
 
-package_jit: aot_ceval_jit.gen.c
+package_jit:
+	git clean -x -i -d -f .
 	bash -c 'if [ -d wheelhouse ]; then sudo rm -rf wheelhouse ; fi'
-	docker run --rm -e PLAT=manylinux2014_x86_64 -v `pwd`/../../:/io quay.io/pypa/manylinux2014_x86_64 bash /io/pyston/pyston_lite/build_wheels.sh
+	docker run --rm -e PLAT=manylinux2014_x86_64 -v `pwd`/../../:/io quay.io/pypa/manylinux2014_x86_64 bash -c "bash /io/pyston/pyston_lite/build_wheels.sh && chown -R $(shell id -u):$(shell id -g) /io/pyston/pyston_lite/wheelhouse"
 
 package_autoload: env
 	bash -c "cd autoload; rm -rf dist; ../env/bin/python setup.py sdist"
