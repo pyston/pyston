@@ -48,14 +48,13 @@
 PyObject *
 _PyDict_LoadGlobalEx(PyDictObject *globals, PyDictObject *builtins, PyObject *key, int *out_wasglobal);
 
-int _PyCode_InitOpcache_Pyston(PyCodeObject *co);
-
 #define PyTuple_New_Nonzeroed PyTuple_New
 #define PyTuple_Pack3(a, b, c) PyTuple_Pack(3, a, b, c)
 
 #define PYSTON_SPEEDUPS 0
 
 static int code_jitfunc_index = -1;
+static int code_opcache_index = -1;
 #else
 #include "aot.h"
 #endif
@@ -1616,7 +1615,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 #define INIT_OPCACHE _PyCode_InitOpcache_Pyston
 #else
 #include "opcode_targets.h"
-#define INIT_OPCACHE _PyCode_InitOpcache
+#define INIT_OPCACHE(code, opcache) _PyCode_InitOpcache(code)
 #endif
 
 #define TARGET(op) \
@@ -1841,12 +1840,12 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 #define OPCACHE_CHECK() \
     do { \
         co_opcache = NULL; \
-        if (co->co_opcache != NULL) { \
+        if (opcache->oc_opcache != NULL) { \
             unsigned char co_opt_offset = \
-                co->co_opcache_map[next_instr - first_instr]; \
+                opcache->oc_opcache_map[next_instr - first_instr]; \
             if (co_opt_offset > 0) { \
-                assert(co_opt_offset <= co->co_opcache_size); \
-                co_opcache = &co->co_opcache[co_opt_offset - 1]; \
+                assert(co_opt_offset <= opcache->oc_opcache_size); \
+                co_opcache = &opcache->oc_opcache[co_opt_offset - 1]; \
                 assert(co_opcache != NULL); \
             } \
         } \
@@ -1899,9 +1898,9 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 
 #define OPCACHE_INIT_IF_HIT_THRESHOLD() \
     do { \
-        if (co->co_opcache_map == NULL && \
-            co->co_opcache_flag >= opcache_min_runs && co->co_opcache_flag <= opcache_min_runs+OPCACHE_INC_FUNC_ENTRY) { \
-            if (INIT_OPCACHE(co) < 0) { \
+        if (opcache->oc_opcache_map == NULL && \
+            opcache->oc_opcache_flag >= opcache_min_runs && opcache->oc_opcache_flag <= opcache_min_runs+OPCACHE_INC_FUNC_ENTRY) { \
+            if (INIT_OPCACHE(co, opcache) < 0) { \
                 return NULL; \
             } \
         } \
@@ -1912,10 +1911,10 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 // increments the number of times this loop got ececuted and if the threshold is hit JIT func and do OSR.
 #define HANDLE_JUMP_BACKWARD_OSR() \
     do {  \
-        ++co->co_opcache_flag;  \
+        ++opcache->oc_opcache_flag;  \
         OPCACHE_INIT_IF_HIT_THRESHOLD();  \
         /* check if we should switch over to the JIT (OSR) */  \
-        if (co->co_opcache_flag > jit_min_runs && can_use_jit \
+        if (opcache->oc_opcache_flag > jit_min_runs && can_use_jit \
             && !_Py_TracingPossible(ceval)) { /* don't OSR if tracing is enabled because we seem to skip a line */ \
             void* code = getJitCode(co); \
             if (code == NULL) { \
@@ -1944,14 +1943,15 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 #endif
 
     co = f->f_code;
+    OpCache *opcache = _PyCode_GetOpcache(co);
 
-    if (can_use_jit && co->co_opcache_flag >= jit_min_runs /* jit after that many calls or gen yields */) {
+    if (can_use_jit && opcache->oc_opcache_flag >= jit_min_runs /* jit after that many calls or gen yields */) {
         void* code = getJitCode(co);
 
         if (code == NULL) {
             // JIT assumes opcache is always on
-            if (co->co_opcache_map == NULL) {
-                INIT_OPCACHE(co);
+            if (opcache->oc_opcache_map == NULL) {
+                INIT_OPCACHE(co, opcache);
             }
 #if 0
             struct timespec start, end;
@@ -2008,7 +2008,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
         assert(f->f_lasti % sizeof(_Py_CODEUNIT) == 0);
         next_instr += f->f_lasti / sizeof(_Py_CODEUNIT) + 1;
     } else { // function entry
-        co->co_opcache_flag += OPCACHE_INC_FUNC_ENTRY;
+        opcache->oc_opcache_flag += OPCACHE_INC_FUNC_ENTRY;
         OPCACHE_INIT_IF_HIT_THRESHOLD();
     }
 
@@ -6904,12 +6904,23 @@ void aot_exit()
 void aot_ceval_opcode_profile(){}
 
 #ifdef PYSTON_LITE
+OpCache* _PyCode_GetOpcache(PyCodeObject* co) {
+    OpCache* opcache = NULL;
+    _PyCode_GetExtra((PyObject*)co, code_opcache_index, &opcache);
+
+    if (opcache == NULL) {
+        opcache = (OpCache*)PyMem_Calloc(1, sizeof(OpCache));
+        _PyCode_SetExtra(co, code_opcache_index, opcache);
+    }
+    return opcache;
+}
+
 int
-_PyCode_InitOpcache_Pyston(PyCodeObject *co)
+_PyCode_InitOpcache_Pyston(PyCodeObject* co, OpCache* opcache)
 {
     Py_ssize_t co_size = PyBytes_Size(co->co_code) / sizeof(_Py_CODEUNIT);
-    co->co_opcache_map = (unsigned char *)PyMem_Calloc(co_size, 1);
-    if (co->co_opcache_map == NULL) {
+    opcache->oc_opcache_map = (unsigned char *)PyMem_Calloc(co_size, 1);
+    if (opcache->oc_opcache_map == NULL) {
         return -1;
     }
 
@@ -6922,7 +6933,7 @@ _PyCode_InitOpcache_Pyston(PyCodeObject *co)
 
         if (opcode == LOAD_GLOBAL || opcode == LOAD_METHOD || opcode == LOAD_ATTR /*|| opcode == STORE_ATTR*/) {
             opts++;
-            co->co_opcache_map[i] = (unsigned char)opts;
+            opcache->oc_opcache_map[i] = (unsigned char)opts;
             if (opts > 254) {
                 break;
             }
@@ -6930,20 +6941,29 @@ _PyCode_InitOpcache_Pyston(PyCodeObject *co)
     }
 
     if (opts) {
-        co->co_opcache = (_PyOpcache *)PyMem_Calloc(opts, sizeof(_PyOpcache));
-        if (co->co_opcache == NULL) {
-            PyMem_FREE(co->co_opcache_map);
+        opcache->oc_opcache = (_PyOpcache *)PyMem_Calloc(opts, sizeof(_PyOpcache));
+        if (opcache->oc_opcache == NULL) {
+            PyMem_FREE(opcache->oc_opcache_map);
             return -1;
         }
     }
     else {
-        PyMem_FREE(co->co_opcache_map);
-        co->co_opcache_map = NULL;
-        co->co_opcache = NULL;
+        PyMem_FREE(opcache->oc_opcache_map);
+        opcache->oc_opcache_map = NULL;
+        opcache->oc_opcache = NULL;
     }
 
-    co->co_opcache_size = (unsigned char)opts;
+    opcache->oc_opcache_size = (unsigned char)opts;
     return 0;
+}
+
+static void _freeOpcache(OpCache *opcache) {
+    if (opcache->oc_opcache != NULL) {
+        PyMem_FREE(opcache->oc_opcache);
+    }
+    if (opcache->oc_opcache_map != NULL) {
+        PyMem_FREE(opcache->oc_opcache_map);
+    }
 }
 
 PyObject* enable_pyston_lite(PyObject* _m) {
@@ -6965,8 +6985,10 @@ PyObject* enable_pyston_lite(PyObject* _m) {
 
     jit_start();
 
-    // TODO: add free func
+    // Unfortunately we currently don't release the jitted memory:
     code_jitfunc_index = _PyEval_RequestCodeExtraIndex(NULL);
+    // but we do free the opcache memory:
+    code_opcache_index = _PyEval_RequestCodeExtraIndex((freefunc)_freeOpcache);
 
     PyThreadState_Get()->interp->eval_frame = _PyEval_EvalFrame_AOT;
 

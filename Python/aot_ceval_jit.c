@@ -180,6 +180,7 @@ typedef struct Jit {
     char failed;
 
     PyCodeObject* co;
+    OpCache* opcache;
     PyObject* co_consts;
     PyObject* co_names;
 
@@ -2101,13 +2102,13 @@ static void emit_exit_yielding_label(Jit* Dst) {
     | branch ->return
 }
 
-static _PyOpcache* get_opcache_entry(PyCodeObject* co, int inst_idx) {
+static _PyOpcache* get_opcache_entry(OpCache* opcache, int inst_idx) {
     _PyOpcache* co_opcache = NULL;
-    if (co->co_opcache != NULL) {
-        unsigned char co_opt_offset = co->co_opcache_map[inst_idx + 1];
+    if (opcache->oc_opcache != NULL) {
+        unsigned char co_opt_offset = opcache->oc_opcache_map[inst_idx + 1];
         if (co_opt_offset > 0) {
-            JIT_ASSERT(co_opt_offset <= co->co_opcache_size, "");
-            co_opcache = &co->co_opcache[co_opt_offset - 1];
+            JIT_ASSERT(co_opt_offset <= opcache->oc_opcache_size, "");
+            co_opcache = &opcache->oc_opcache[co_opt_offset - 1];
             JIT_ASSERT(co_opcache != NULL, "");
         }
     }
@@ -2126,7 +2127,7 @@ static int emit_special_binary_subscr(Jit* Dst, int inst_idx, PyObject* const_va
         return -1;
     }
 
-    _PyOpcache* co_opcache = get_opcache_entry(Dst->co, inst_idx);
+    _PyOpcache* co_opcache = get_opcache_entry(Dst->opcache, inst_idx);
     PyTypeObject* cached_type = co_opcache ? co_opcache->u.t.type : NULL;
 
     int use_cold_section = 0;
@@ -2188,7 +2189,7 @@ static int emit_special_store_subscr(Jit* Dst, int inst_idx, int opcode, int opa
         return -1;
     }
 
-    _PyOpcache* co_opcache = get_opcache_entry(Dst->co, inst_idx);
+    _PyOpcache* co_opcache = get_opcache_entry(Dst->opcache, inst_idx);
     PyTypeObject* cached_type = co_opcache ? co_opcache->u.t.type : NULL;
     if (cached_type != &PyList_Type) {
         return -1;
@@ -2950,6 +2951,8 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     jit.co_names = co->co_names;
     jit.current_section = -1;
 
+    OpCache* opcache = jit.opcache = _PyCode_GetOpcache(co);
+
     jit.num_opcodes = PyBytes_Size(co->co_code)/sizeof(_Py_CODEUNIT);
     jit.first_instr = (_Py_CODEUNIT *)PyBytes_AS_STRING(co->co_code);
 
@@ -3257,7 +3260,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             if ((opcode == INPLACE_ADD || opcode == BINARY_ADD) &&
                 Dst->deferred_vs_next >= 2 && GET_DEFERRED[-2].loc == FAST &&
                 inst_idx + 1 < Dst->num_opcodes) {
-                _PyOpcache* co_opcache = get_opcache_entry(co, inst_idx);
+                _PyOpcache* co_opcache = get_opcache_entry(opcache, inst_idx);
                 _Py_CODEUNIT next_word = Dst->first_instr[inst_idx + 1];
                 // interpreter sets this to 1 if both operands have been unicode strings
                 int both_are_unicode = co_opcache && co_opcache->optimized;
@@ -3915,7 +3918,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             // compiler complains if the first line after a label is a declaration and not a statement:
             (void)0;
 
-            _PyOpcache* co_opcache = get_opcache_entry(co, inst_idx);
+            _PyOpcache* co_opcache = get_opcache_entry(opcache, inst_idx);
 
             if (opcode == LOAD_METHOD) {
                 CallMethodHint* hint = (CallMethodHint*)calloc(1, sizeof(CallMethodHint));
