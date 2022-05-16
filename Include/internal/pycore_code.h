@@ -179,6 +179,52 @@ struct _PyOpcache {
 /* Private API */
 int _PyCode_InitOpcache(PyCodeObject *co);
 
+// Opcache handling for pyston-lite:
+// The default opcache is located directly in the PyCodeObject, and in pyston-full we use that.
+// In pyston-lite we need to store this data in co_extra to not conflict with CPython's usage
+// of the opcache fields.
+//
+// To enable writing code that handles both cases, there's now a new `OpCache` type that has
+// the opcache fields on it, that is used something like
+//      PyCodeObject* co;
+//      OpCache* opcache = _PyCode_GetOpcache(co);
+//      opcache->oc_opcache_flag++;
+//
+// For pyston-full, OpCache is just a synonym for PyCodeObject, and looking up attributes on the OpCache
+// object just resolves to the code object. I believe this should end up generating the same code
+// for the interpreter since the compiler should know they are synonyms.
+// For pyston-lite, we store a real OpCache struct in the co_extra section of the code object
+
+#ifdef PYSTON_LITE
+
+// Defensiveness: it's a bug to use the CPython-managed fields, so lets make them compile errors:
+#define co_opcache_map DONTUSE
+#define co_opcache DONTUSE
+#define co_opcache_flag DONTUSE
+#define co_opcache_size DONTUSE
+
+typedef struct {
+    unsigned char *oc_opcache_map;
+    _PyOpcache *oc_opcache;
+    long oc_opcache_flag;
+    unsigned char oc_opcache_size;
+} OpCache;
+
+OpCache* _PyCode_GetOpcache(PyCodeObject *co);
+int _PyCode_InitOpcache_Pyston(PyCodeObject *co, OpCache *opcache);
+
+#else
+
+#define OpCache PyCodeObject
+#define _PyCode_GetOpcache(co) (co)
+
+// Hacky, but simply map these attribute names to the normal ones
+#define oc_opcache_map co_opcache_map
+#define oc_opcache co_opcache
+#define oc_opcache_flag co_opcache_flag
+#define oc_opcache_size co_opcache_size
+#endif
+
 
 #ifdef __cplusplus
 }
