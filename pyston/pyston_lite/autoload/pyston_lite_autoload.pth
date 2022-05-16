@@ -1,0 +1,1 @@
+import os, sys; exec("""("DISABLE_PYSTON" not in os.environ) and __import__("pyston_lite").enable()""")

@@ -1,3 +1,5 @@
 aot_ceval_jit.prep.c
 aot_ceval_jit.gen.c
 env
+wheelhouse
+autoload/dist

@@ -29,6 +29,27 @@ clean:
 	rm -rf *.o *.so env
 
 
+package: package_jit package_autoload
+
+package_jit:
+	git clean -x -i -d -f .
+	bash -c 'if [ -d wheelhouse ]; then sudo rm -rf wheelhouse ; fi'
+	docker run --rm -e PLAT=manylinux2014_x86_64 -v `pwd`/../../:/io quay.io/pypa/manylinux2014_x86_64 bash -c "bash /io/pyston/pyston_lite/build_wheels.sh && chown -R $(shell id -u):$(shell id -g) /io/pyston/pyston_lite/wheelhouse"
+
+package_autoload: env
+	bash -c "cd autoload; rm -rf dist; ../env/bin/python setup.py sdist"
+
+upload_wheels: env
+	env/bin/pip install twine
+	./env/bin/twine upload autoload/dist/pyston_lite_autoload* || true
+	./env/bin/twine upload wheelhouse/*manylinux*.whl || true
+
+test_packages:
+	rm -rf /tmp/env
+	python3.8 -m venv /tmp/env
+	/tmp/env/bin/pip install --upgrade pyston_lite_autoload
+	time /tmp/env/bin/python -c 'for i in range(100000000): pass'
+	DISABLE_PYSTON=1 time /tmp/env/bin/python -c 'for i in range(100000000): pass'
 
 
 ######
@@ -36,7 +57,7 @@ clean:
 
 env: pyston_lite.so
 	$(PYTHON) -m venv env
-	cp pyston_lite.so pyston_lite_autoload.pth env/lib/$(DIR)/site-packages/
+	cp pyston_lite.so autoload/pyston_lite_autoload.pth env/lib/$(DIR)/site-packages/
 
 env/update.stamp: env
 	./env/bin/pip install -r ../pgo_requirements.txt

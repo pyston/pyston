@@ -1163,7 +1163,7 @@ loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject*
         if (*res == NULL)
             *res = loadAttrCacheAttrNotFound(owner, name);
     } else {
-        fprintf("bad cache type %d\n", la->cache_type);
+        fprintf(stderr, "bad cache type %d\n", la->cache_type);
         abort();
     }
 
