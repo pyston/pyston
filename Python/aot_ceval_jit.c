@@ -2457,7 +2457,7 @@ static int emit_special_binary_op_refcnt1(Jit* Dst, int inst_idx, int opcode, in
         default:
             return -1;
     }
-    _PyOpcache* co_opcache = get_opcache_entry(Dst->co, inst_idx);
+    _PyOpcache* co_opcache = get_opcache_entry(Dst->opcache, inst_idx);
     if (!co_opcache || !co_opcache->optimized) {
         return -1;
     }
