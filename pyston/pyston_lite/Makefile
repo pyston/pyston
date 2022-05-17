@@ -1,4 +1,4 @@
-.DEFAULT_GOAL := pyston_lite.so
+.DEFAULT_GOAL := pgo.stamp
 
 # Change these to target a different Python:
 PYTHON:=python3.8
@@ -13,27 +13,48 @@ aot_ceval_jit.gen.c: aot_ceval_jit.prep.c
 	luajit ../../pyston/LuaJIT/dynasm/dynasm.lua  -o aot_ceval_jit.gen.c $<
 
 CC:=gcc
-CFLAGS:=$(CFLAGS) $(PY_CORE_CFLAGS) -I../../pyston/LuaJIT/ -Wno-address -Wpointer-to-int-cast -I$(PYTHON_INCL) -I$(PYTHON_INCL)/internal -DPYSTON_SPEEDUPS -DPy_BUILD_CORE -fPIC -Werror=implicit-function-declaration -g
-CFLAGS:=$(CFLAGS) -pthread -c -Wno-unused-result -Wsign-compare -DNDEBUG -g -fwrapv -Wall -DENABLE_AOT   -fstack-protector -specs=../tools/no-pie-compile.specs -D_FORTIFY_SOURCE=2 -fno-reorder-blocks-and-partition -std=c99 -Wextra -Wno-unused-result -Wno-unused-parameter -Wno-missing-field-initializers -Werror=implicit-function-declaration  -I../../Include/internal -IObjects -IInclude -IPython -I. -I../../Include   -I../aot  -DPy_BUILD_CORE -Wno-unused-label
-CFLAGS:=$(CFLAGS) -std=gnu99 -fcf-protection=none
-CFLAGS:=$(CFLAGS) -O3 -flto -fuse-linker-plugin -ffat-lto-objects -flto-partition=none -fno-semantic-interposition
-CFLAGS:=$(CFLAGS) -DPYSTON_LITE
-LDFLAGS:=$(LDFLAGS) -flto -fuse-linker-plugin -ffat-lto-objects -flto-partition=none -fno-semantic-interposition
+override CFLAGS += $(PY_CORE_CFLAGS) -I../../pyston/LuaJIT/ -Wno-address -Wpointer-to-int-cast -I$(PYTHON_INCL) -I$(PYTHON_INCL)/internal -DPYSTON_SPEEDUPS -DPy_BUILD_CORE -fPIC -Werror=implicit-function-declaration -g
+override CFLAGS += -pthread -c -Wno-unused-result -Wsign-compare -DNDEBUG -g -fwrapv -Wall -DENABLE_AOT   -fstack-protector -specs=../tools/no-pie-compile.specs -D_FORTIFY_SOURCE=2 -fno-reorder-blocks-and-partition -std=c99 -Wextra -Wno-unused-result -Wno-unused-parameter -Wno-missing-field-initializers -Werror=implicit-function-declaration  -I../../Include/internal -IObjects -IInclude -IPython -I. -I../../Include   -I../aot  -DPy_BUILD_CORE -Wno-unused-label
+override CFLAGS += -std=gnu99 -fcf-protection=none
+override CFLAGS += -O3 -flto -fuse-linker-plugin -ffat-lto-objects -flto-partition=none -fno-semantic-interposition
+override CFLAGS += -DPYSTON_LITE
+override LDFLAGS += -flto -fuse-linker-plugin -ffat-lto-objects -flto-partition=none -fno-semantic-interposition
 
 # This file can't use lto due to the global registers:
 aot_ceval_jit_helper.o: CFLAGS+=-fno-lto
 
+pgo:
+	$(MAKE) buildclean
+	rm -f *.gcda
+
+	$(MAKE) pyston_lite.so CFLAGS=-fprofile-generate LDFLAGS=-fprofile-generate
+
+	rm -rf pgo_env
+	$(PYTHON) -m venv pgo_env
+	cp pyston_lite.so autoload/pyston_lite_autoload.pth pgo_env/lib/$(DIR)/site-packages/
+	./pgo_env/bin/python ../../Lib/test/regrtest.py -j 0 -unone,decimal -x test_posix test_asyncio test_cmd_line_script test_compiler test_concurrent_futures test_ctypes test_dbm_dumb test_dbm_ndbm test_distutils test_ensurepip test_ftplib test_gdb test_httplib test_imaplib test_ioctl test_linuxaudiodev test_multiprocessing test_nntplib test_ossaudiodev test_poplib test_pydoc test_signal test_socket test_socketserver test_ssl test_subprocess test_sundry test_thread test_threaded_import test_threadedtempfile test_threading test_threading_local test_threadsignals test_venv test_zipimport_support test_code || true
+
+	$(MAKE) buildclean
+	$(MAKE) pyston_lite.so CFLAGS=-fprofile-use LDFLAGS=-fprofile-use
+
+pgo.stamp:
+	$(MAKE) pgo
+	touch $@
+
 pyston_lite.so: aot_ceval_jit.gen.o aot_ceval_jit_helper.o lib.o aot_ceval.o
-	$(CC) -shared $^ -o $@
+	$(CC) $(LDFLAGS) -shared $^ -o $@
 
 %.o: %.c $(wildcard *.h)
 
-.PHONY: clean
-clean:
+.PHONY: clean buildclean
+buildclean:
 	rm -rf *.o *.so env
+clean:
+	$(MAKE) buildclean
+	rm -f *.gcda pgo.stamp
 
 
-env: pyston_lite.so
+env: pgo.stamp
 	$(PYTHON) -m venv env
 	cp pyston_lite.so autoload/pyston_lite_autoload.pth env/lib/$(DIR)/site-packages/
 	touch $@
