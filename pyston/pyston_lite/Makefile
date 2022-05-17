@@ -64,7 +64,7 @@ env/update.stamp: env
 	touch $@
 
 
-ENV:=PYSTON=1 SHOW_OPCACHE_STATS=1 JIT_PERF_MAP=1
+ENV:=SHOW_OPCACHE_STATS=1 JIT_PERF_MAP=1
 BENCH:=../macrobenchmarks/benchmarks/bm_flaskblogging/run_benchmark.py --legacy
 
 
@@ -72,14 +72,14 @@ BENCH:=../macrobenchmarks/benchmarks/bm_flaskblogging/run_benchmark.py --legacy
 # note: the testsuite doesn't pass for my Ubuntu system cpython, but it does pass
 # if I reconfigure this makefile to use a manually-built cpython
 testsuite: env
-	PYSTON=1 ./env/bin/python -c 'import test.support; test.support.check_impl_detail = lambda **kw: False; import test.test_code; test.test_code.test_main()'
-	PYSTON=1 ./env/bin/python -m test -j0 -x test_code
+	./env/bin/python -c 'import test.support; test.support.check_impl_detail = lambda **kw: False; import test.test_code; test.test_code.test_main()'
+	./env/bin/python -m test -j0 -x test_code
 
 bench: env/update.stamp
 	$(ENV) ./env/bin/python $(BENCH)
 
 bench_baseline: env/update.stamp
-	$(patsubst PYSTON=1,,$(ENV)) ./env/bin/python $(BENCH)
+	DISABLE_PYSTON=1 ./env/bin/python $(BENCH)
 
 perf_bench: env/update.stamp
 	DISABLE_PYSTONFULL=1 $(ENV) perf record -o perf_lite.data ./env/bin/python $(BENCH)
@@ -88,7 +88,7 @@ perf_report:
 	perf report -i perf_lite.data -n --objdump=../../pyston/tools/perf_jit.py
 
 perf_bench_baseline: env/update.stamp
-	DISABLE_PYSTONFULL=1 $(patsubst PYSTON=1,,$(ENV)) perf record -o perf_baseline.data ./env/bin/python $(BENCH)
+	DISABLE_PYSTONFULL=1 DISABLE_PYSTON=1 perf record -o perf_baseline.data ./env/bin/python $(BENCH)
 	$(MAKE) perf_report_baseline
 perf_report_baseline:
 	perf report -i perf_baseline.data -n --objdump=../../pyston/tools/perf_jit.py
