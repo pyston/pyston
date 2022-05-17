@@ -2063,6 +2063,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
             if (co_opcache && co_opcache->optimized < 10) { \
                 co_opcache->u.t_refcnt.type = Py_TYPE(left); \
                 co_opcache->u.t_refcnt.refcnt1_left += (Py_REFCNT(left) == 1) ? 1 : 0; \
+                co_opcache->u.t_refcnt.refcnt2_left += (Py_REFCNT(left) == 2) ? 1 : 0; \
                 co_opcache->u.t_refcnt.refcnt1_right+= (Py_REFCNT(right) == 1) ? 1 : 0; \
                 ++co_opcache->optimized; \
             } \
