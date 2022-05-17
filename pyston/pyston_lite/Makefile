@@ -16,8 +16,12 @@ CC:=gcc
 CFLAGS:=$(CFLAGS) $(PY_CORE_CFLAGS) -I../../pyston/LuaJIT/ -Wno-address -Wpointer-to-int-cast -I$(PYTHON_INCL) -I$(PYTHON_INCL)/internal -DPYSTON_SPEEDUPS -DPy_BUILD_CORE -fPIC -Werror=implicit-function-declaration -g
 CFLAGS:=$(CFLAGS) -pthread -c -Wno-unused-result -Wsign-compare -DNDEBUG -g -fwrapv -Wall -DENABLE_AOT   -fstack-protector -specs=../tools/no-pie-compile.specs -D_FORTIFY_SOURCE=2 -fno-reorder-blocks-and-partition -std=c99 -Wextra -Wno-unused-result -Wno-unused-parameter -Wno-missing-field-initializers -Werror=implicit-function-declaration  -I../../Include/internal -IObjects -IInclude -IPython -I. -I../../Include   -I../aot  -DPy_BUILD_CORE -Wno-unused-label
 CFLAGS:=$(CFLAGS) -std=gnu99 -fcf-protection=none
-CFLAGS:=$(CFLAGS) -O3
+CFLAGS:=$(CFLAGS) -O3 -flto -fuse-linker-plugin -ffat-lto-objects -flto-partition=none -fno-semantic-interposition
 CFLAGS:=$(CFLAGS) -DPYSTON_LITE
+LDFLAGS:=$(LDFLAGS) -flto -fuse-linker-plugin -ffat-lto-objects -flto-partition=none -fno-semantic-interposition
+
+# This file can't use lto due to the global registers:
+aot_ceval_jit_helper.o: CFLAGS+=-fno-lto
 
 pyston_lite.so: aot_ceval_jit.gen.o aot_ceval_jit_helper.o lib.o aot_ceval.o
 	$(CC) -shared $^ -o $@
