@@ -43,7 +43,6 @@
 #include <ctype.h>
 
 #ifdef PYSTON_LITE
-#define SET_JIT_AOT_FUNC(JIT_HELPER_STORE_ATTR) (0)
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 #else

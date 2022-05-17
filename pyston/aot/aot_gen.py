@@ -1045,31 +1045,7 @@ def print_helper_funcs(f):
     print(f"PyObject* call_function_ceval_no_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);", file=f)
     print(f"PyObject* call_function_ceval_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg, PyObject* kwnames);", file=f)
 
-    print("/* this directly modifies the destination of the jit generated call instruction */\\", file=f)
-    print("#if __aarch64__", file=f)
-    print("#define SET_JIT_AOT_FUNC(dst_addr) do { \\", file=f)
-    print("    /* retrieve address of the instruction following the call instruction */\\", file=f)
-    print("    unsigned int* ret_addr = (unsigned int*)__builtin_extract_return_addr(__builtin_return_address(0));\\", file=f)
-    print("    /* this updates the destination of the relative call instruction 'bl' */\\", file=f)
-    print("    ret_addr[-1] = 0x94000000 | (((long)dst_addr - (long)&ret_addr[-1])&((1<<29)-1))>>2;\\", file=f)
-    print("    __builtin___clear_cache(&ret_addr[-1], &ret_addr[0]);\\", file=f)
-    print("} while(0)", file=f)
-    print("#else", file=f)
-    print("#define SET_JIT_AOT_FUNC(dst_addr) do { \\", file=f)
-    print("    /* retrieve address of the instruction following the call instruction */\\", file=f)
-    print("    unsigned char* ret_addr = (unsigned char*)__builtin_extract_return_addr(__builtin_return_address(0));\\", file=f)
-    print("    if (ret_addr[-2] == 0xff && ret_addr[-1] == 0xd0) { /* abs call: call rax */\\", file=f)
-    print("        unsigned long* call_imm = (unsigned long*)&ret_addr[-2-8];\\", file=f)
-    print("        *call_imm = (unsigned long)dst_addr;\\", file=f)
-    print("    } else { /* relative call */ \\", file=f)
-    print("        /* 5 byte call instruction - get address of relative immediate operand of call */\\", file=f)
-    print("        unsigned int* call_imm = (unsigned int*)&ret_addr[-4];\\", file=f)
-    print("        /* set operand to newly calculated relative offset */\\", file=f)
-    print("        *call_imm = (unsigned int)(unsigned long)(dst_addr) - (unsigned int)(unsigned long)ret_addr;\\", file=f)
-    print("    } \\", file=f)
-    print("} while(0)", file=f)
-    print("#endif", file=f)
-
+    print(f'''#include "aot_ceval_jit_helper.h"''', file=f)
 
 def create_pre_traced_funcs(output_file):
     with open(output_file, "w") as f:
