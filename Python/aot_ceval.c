@@ -1150,7 +1150,9 @@ PyObject* loadAttrCacheAttrNotFound(PyObject *owner, PyObject *name) {
 }
 
 int64_t _PyDict_GetItemOffset(PyDictObject *mp, PyObject *key, Py_ssize_t *dk_size);
+int64_t _PyDict_GetItemOffsetSplit(PyDictObject *mp, PyObject *key, Py_ssize_t *dk_size);
 PyObject* _PyDict_GetItemByOffset(PyDictObject *mp, PyObject *key, Py_ssize_t dk_size, int64_t offset);
+PyObject* _PyDict_GetItemByOffsetSplit(PyDictObject *mp, PyObject *key, Py_ssize_t dk_size, int64_t ix);
 
 int __attribute__((visibility("hidden")))
 loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject** res, int *meth_found) {
@@ -1198,7 +1200,21 @@ loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject*
             return -1;
 
         Py_INCREF(*res);
-    } else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
+    }
+#ifdef PYSTON_LITE
+    else if (la->cache_type == LA_CACHE_OFFSET_CACHE_SPLIT) {
+        if (!dictptr || !*dictptr)
+            return -1;
+
+        *res = _PyDict_GetItemByOffsetSplit((PyDictObject*)*dictptr, name, la->u.offset_cache_split.dk_size, la->u.offset_cache_split.ix);
+
+        if (*res == NULL)
+            return -1;
+
+        Py_INCREF(*res);
+    }
+#endif
+    else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
         char* addr = (char*)owner + la->u.slot_cache.offset;
         *res = *(PyObject**)addr;
         if (*res == NULL)
@@ -1423,7 +1439,14 @@ setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObje
             // is more expensive (=LA_CACHE_OFFSET_CACHE)
             if (_PyDict_HasSplitTable((PyDictObject*)dict)) {
 #ifdef PYSTON_LITE
-                return -1;
+                Py_ssize_t dk_size;
+                int64_t ix = _PyDict_GetItemOffsetSplit((PyDictObject*)dict, name, &dk_size);
+                if (ix < 0)
+                    return -1;
+
+                la->cache_type = LA_CACHE_OFFSET_CACHE_SPLIT;
+                la->u.offset_cache_split.dk_size = dk_size;
+                la->u.offset_cache_split.ix = ix;
 #else
                 la->cache_type = LA_CACHE_IDX_SPLIT_DICT;
                 la->u.split_dict_cache.splitdict_keys_version = getSplitDictKeysVersionFromDictPtr(dictptr);

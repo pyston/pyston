@@ -55,11 +55,14 @@ enum _PyOpcache_LoadAttr_Types {
     // Has the advantage that even with modifications to the dict the cache will mostly hit.
     LA_CACHE_OFFSET_CACHE = 4,
 
+    // The same thing as LA_CACHE_OFFSET_CACHE but for split dicts
+    LA_CACHE_OFFSET_CACHE_SPLIT = 5,
+
     // caching the offset to attribute slot inside a python object.
     // used for __slots__
     // LA_CACHE_DATA_DESCR works too but is slower because it needs extra guarding
     // and emits a call to the decriptor function
-    LA_CACHE_SLOT_CACHE = 5,
+    LA_CACHE_SLOT_CACHE = 6,
 
     // This works similarly to LA_CACHE_VALUE_CACHE_DICT but is specifically
     // for immutable types, such as the builtins.
@@ -67,10 +70,10 @@ enum _PyOpcache_LoadAttr_Types {
     // (for two reasons: first we know that the type will stay alive so it's safe to
     // store a borrowed reference, and second we know the tp_version_tag won't change.)
     // This lets us constant-fold a number of the checks when we jit this load.
-    LA_CACHE_BUILTIN = 6,
+    LA_CACHE_BUILTIN = 7,
 
     // Used for polymorphic sites where we store an array of _PyOpcaches
-    LA_CACHE_POLYMORPHIC = 7,
+    LA_CACHE_POLYMORPHIC = 8,
 };
 typedef struct {
     union {
@@ -97,6 +100,10 @@ typedef struct {
             Py_ssize_t dk_size; /* dk_size of the dict */
             int64_t offset; /* offset in bytes from ma_keys->dk_indices to the item in the hash table */
         } offset_cache;
+        struct {
+            Py_ssize_t dk_size; /* dk_size of the dict */
+            int64_t ix; /* index in the table */
+        } offset_cache_split;
         struct {
             int64_t offset; /* offset in bytes from the start of the PyObject to the slot */
         } slot_cache;
