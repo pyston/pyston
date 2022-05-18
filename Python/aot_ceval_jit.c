@@ -2475,7 +2475,7 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
 // special inplace modification code for float math functions
 // can modify either the left or right operand
 // returns 0 if generation succeeded
-static int emit_special_binary_op_inplace(Jit* Dst, int inst_idx, int opcode, int oparg, RefStatus ref_status_left, RefStatus ref_status_right, int load_store_left_idx) {
+static int emit_special_binary_op_inplace(Jit* Dst, int inst_idx, int opcode, int oparg, RefStatus ref_status_left, RefStatus ref_status_right, int load_store_left_idx, PyObject* const_right_val) {
     switch (opcode) {
         case BINARY_ADD:
         case BINARY_SUBTRACT:
@@ -2535,7 +2535,12 @@ static int emit_special_binary_op_inplace(Jit* Dst, int inst_idx, int opcode, in
     | branch_ne >1
 
     | type_check arg1_idx, cache->type, >1
-    | type_check arg2_idx, cache->type, >1
+    if (const_right_val && Py_TYPE(const_right_val) == cache->type) {
+        // right operand is constant, don't have to check the type
+        JIT_ASSERT(use_right == 0, "");
+    } else {
+        | type_check arg2_idx, cache->type, >1
+    }
 
     if (cache->type == &PyFloat_Type) {
         const int offset_fval = offsetof(PyFloatObject, ob_fval);
@@ -2611,7 +2616,7 @@ static void list_append(PyObject **pleft, PyObject *right) {
 // special inplace modification code for string and list concatenations
 // only supports modifying the left operand inplace.
 // returns 0 if generation succeeded
-static int emit_special_concat_inplace(Jit* Dst, int inst_idx, int opcode, int oparg, RefStatus ref_status_left, RefStatus ref_status_right, int load_store_left_idx) {
+static int emit_special_concat_inplace(Jit* Dst, int inst_idx, int opcode, int oparg, RefStatus ref_status_left, RefStatus ref_status_right, int load_store_left_idx, PyObject* const_right_val) {
     if (opcode != BINARY_ADD && opcode != INPLACE_ADD) {
         return -1;
     }
@@ -2654,7 +2659,11 @@ static int emit_special_concat_inplace(Jit* Dst, int inst_idx, int opcode, int o
     | branch_ne >1
 
     | type_check arg1_idx, cache->type, >1
-    | type_check arg2_idx, cache->type, >1
+    if (const_right_val && Py_TYPE(const_right_val) == cache->type) {
+        // right operand is constant, don't have to check the type
+    } else {
+        | type_check arg2_idx, cache->type, >1
+    }
 
     void* func = cache->type == &PyUnicode_Type ? PyUnicode_Append : list_append;
     if (load_store_left_idx != -1) {
@@ -3550,10 +3559,10 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             if (opcode == COMPARE_OP && emit_special_compare_op(Dst, oparg, ref_status) == 0) {
                 break; // we are finished
             }
-            if (emit_special_binary_op_inplace(Dst, inst_idx, opcode, oparg, ref_status[1], ref_status[0], load_store_left_idx) == 0) {
+            if (emit_special_binary_op_inplace(Dst, inst_idx, opcode, oparg, ref_status[1], ref_status[0], load_store_left_idx, const_val) == 0) {
                 break; // we are finished
             }
-            if (emit_special_concat_inplace(Dst, inst_idx, opcode, oparg, ref_status[1], ref_status[0], load_store_left_idx) == 0) {
+            if (emit_special_concat_inplace(Dst, inst_idx, opcode, oparg, ref_status[1], ref_status[0], load_store_left_idx, const_val) == 0) {
                 break; // we are finished
             }
             // generic path
