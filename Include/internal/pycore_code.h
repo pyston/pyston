@@ -199,7 +199,8 @@ int _PyCode_InitOpcache(PyCodeObject *co);
 
 // Defensiveness: it's a bug to use the CPython-managed fields, so lets make them compile errors:
 #define co_opcache_map DONTUSE
-#define co_opcache DONTUSE
+// There are local variables called this unfortunately:
+//#define co_opcache DONTUSE
 #define co_opcache_flag DONTUSE
 #define co_opcache_size DONTUSE
 
