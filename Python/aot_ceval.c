@@ -4803,7 +4803,14 @@ exit_yielding:
         }
     }
 
-    return retval;
+exit_eval_frame:
+    if (PyDTrace_FUNCTION_RETURN_ENABLED())
+        dtrace_function_return(f);
+    Py_LeaveRecursiveCall();
+    f->f_executing = 0;
+    tstate->frame = f->f_back;
+
+    return _Py_CheckFunctionResult(NULL, retval, "PyEval_EvalFrameEx");
 }
 
 static PyObject* _Py_HOT_FUNCTION
@@ -4945,7 +4952,14 @@ exit_yielding:
         }
     }
 
-    return retval;
+exit_eval_frame:
+    if (PyDTrace_FUNCTION_RETURN_ENABLED())
+        dtrace_function_return(f);
+    Py_LeaveRecursiveCall();
+    f->f_executing = 0;
+    tstate->frame = f->f_back;
+
+    return _Py_CheckFunctionResult(NULL, retval, "PyEval_EvalFrameEx");
 }
 
 // Entry point when executing a python function.
@@ -5017,14 +5031,12 @@ _PyEval_EvalFrameDefault
     // It looks like they are not changeable for a given frame, so we only have to check once
     // at the beginning, but they're not fixed for a code object so we can't just check at jit time.
     // Also don't enter the jit if the throwflag is set which skips the main code path and goes to error path.
-    int can_use_jit = PyDict_CheckExact(f->f_globals) && PyDict_CheckExact(f->f_builtins) && !throwflag;
-    if (jit_code == JIT_FUNC_FAILED) {
-        can_use_jit = 0;
-    }
+    int can_use_jit = jit_code != JIT_FUNC_FAILED && PyDict_CheckExact(f->f_globals) && PyDict_CheckExact(f->f_builtins) && !throwflag;
+
     if (jit_code != NULL && can_use_jit) {
-        retval = _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, jit_code);
+        return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, jit_code);
     } else {
-        retval = _PyEval_EvalFrame_AOT_Interpreter(f, throwflag, tstate, stack_pointer, can_use_jit, 0);
+        return _PyEval_EvalFrame_AOT_Interpreter(f, throwflag, tstate, stack_pointer, can_use_jit, 0);
     }
 
 exit_eval_frame:
