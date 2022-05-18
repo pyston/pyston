@@ -181,6 +181,98 @@ long loadmethod_hits = 0, loadmethod_misses = 0, loadmethod_uncached = 0, loadme
 long loadglobal_hits = 0, loadglobal_misses = 0, loadglobal_uncached = 0, loadglobal_noopcache = 0;
 #endif
 
+#ifdef PYSTON_LITE
+// In pyston-full we rely on LTO to inline cmp_outcome into the interpreter loop.
+// In pyston-lite we have to make the implementation available
+__attribute__((visibility("hidden"))) inline PyObject* cmp_outcome(PyThreadState *tstate, int, PyObject *v, PyObject *w);
+PyObject* cmp_outcomePyCmp_LT(PyObject *v, PyObject *w) {
+  return cmp_outcome(NULL, PyCmp_LT, v, w);
+}
+PyObject* cmp_outcomePyCmp_LE(PyObject *v, PyObject *w) {
+  return cmp_outcome(NULL, PyCmp_LE, v, w);
+}
+PyObject* cmp_outcomePyCmp_EQ(PyObject *v, PyObject *w) {
+  return cmp_outcome(NULL, PyCmp_EQ, v, w);
+}
+PyObject* cmp_outcomePyCmp_NE(PyObject *v, PyObject *w) {
+  return cmp_outcome(NULL, PyCmp_NE, v, w);
+}
+PyObject* cmp_outcomePyCmp_GT(PyObject *v, PyObject *w) {
+  return cmp_outcome(NULL, PyCmp_GT, v, w);
+}
+PyObject* cmp_outcomePyCmp_GE(PyObject *v, PyObject *w) {
+  return cmp_outcome(NULL, PyCmp_GE, v, w);
+}
+PyObject* cmp_outcomePyCmp_IN(PyObject *v, PyObject *w) {
+  return cmp_outcome(NULL, PyCmp_IN, v, w);
+}
+PyObject* cmp_outcomePyCmp_NOT_IN(PyObject *v, PyObject *w) {
+  return cmp_outcome(NULL, PyCmp_NOT_IN, v, w);
+}
+
+#define CANNOT_CATCH_MSG "catching classes that do not inherit from "\
+                         "BaseException is not allowed"
+PyObject *
+cmp_outcome(PyThreadState *tstate, int op, PyObject *v, PyObject *w)
+{
+    int res = 0;
+    switch (op) {
+    case PyCmp_IS:
+        res = (v == w);
+        break;
+    case PyCmp_IS_NOT:
+        res = (v != w);
+        break;
+    case PyCmp_IN:
+        res = PySequence_Contains(w, v);
+        if (res < 0)
+            return NULL;
+        break;
+    case PyCmp_NOT_IN:
+        res = PySequence_Contains(w, v);
+        if (res < 0)
+            return NULL;
+        res = !res;
+        break;
+    case PyCmp_EXC_MATCH:
+        if (PyTuple_Check(w)) {
+            Py_ssize_t i, length;
+            length = PyTuple_Size(w);
+            for (i = 0; i < length; i += 1) {
+                PyObject *exc = PyTuple_GET_ITEM(w, i);
+                if (!PyExceptionClass_Check(exc)) {
+                    _PyErr_SetString(tstate, PyExc_TypeError,
+                                     CANNOT_CATCH_MSG);
+                    return NULL;
+                }
+            }
+        }
+        else {
+            if (!PyExceptionClass_Check(w)) {
+                _PyErr_SetString(tstate, PyExc_TypeError,
+                                 CANNOT_CATCH_MSG);
+                return NULL;
+            }
+        }
+        res = PyErr_GivenExceptionMatches(v, w);
+        break;
+    default:
+        return PyObject_RichCompare(v, w, op);
+    }
+    v = res ? Py_True : Py_False;
+    Py_INCREF(v);
+    return v;
+}
+
+PyObject* _Py_HOT_FUNCTION
+PyErr_Occurred(void)
+{
+    PyThreadState *tstate = _PyThreadState_GET();
+    return _PyErr_Occurred(tstate);
+}
+
+#endif
+
 #define GIL_REQUEST _Py_atomic_load_relaxed(&ceval->gil_drop_request)
 
 /* This can set eval_breaker to 0 even though gil_drop_request became
