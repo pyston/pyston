@@ -1581,15 +1581,43 @@ static long jit_min_runs = JIT_MIN_RUNS;
 #define JIT_FUNC_FAILED ((JitFunc)0x1)
 
 #ifdef PYSTON_LITE
+typedef struct {
+    Py_ssize_t ce_size;
+    void *ce_extras[1];
+} _PyCodeObjectExtra;
+
+// This is a modified version of _PyCode_GetExtra with the following changes
+// - No internal consistency checks
+// - No checks to see if the array is already allocated, since we ensure that it is
+// - Returns the pointer to the value, instead of the value
+// - Returns the value directly instead of setting an out-parameter
+static inline void**
+_PyCode_GetExtraPointerFast(PyObject *code, Py_ssize_t index)
+{
+    PyCodeObject *o = (PyCodeObject*) code;
+    _PyCodeObjectExtra *co_extra = (_PyCodeObjectExtra*) o->co_extra;
+
+    return &co_extra->ce_extras[index];
+}
+
+// Similarly, a modified version of _PyCode_SetExtra with the same changes,
+// as well as removing the freeing of the previous value (since we never
+// overwrite any values).
+static inline void
+_PyCode_SetExtraFast(PyObject *code, Py_ssize_t index, void *extra)
+{
+    PyCodeObject *o = (PyCodeObject*) code;
+    _PyCodeObjectExtra *co_extra = (_PyCodeObjectExtra *) o->co_extra;
+
+    co_extra->ce_extras[index] = extra;
+}
+
 static inline void* getJitCode(PyCodeObject* code) {
-    // _PyCode_GetExtra writes jit_code in all non-internal-error cases
-    void* jit_code = JIT_FUNC_FAILED;
-    _PyCode_GetExtra((PyObject*)code, code_jitfunc_index, &jit_code);
-    return jit_code;
+    return *_PyCode_GetExtraPointerFast(code, code_jitfunc_index);
 }
 
 static inline void setJitCode(PyCodeObject* code, void* jit_code) {
-    _PyCode_SetExtra((PyObject*)code, code_jitfunc_index, jit_code);
+    _PyCode_SetExtraFast((PyObject*)code, code_jitfunc_index, jit_code);
 }
 
 #else
@@ -5117,6 +5145,35 @@ _PyEval_EvalFrameDefault
     f->f_stacktop = NULL;       /* remains NULL unless yield suspends frame */
     f->f_executing = 1;
 
+#ifdef PYSTON_LITE
+    // We need the opcache struct on the first execution of the function so that we can start
+    // counting the number of calls, so as an optimization we allocate all of the necessary
+    // co_extra space at the beginning and skip the null- and size-checks during execution.
+
+    // This is a modified version of the allocation in _PyCode_SetExtra
+    int needed_indices = code_opcache_index + (sizeof(OpCache) + sizeof(void*) - 1) / sizeof(void*);
+    _PyCodeObjectExtra *co_extra = (_PyCodeObjectExtra *) f->f_code->co_extra;
+    if (co_extra == NULL || co_extra->ce_size < needed_indices) {
+        Py_ssize_t i = (co_extra == NULL ? 0 : co_extra->ce_size);
+
+        // In CPython they set this to interp->co_extra_user_count:
+        int to_allocate = needed_indices;
+
+        co_extra = PyMem_Realloc(
+                co_extra,
+                sizeof(_PyCodeObjectExtra) +
+                (to_allocate - 1) * sizeof(void*));
+        if (co_extra == NULL) {
+            return NULL;
+        }
+        for (; i < to_allocate; i++) {
+            co_extra->ce_extras[i] = NULL;
+        }
+        co_extra->ce_size = to_allocate;
+        f->f_code->co_extra = co_extra;
+    }
+#endif
+
     JitFunc jit_code = getJitCode(f->f_code);
 
     // The jit assumes that globals and builtins are dicts so that it doesn't have to check them.
@@ -7030,14 +7087,7 @@ void aot_ceval_opcode_profile(){}
 
 #ifdef PYSTON_LITE
 OpCache* _PyCode_GetOpcache(PyCodeObject* co) {
-    OpCache* opcache = NULL;
-    _PyCode_GetExtra((PyObject*)co, code_opcache_index, &opcache);
-
-    if (opcache == NULL) {
-        opcache = (OpCache*)PyMem_Calloc(1, sizeof(OpCache));
-        _PyCode_SetExtra(co, code_opcache_index, opcache);
-    }
-    return opcache;
+    return (OpCache*)_PyCode_GetExtraPointerFast((PyObject*)co, code_opcache_index);
 }
 
 int
@@ -7112,8 +7162,27 @@ PyObject* enable_pyston_lite(PyObject* _m) {
 
     // Unfortunately we currently don't release the jitted memory:
     code_jitfunc_index = _PyEval_RequestCodeExtraIndex(NULL);
-    // but we do free the opcache memory:
-    code_opcache_index = _PyEval_RequestCodeExtraIndex((freefunc)_freeOpcache);
+
+    // Speed hack: rather than storing a pointer to an OpCache object in co_extra,
+    // we store the entire struct. This mostly looks like storing the individual fields,
+    // but with some extra checking to make sure that we can cast the whole array to
+    // an OpCache*
+    _Static_assert(offsetof(OpCache, oc_opcache_map) == 0,  "needs to be modified");
+    code_opcache_index = _PyEval_RequestCodeExtraIndex(PyMem_Free);
+
+    // we assume that the opcache index comes after the jitfunc index, so that creating
+    // the opcache slots will also ensure the creation of the jitfunc slot.
+    if (code_opcache_index < code_jitfunc_index) abort();
+
+    _Static_assert(offsetof(OpCache, oc_opcache) == sizeof(void*),  "needs to be modified");
+    int index2 = _PyEval_RequestCodeExtraIndex(PyMem_Free);
+    if (index2 != code_opcache_index + 1) abort();
+
+    _Static_assert(sizeof(OpCache) == 4 * sizeof(void*),  "needs to be modified");
+    int index3 = _PyEval_RequestCodeExtraIndex(NULL);
+    if (index3 != index2 + 1) abort();
+    int index4 = _PyEval_RequestCodeExtraIndex(NULL);
+    if (index4 != index3 + 1) abort();
 
     PyThreadState_Get()->interp->eval_frame = _PyEval_EvalFrame_AOT;
 
