@@ -293,6 +293,7 @@ void format_exc_unbound(PyThreadState *tstate, PyCodeObject *co, int oparg);
 
 #ifdef PYSTON_LITE
 void* lookdict_split_value;
+#define lookdict_split lookdict_split_value
 static void* method_vectorcall_NOARGS_value;
 static void* method_vectorcall_O_value;
 static void* method_vectorcall_FASTCALL_value;
@@ -2353,11 +2354,7 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
         | branch_ne >1
 
         // if (mp->ma_keys->dk_lookup == lookdict_split) goto slow_path;
-#ifdef PYSTON_LITE
-        emit_cmp64_mem_imm(Dst, res_idx, offsetof(PyDictKeysObject, dk_lookup), (uint64_t)lookdict_split_value);
-#else
         emit_cmp64_mem_imm(Dst, res_idx, offsetof(PyDictKeysObject, dk_lookup), (uint64_t)lookdict_split);
-#endif
         | branch_eq >1
 
         // PyDictKeyEntry *arg3 = (PyDictKeyEntry*)(mp->ma_keys->dk_indices + offset);
@@ -2371,6 +2368,38 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
         // res = ep->me_value;
         emit_load64_mem(Dst, res_idx, arg3_idx, offsetof(PyDictKeyEntry, me_value));
         emit_incref(Dst, res_idx);
+
+    } else if (la->cache_type == LA_CACHE_OFFSET_CACHE_SPLIT) {
+        // if (mp->ma_keys->dk_size != dk_size) goto slow_path;
+        emit_load64_mem(Dst, res_idx, arg2_idx, offsetof(PyDictObject, ma_keys));
+        uint64_t size = (uint64_t)la->u.offset_cache_split.dk_size;
+        emit_cmp64_mem_imm(Dst, res_idx, offsetof(PyDictKeysObject, dk_size), size);
+        | branch_ne >1
+
+        // if (mp->ma_keys->dk_lookup != lookdict_split) goto slow_path;
+        emit_cmp64_mem_imm(Dst, res_idx, offsetof(PyDictKeysObject, dk_lookup), (uint64_t)lookdict_split);
+        | branch_ne >1
+
+#define DK_IXSIZE(sz)                         \
+            (sz <= 0xff ?                     \
+                1 : sz <= 0xffff ?            \
+                    2 : sizeof(int32_t))
+
+        // PyDictKeyEntry *arg3 = DK_ENTRIES(mp->ma_keys) + ix;
+        uint64_t total_offset = offsetof(PyDictKeysObject, dk_indices) + size * DK_IXSIZE(size) + la->u.offset_cache_split.ix * sizeof(PyDictKeyEntry);
+        emit_add_or_sub_imm(Dst, arg3_idx, res_idx, total_offset);
+
+        // if (ep->me_key != key) goto slow_path;
+        emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeyEntry, me_key), (uint64_t)PyTuple_GET_ITEM(Dst->co_names, oparg));
+        | branch_ne >1
+
+        // PyObject** arg3 = mp->ma_values
+        emit_load64_mem(Dst, arg3_idx, arg2_idx, offsetof(PyDictObject, ma_values));
+
+        // res = arg3[ix]
+        emit_load64_mem(Dst, res_idx, arg3_idx, la->u.offset_cache_split.ix * sizeof(PyObject*));
+        emit_incref(Dst, res_idx);
+
     } else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
         emit_load64_mem(Dst, res_idx, arg1_idx, la->u.slot_cache.offset);
         // attr can be NULL

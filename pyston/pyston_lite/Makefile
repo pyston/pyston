@@ -64,7 +64,7 @@ env/update.stamp: env
 	touch $@
 
 
-ENV:=SHOW_OPCACHE_STATS=1 JIT_PERF_MAP=1
+ENV:=
 BENCH:=../macrobenchmarks/benchmarks/bm_flaskblogging/run_benchmark.py --legacy
 
 
@@ -82,13 +82,13 @@ bench_baseline: env/update.stamp
 	DISABLE_PYSTON=1 ./env/bin/python $(BENCH)
 
 perf_bench: env/update.stamp
-	DISABLE_PYSTONFULL=1 $(ENV) perf record -o perf_lite.data ./env/bin/python $(BENCH)
+	$(ENV) JIT_PERF_MAP=1 perf record -o perf_lite.data ./env/bin/python $(BENCH)
 	$(MAKE) perf_report
 perf_report:
 	perf report -i perf_lite.data -n --objdump=../../pyston/tools/perf_jit.py
 
 perf_bench_baseline: env/update.stamp
-	DISABLE_PYSTONFULL=1 DISABLE_PYSTON=1 perf record -o perf_baseline.data ./env/bin/python $(BENCH)
+	DISABLE_PYSTON=1 JIT_PERF_MAP=1 perf record -o perf_baseline.data ./env/bin/python $(BENCH)
 	$(MAKE) perf_report_baseline
 perf_report_baseline:
 	perf report -i perf_baseline.data -n --objdump=../../pyston/tools/perf_jit.py
@@ -103,7 +103,7 @@ bench_full:
 
 perf_bench_full:
 	$(MAKE) -C ../.. build/unoptshared_env/update.stamp
-	$(ENV) LD_LIBRARY_PATH=../../build/unoptshared_install/usr/lib:$$LD_LIBRARY_PATH perf record -o perf_full.data ../../build/unoptshared_env/bin/python $(BENCH)
+	$(ENV) LD_LIBRARY_PATH=../../build/unoptshared_install/usr/lib:$$LD_LIBRARY_PATH JIT_PERF_MAP=1 perf record -o perf_full.data ../../build/unoptshared_env/bin/python $(BENCH)
 	$(MAKE) perf_report_full
 perf_report_full:
 	perf report -i perf_full.data -n --objdump=../../pyston/tools/perf_jit.py
@@ -119,5 +119,5 @@ bench_fullopt:
 
 perf_bench_fullopt:
 	$(MAKE) -C ../.. build/optshared_env/update.stamp
-	$(ENV) LD_LIBRARY_PATH=../../build/optshared_install/usr/lib:$$LD_LIBRARY_PATH perf record ../../build/optshared_env/bin/python $(BENCH)
+	$(ENV) LD_LIBRARY_PATH=../../build/optshared_install/usr/lib:$$LD_LIBRARY_PATH JIT_PERF_MAP=1 perf record ../../build/optshared_env/bin/python $(BENCH)
 	perf report -n

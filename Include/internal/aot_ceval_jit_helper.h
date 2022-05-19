@@ -21,6 +21,30 @@ extern "C" {
 #define JIT_HELPER_WITH_NAME_OPCACHE_AOT1(name_, py1) PyObject* JIT_HELPER_##name_(PyObject* name, PyObject* py1, _PyOpcache *co_opcache)
 #define JIT_HELPER_WITH_NAME_OPCACHE_AOT2(name_, py1, py2) PyObject* JIT_HELPER_##name_(PyObject* name, PyObject* py1, PyObject* py2, _PyOpcache *co_opcache)
 
+/* this directly modifies the destination of the jit generated call instruction */\
+#if __aarch64__
+#define SET_JIT_AOT_FUNC(dst_addr) do { \
+    /* retrieve address of the instruction following the call instruction */\
+    unsigned int* ret_addr = (unsigned int*)__builtin_extract_return_addr(__builtin_return_address(0));\
+    /* this updates the destination of the relative call instruction 'bl' */\
+    ret_addr[-1] = 0x94000000 | (((long)dst_addr - (long)&ret_addr[-1])&((1<<29)-1))>>2;\
+    __builtin___clear_cache(&ret_addr[-1], &ret_addr[0]);\
+} while(0)
+#else
+#define SET_JIT_AOT_FUNC(dst_addr) do { \
+    /* retrieve address of the instruction following the call instruction */\
+    unsigned char* ret_addr = (unsigned char*)__builtin_extract_return_addr(__builtin_return_address(0));\
+    if (ret_addr[-2] == 0xff && ret_addr[-1] == 0xd0) { /* abs call: call rax */\
+        unsigned long* call_imm = (unsigned long*)&ret_addr[-2-8];\
+        *call_imm = (unsigned long)dst_addr;\
+    } else { /* relative call */ \
+        /* 5 byte call instruction - get address of relative immediate operand of call */\
+        unsigned int* call_imm = (unsigned int*)&ret_addr[-4];\
+        /* set operand to newly calculated relative offset */\
+        *call_imm = (unsigned int)(unsigned long)(dst_addr) - (unsigned int)(unsigned long)ret_addr;\
+    } \
+} while(0)
+#endif
 
 JIT_HELPER1(PRINT_EXPR, value);
 JIT_HELPER_WITH_OPARG(RAISE_VARARGS);

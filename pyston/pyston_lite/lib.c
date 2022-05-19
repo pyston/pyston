@@ -29,31 +29,6 @@ PyObject* PyNumber_PowerNone(PyObject *v, PyObject *w) {
 PyObject* PyNumber_InPlacePowerNone(PyObject *v, PyObject *w) {
   return PyNumber_InPlacePower(v, w, Py_None);
 }
-__attribute__((visibility("hidden"))) inline PyObject* cmp_outcome(PyThreadState *tstate, int, PyObject *v, PyObject *w);
-PyObject* cmp_outcomePyCmp_LT(PyObject *v, PyObject *w) {
-  return cmp_outcome(NULL, PyCmp_LT, v, w);
-}
-PyObject* cmp_outcomePyCmp_LE(PyObject *v, PyObject *w) {
-  return cmp_outcome(NULL, PyCmp_LE, v, w);
-}
-PyObject* cmp_outcomePyCmp_EQ(PyObject *v, PyObject *w) {
-  return cmp_outcome(NULL, PyCmp_EQ, v, w);
-}
-PyObject* cmp_outcomePyCmp_NE(PyObject *v, PyObject *w) {
-  return cmp_outcome(NULL, PyCmp_NE, v, w);
-}
-PyObject* cmp_outcomePyCmp_GT(PyObject *v, PyObject *w) {
-  return cmp_outcome(NULL, PyCmp_GT, v, w);
-}
-PyObject* cmp_outcomePyCmp_GE(PyObject *v, PyObject *w) {
-  return cmp_outcome(NULL, PyCmp_GE, v, w);
-}
-PyObject* cmp_outcomePyCmp_IN(PyObject *v, PyObject *w) {
-  return cmp_outcome(NULL, PyCmp_IN, v, w);
-}
-PyObject* cmp_outcomePyCmp_NOT_IN(PyObject *v, PyObject *w) {
-  return cmp_outcome(NULL, PyCmp_NOT_IN, v, w);
-}
 
 PyObject *
 trace_call_function(PyThreadState *tstate,
@@ -248,6 +223,24 @@ PyObject* _PyDict_GetItemByOffset(PyDictObject *mp, PyObject *key, Py_ssize_t dk
     return ep->me_value;
 }
 
+PyObject* _PyDict_GetItemByOffsetSplit(PyDictObject *mp, PyObject *key, Py_ssize_t dk_size, int64_t ix) {
+    assert(PyDict_CheckExact((PyObject*)mp));
+    assert(PyUnicode_CheckExact(key));
+    assert(offset >= 0);
+
+    if (mp->ma_keys->dk_size != dk_size)
+        return NULL;
+
+    if (mp->ma_keys->dk_lookup != lookdict_split_value)
+        return NULL;
+
+    PyDictKeyEntry *ep = DK_ENTRIES(mp->ma_keys) + ix;
+    if (ep->me_key != key)
+        return NULL;
+
+    return mp->ma_values[ix];
+}
+
 int64_t _PyDict_GetItemOffset(PyDictObject *mp, PyObject *key, Py_ssize_t *dk_size)
 {
     Py_hash_t hash;
@@ -274,6 +267,34 @@ int64_t _PyDict_GetItemOffset(PyDictObject *mp, PyObject *key, Py_ssize_t *dk_si
 
     *dk_size = mp->ma_keys->dk_size;
     return (char*)(&DK_ENTRIES(mp->ma_keys)[ix]) - (char*)mp->ma_keys->dk_indices;
+}
+
+int64_t _PyDict_GetItemOffsetSplit(PyDictObject *mp, PyObject *key, Py_ssize_t *dk_size)
+{
+    Py_hash_t hash;
+
+    assert(PyDict_CheckExact((PyObject*)mp));
+    assert(PyUnicode_CheckExact(key));
+
+    if ((hash = ((PyASCIIObject *) key)->hash) == -1)
+        return -1;
+
+    if (mp->ma_keys->dk_lookup != lookdict_split_value)
+        return -1;
+
+    // don't cache if error is set because we could overwrite it
+    if (PyErr_Occurred())
+        return -1;
+
+    PyObject *value = NULL;
+    Py_ssize_t ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &value);
+    if (ix < 0) {
+        PyErr_Clear();
+        return -1;
+    }
+
+    *dk_size = mp->ma_keys->dk_size;
+    return ix;
 }
 
 
@@ -311,60 +332,6 @@ call_function_ceval_fast(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t
 #endif
 
     return x;
-}
-
-#define CANNOT_CATCH_MSG "catching classes that do not inherit from "\
-                         "BaseException is not allowed"
-/*static*/ PyObject *
-cmp_outcome(PyThreadState *tstate, int op, PyObject *v, PyObject *w)
-{
-    int res = 0;
-    switch (op) {
-    case PyCmp_IS:
-        res = (v == w);
-        break;
-    case PyCmp_IS_NOT:
-        res = (v != w);
-        break;
-    case PyCmp_IN:
-        res = PySequence_Contains(w, v);
-        if (res < 0)
-            return NULL;
-        break;
-    case PyCmp_NOT_IN:
-        res = PySequence_Contains(w, v);
-        if (res < 0)
-            return NULL;
-        res = !res;
-        break;
-    case PyCmp_EXC_MATCH:
-        if (PyTuple_Check(w)) {
-            Py_ssize_t i, length;
-            length = PyTuple_Size(w);
-            for (i = 0; i < length; i += 1) {
-                PyObject *exc = PyTuple_GET_ITEM(w, i);
-                if (!PyExceptionClass_Check(exc)) {
-                    _PyErr_SetString(tstate, PyExc_TypeError,
-                                     CANNOT_CATCH_MSG);
-                    return NULL;
-                }
-            }
-        }
-        else {
-            if (!PyExceptionClass_Check(w)) {
-                _PyErr_SetString(tstate, PyExc_TypeError,
-                                 CANNOT_CATCH_MSG);
-                return NULL;
-            }
-        }
-        res = PyErr_GivenExceptionMatches(v, w);
-        break;
-    default:
-        return PyObject_RichCompare(v, w, op);
-    }
-    v = res ? Py_True : Py_False;
-    Py_INCREF(v);
-    return v;
 }
 
 static PySliceObject *slice_cache = NULL;
