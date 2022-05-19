@@ -957,7 +957,11 @@ static uint64_t getDictVersionFromDictPtr(PyObject** dictptr) {
     return dict->ma_version_tag;
 }
 
-#ifndef PYSTON_LITE
+#ifdef PYSTON_LITE
+// CPython does not set tp_version_tag to 0 on modification so we have todo this additional check instead
+#define TYPE_VERSION_CHECK(tp, type_ver)  (PyType_HasFeature(tp, Py_TPFLAGS_VALID_VERSION_TAG) && (tp)->tp_version_tag == (type_ver))
+#else
+#define TYPE_VERSION_CHECK(tp, type_ver)  ((tp)->tp_version_tag == (type_ver))
 static uint64_t getSplitDictKeysVersionFromDictPtr(PyObject** dictptr) {
     if (dictptr == NULL)
         return 0;
@@ -1001,7 +1005,7 @@ storeAttrCache(PyObject* owner, PyObject* name, PyObject* v, _PyOpcache *co_opca
     if (!co_opcache->optimized)
         return -1;
 
-    if (unlikely(sa->type_ver != tp->tp_version_tag))
+    if (unlikely(!TYPE_VERSION_CHECK(tp, sa->type_ver)))
         return -1;
 
     if (sa->cache_type == SA_CACHE_SLOT_CACHE) {
@@ -1181,7 +1185,7 @@ loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject*
         if (unlikely(Py_TYPE(owner) != la->type))
             return -1;
     } else {
-        if (unlikely(Py_TYPE(owner)->tp_version_tag != la->type_ver))
+        if (unlikely(!TYPE_VERSION_CHECK(Py_TYPE(owner), la->type_ver)))
             return -1;
     }
 
@@ -1262,7 +1266,7 @@ loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject*
 #endif
     } else if (la->cache_type == LA_CACHE_DATA_DESCR) {
         PyObject* descr = la->u.descr_cache.descr;
-        if (unlikely(Py_TYPE(descr)->tp_version_tag != la->u.descr_cache.descr_type_ver))
+        if (unlikely(!TYPE_VERSION_CHECK(Py_TYPE(descr), la->u.descr_cache.descr_type_ver)))
             return -1;
 
         *res = descr->ob_type->tp_descr_get(descr, owner, (PyObject *)owner->ob_type);
