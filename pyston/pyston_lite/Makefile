@@ -32,12 +32,12 @@ pgo:
 	rm -rf pgo_env
 	$(PYTHON) -m venv pgo_env
 	cp pyston_lite.so autoload/pyston_lite_autoload.pth pgo_env/lib/$(DIR)/site-packages/
-	./pgo_env/bin/python ../../Lib/test/regrtest.py -j 0 -unone,decimal -x test_posix test_asyncio test_cmd_line_script test_compiler test_concurrent_futures test_ctypes test_dbm_dumb test_dbm_ndbm test_distutils test_ensurepip test_ftplib test_gdb test_httplib test_imaplib test_ioctl test_linuxaudiodev test_multiprocessing test_nntplib test_ossaudiodev test_poplib test_pydoc test_signal test_socket test_socketserver test_ssl test_subprocess test_sundry test_thread test_threaded_import test_threadedtempfile test_threading test_threading_local test_threadsignals test_venv test_zipimport_support test_code || true
+	./pgo_env/bin/python ../../Lib/test/regrtest.py -j 0 -unone,decimal -x test_posix test_asyncio test_cmd_line_script test_compiler test_concurrent_futures test_ctypes test_dbm_dumb test_dbm_ndbm test_distutils test_ensurepip test_ftplib test_gdb test_httplib test_imaplib test_ioctl test_linuxaudiodev test_multiprocessing test_nntplib test_ossaudiodev test_poplib test_pydoc test_signal test_socket test_socketserver test_ssl test_subprocess test_sundry test_thread test_threaded_import test_threadedtempfile test_threading test_threading_local test_threadsignals test_venv test_zipimport_support test_code test_multiprocessing test_multiprocessing_forkserver test_multiprocessing_spawn test_multiprocessing_fork|| true
 
 	$(MAKE) buildclean
 	$(MAKE) pyston_lite.so CFLAGS=-fprofile-use LDFLAGS=-fprofile-use
 
-pgo.stamp:
+pgo.stamp: $(wildcard *.c) $(wildcard *.h)
 	$(MAKE) pgo
 	touch $@
 
