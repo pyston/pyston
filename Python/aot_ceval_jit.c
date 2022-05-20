@@ -1352,10 +1352,22 @@ static void emit_call_ext_func(Jit* Dst, void* addr) {
     if (can_use_relative_call(addr)) {
         | bl &addr // +-128MB from current IP
     } else {
-        // WARNING: this case can currently not be patched by SET_JIT_AOT_FUNC but thats not a problem because it's only used
-        // by inline cache entries to external functions in C extensions and not by calls to AOT funcs which get patched.
-        emit_mov_imm(Dst, tmp_idx, (uint64_t)addr);
-        | blr tmp
+        JIT_ASSERT(tmp2_idx == 6, "SET_JIT_AOT_FUNC needs to be adopted");
+        // we can't use 'emit_mov_imm' because we have to make sure
+        // that we always generate this 5 instruction sequence because SET_JIT_AOT_FUNC is patching it later.
+        // encodes as: 0x52800006 | (addr&0xFFFF)<<5 (=Rw(tmp2_idx)) or 0xD2800006 (=Rx(tmp2_idx))
+        // note: we use Rx() DynASM sometimes encodes the instruction as Rw() here
+        //       because the 32bit op clears the higher 32bit it does not change things.
+        | mov Rx(tmp2_idx), #(unsigned long)addr&UINT16_MAX
+        // encodes as: 0xF2A00006 | ((addr>>16)&0xFFFF)<<5
+        | movk Rx(tmp2_idx), #((unsigned long)addr>>16)&UINT16_MAX, lsl #16
+
+        // encodes as: 0xF2C00006 | ((addr>>32)&0xFFFF)<<5
+        | movk Rx(tmp2_idx), #((unsigned long)addr>>32)&UINT16_MAX, lsl #32
+        // encodes as: 0xF2E00006 | ((addr>>48)&0xFFFF)<<5
+        | movk Rx(tmp2_idx), #((unsigned long)addr>>48)&UINT16_MAX, lsl #48
+        // encodes as: 0xD63F00C0
+        | blr tmp2
     }
     | mov res, real_res
 @ARM_END
