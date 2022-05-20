@@ -29,6 +29,27 @@ clean:
 	rm -rf *.o *.so env
 
 
+env: pyston_lite.so
+	$(PYTHON) -m venv env
+	cp pyston_lite.so autoload/pyston_lite_autoload.pth env/lib/$(DIR)/site-packages/
+	touch $@
+
+# Skip the tests in ../test/ that test within virtual environments, because pyston-lite
+# won't get installed into them and we won't end up testing anything.
+#
+# test_code has a bug when run with another client that calls RequestCodeExtraIndex
+# note: the testsuite doesn't pass for my Ubuntu system cpython, but it does pass
+# if I reconfigure this makefile to use a manually-built cpython
+#
+# A number of other tests in the cpython testsuite fail with the Ubuntu packages, and I'm not sure why.
+# This happens regardless of whether pyston-lite is installed, so just exclude them.
+test: env
+	set -ex; for fn in ../test/*.py; do if [ $$fn = ../test/test_rebuild_packages.py -o $$fn = ../test/test_venvs.py ]; then continue; fi; ./env/bin/python $$fn; done
+	./env/bin/python -c 'import test.support; test.support.check_impl_detail = lambda **kw: False; import test.test_code; test.test_code.test_main()'
+	./env/bin/python -m test -j0 -x test_code test_distutils test_ensurepip test_minidom test_site test_xml_etree test_xml_etree_c
+
+
+
 package: package_jit package_autoload
 
 package_jit:
@@ -55,10 +76,6 @@ test_packages:
 ######
 # The rest of this file is for testing things:
 
-env: pyston_lite.so
-	$(PYTHON) -m venv env
-	cp pyston_lite.so autoload/pyston_lite_autoload.pth env/lib/$(DIR)/site-packages/
-
 env/update.stamp: env
 	./env/bin/pip install -r ../pgo_requirements.txt
 	touch $@
@@ -67,13 +84,6 @@ env/update.stamp: env
 ENV:=
 BENCH:=../macrobenchmarks/benchmarks/bm_flaskblogging/run_benchmark.py --legacy
 
-
-# test_code has a bug when run with another client that calls RequestCodeExtraIndex
-# note: the testsuite doesn't pass for my Ubuntu system cpython, but it does pass
-# if I reconfigure this makefile to use a manually-built cpython
-testsuite: env
-	./env/bin/python -c 'import test.support; test.support.check_impl_detail = lambda **kw: False; import test.test_code; test.test_code.test_main()'
-	./env/bin/python -m test -j0 -x test_code
 
 bench: env/update.stamp
 	$(ENV) ./env/bin/python $(BENCH)
