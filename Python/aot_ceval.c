@@ -1130,6 +1130,11 @@ common_cached:
 PyObject* slot_tp_getattr_hook_simple(PyObject *self, PyObject *name);
 PyObject* slot_tp_getattr_hook_simple_not_found(PyObject *self, PyObject *name);
 #ifdef PYSTON_LITE
+void* slot_tp_getattr_hook_value;
+PyObject *slot_tp_getattr_hook_complex(PyObject *self, PyObject *name);
+#endif
+
+#ifdef PYSTON_LITE
 static void* module_getattro_value;
 #define module_getattro module_getattro_value
 #else
@@ -1330,6 +1335,17 @@ setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObje
 
     void* tp_getattro = tp->tp_getattro;
     if (tp_getattro != PyObject_GenericGetAttr) {
+#ifdef PYSTON_LITE
+        // Replace cpython's slot_tp_getattr_hook (which we reference via slot_tp_getattr_hook_value)
+        // with our custom slot_tp_getattr_hook_complex.
+        // _hook_complex is mostly the same _hook, except it will replace itself with _hook_simple
+        // if there is no __getattribute__ attribute. Its presence also lets us know that we already
+        // looked at it.
+        // We could do the __getattribute__ check here instead of on the next call if that ends up being important.
+        if (tp_getattro == slot_tp_getattr_hook_value)
+            tp_getattro = tp->tp_getattro = slot_tp_getattr_hook_complex;
+#endif
+
         // We only cache the attribute if we find it via the PyObject_GenericGetAttr mechanism which means
         // we also support module_getattro and slot_tp_getattr_hook_simple because the lookup mechanism is only different when we can't find it. And we handle that part inside loadAttrCacheAttrNotFound
         // WARNING if you add support for a new method make sure to update loadAttrCacheAttrNotFound
@@ -7251,6 +7267,14 @@ PyMODINIT_FUNC PyInit_pyston_lite(void) {
     if (!m) return NULL;
 
     module_getattro_value = m->ob_type->tp_getattro;
+
+    // We want to get access to the static function slot_tp_getattr_hook
+    // We can find it on any Python class that has a __getattr__ function, so I
+    // picked one from the os module since that should be loaded.
+    PyObject *os = PyImport_ImportModule("os");
+    PyObject *wrap_close = PyDict_GetItemString(PyModule_GetDict(os), "_wrap_close");
+    slot_tp_getattr_hook_value = ((PyTypeObject*)wrap_close)->tp_getattro;
+    Py_DECREF(os);
 
     return m;
 }
