@@ -10,6 +10,23 @@
 #include "moduleobject.h"
 #include "opcode.h"
 
+#undef _Py_Dealloc
+void
+_Py_Dealloc(PyObject *op)
+{
+    destructor dealloc = Py_TYPE(op)->tp_dealloc;
+#ifdef Py_TRACE_REFS
+    _Py_ForgetReference(op);
+#else
+    _Py_INC_TPFREES(op);
+#endif
+    (*dealloc)(op);
+}
+
+PyObject* _Py_CheckFunctionResult(PyObject *callable, PyObject *result, const char *where) {
+    return result;
+}
+
 __attribute__((visibility("hidden"))) inline PyObject * call_function_ceval_fast(
     PyThreadState *tstate, PyObject ***pp_stack,
     Py_ssize_t oparg, PyObject *kwnames);

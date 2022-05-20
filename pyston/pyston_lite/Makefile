@@ -1,4 +1,4 @@
-.DEFAULT_GOAL := pgo.stamp
+.DEFAULT_GOAL := env
 
 # Change these to target a different Python:
 PYTHON:=python3.8
@@ -17,7 +17,7 @@ override CFLAGS += $(PY_CORE_CFLAGS) -I../../pyston/LuaJIT/ -Wno-address -Wpoint
 override CFLAGS += -pthread -c -Wno-unused-result -Wsign-compare -DNDEBUG -g -fwrapv -Wall -DENABLE_AOT   -fstack-protector -specs=../tools/no-pie-compile.specs -D_FORTIFY_SOURCE=2 -fno-reorder-blocks-and-partition -std=c99 -Wextra -Wno-unused-result -Wno-unused-parameter -Wno-missing-field-initializers -Werror=implicit-function-declaration  -I../../Include/internal -IObjects -IInclude -IPython -I. -I../../Include   -I../aot  -DPy_BUILD_CORE -Wno-unused-label
 override CFLAGS += -std=gnu99 -fcf-protection=none
 override CFLAGS += -O3 -flto -fuse-linker-plugin -ffat-lto-objects -flto-partition=none -fno-semantic-interposition
-override CFLAGS += -DPYSTON_LITE
+override CFLAGS += -DPYSTON_LITE -DPY_DEBUGGING_CHECKS=0
 override LDFLAGS += -flto -fuse-linker-plugin -ffat-lto-objects -flto-partition=none -fno-semantic-interposition
 
 # This file can't use lto due to the global registers:
@@ -72,7 +72,7 @@ ADDITIONAL_TESTS_TO_SKIP?=
 test: env
 	set -ex; for fn in ../test/*.py; do if [ $$fn = ../test/test_rebuild_packages.py -o $$fn = ../test/test_venvs.py ]; then continue; fi; ./env/bin/python $$fn; done
 	./env/bin/python -c 'import test.support; test.support.check_impl_detail = lambda **kw: False; import test.test_code; test.test_code.test_main()'
-	./env/bin/python -m test -j0 -x test_code test_distutils test_ensurepip test_minidom test_site test_xml_etree test_xml_etree_c $(ADDITIONAL_TESTS_TO_SKIP)
+	./env/bin/python -m test -j0 -x test_code test_distutils test_ensurepip test_minidom test_site test_xml_etree test_xml_etree_c test_capi $(ADDITIONAL_TESTS_TO_SKIP)
 
 
 
