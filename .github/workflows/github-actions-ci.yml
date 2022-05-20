@@ -123,3 +123,22 @@ jobs:
           name: core-dump-unopt_build
           path: /cores/
           if-no-files-found: ignore
+
+  pyston_lite_arm64_qemu:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+      - name: checkout submodules
+        run: |
+          git submodule update --init pyston/LuaJIT
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+      - name: build pyston and test
+        run: |
+          docker buildx build -t ubuntu_nonroot --platform linux/arm64 .github/workflows/
+          docker run -e ADDITIONAL_TESTS_TO_SKIP -iv${PWD}:/pyston_dir -iv/cores:/cores --name pyston_build ubuntu_nonroot /pyston_dir/.github/workflows/pyston_lite.sh
+        env:
+          # this tests fail with qemu
+          ADDITIONAL_TESTS_TO_SKIP: "test_cmd_line test_faulthandler test_posix test_signal test_socket
+    test_subprocess"
+
