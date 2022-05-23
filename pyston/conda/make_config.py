@@ -70,6 +70,10 @@ def main():
             continue
         if "pocl" in cwd and "hwloc1" in c:
             continue
+        if "arrow" in c and "cpp7" not in c:
+            continue
+        if "grpc" in c and "1.46" not in c:
+            continue
 
         # Not sure about this, but only build the cpu version of arrow-cpp
         if "arrow-cpp" in cwd:
