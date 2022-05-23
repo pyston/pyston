@@ -1,80 +1,6 @@
-.DEFAULT_GOAL := env
+.DEFAULT_GOAL := env/lite.stamp
 
-# Change these to target a different Python:
 PYTHON:=python3.8
-DIR:=python3.8
-PYTHON_INCL:=/usr/include/$(DIR)/
-
-
-aot_ceval_jit.prep.c: aot_ceval_jit.c
-	../../pyston/tools/dynasm_preprocess.py $< $@
-
-aot_ceval_jit.gen.c: aot_ceval_jit.prep.c
-	luajit ../../pyston/LuaJIT/dynasm/dynasm.lua  -o aot_ceval_jit.gen.c $<
-
-CC:=gcc
-override CFLAGS += $(PY_CORE_CFLAGS) -I../../pyston/LuaJIT/ -Wno-address -Wpointer-to-int-cast -I$(PYTHON_INCL) -I$(PYTHON_INCL)/internal -DPYSTON_SPEEDUPS -DPy_BUILD_CORE -fPIC -Werror=implicit-function-declaration -g
-override CFLAGS += -pthread -c -Wno-unused-result -Wsign-compare -DNDEBUG -g -fwrapv -Wall -DENABLE_AOT   -fstack-protector -specs=../tools/no-pie-compile.specs -D_FORTIFY_SOURCE=2 -fno-reorder-blocks-and-partition -std=c99 -Wextra -Wno-unused-result -Wno-unused-parameter -Wno-missing-field-initializers -Werror=implicit-function-declaration  -I../../Include/internal -IObjects -IInclude -IPython -I. -I../../Include   -I../aot  -DPy_BUILD_CORE -Wno-unused-label
-override CFLAGS += -std=gnu99 -fcf-protection=none
-override CFLAGS += -O3 -flto -fuse-linker-plugin -ffat-lto-objects -flto-partition=none -fno-semantic-interposition
-override CFLAGS += -DPYSTON_LITE -DPY_DEBUGGING_CHECKS=0
-override LDFLAGS += -flto -fuse-linker-plugin -ffat-lto-objects -flto-partition=none -fno-semantic-interposition
-
-# This file can't use lto due to the global registers:
-aot_ceval_jit_helper.o: CFLAGS+=-fno-lto
-
-pgo:
-	$(MAKE) buildclean
-	rm -f *.gcda
-
-	$(MAKE) pyston_lite.so CFLAGS=-fprofile-generate LDFLAGS=-fprofile-generate
-
-	rm -rf pgo_env
-	$(PYTHON) -m venv pgo_env
-	cp pyston_lite.so autoload/pyston_lite_autoload.pth pgo_env/lib/$(DIR)/site-packages/
-	./pgo_env/bin/python ../../Lib/test/regrtest.py -j 0 -unone,decimal -x test_posix test_asyncio test_cmd_line_script test_compiler test_concurrent_futures test_ctypes test_dbm_dumb test_dbm_ndbm test_distutils test_ensurepip test_ftplib test_gdb test_httplib test_imaplib test_ioctl test_linuxaudiodev test_multiprocessing test_nntplib test_ossaudiodev test_poplib test_pydoc test_signal test_socket test_socketserver test_ssl test_subprocess test_sundry test_thread test_threaded_import test_threadedtempfile test_threading test_threading_local test_threadsignals test_venv test_zipimport_support test_code test_multiprocessing test_multiprocessing_forkserver test_multiprocessing_spawn test_multiprocessing_fork|| true
-
-	$(MAKE) buildclean
-	$(MAKE) pyston_lite.so CFLAGS=-fprofile-use LDFLAGS=-fprofile-use
-
-pgo.stamp: $(wildcard *.c) $(wildcard *.h)
-	$(MAKE) pgo
-	touch $@
-
-pyston_lite.so: aot_ceval_jit.gen.o aot_ceval_jit_helper.o lib.o aot_ceval.o
-	$(CC) $(LDFLAGS) -shared $^ -o $@
-
-%.o: %.c $(wildcard *.h)
-
-.PHONY: clean buildclean
-buildclean:
-	rm -rf *.o *.so env
-clean:
-	$(MAKE) buildclean
-	rm -f *.gcda pgo.stamp
-
-
-env: pgo.stamp
-	$(PYTHON) -m venv env
-	cp pyston_lite.so autoload/pyston_lite_autoload.pth env/lib/$(DIR)/site-packages/
-	touch $@
-
-# Skip the tests in ../test/ that test within virtual environments, because pyston-lite
-# won't get installed into them and we won't end up testing anything.
-#
-# test_code has a bug when run with another client that calls RequestCodeExtraIndex
-# note: the testsuite doesn't pass for my Ubuntu system cpython, but it does pass
-# if I reconfigure this makefile to use a manually-built cpython
-#
-# A number of other tests in the cpython testsuite fail with the Ubuntu packages, and I'm not sure why.
-# This happens regardless of whether pyston-lite is installed, so just exclude them.
-ADDITIONAL_TESTS_TO_SKIP?=
-test: env
-	set -ex; for fn in ../test/*.py; do if [ $$fn = ../test/test_rebuild_packages.py -o $$fn = ../test/test_venvs.py ]; then continue; fi; ./env/bin/python $$fn; done
-	./env/bin/python -c 'import test.support; test.support.check_impl_detail = lambda **kw: False; import test.test_code; test.test_code.test_main()'
-	./env/bin/python -m test -j0 -x test_code test_distutils test_ensurepip test_minidom test_site test_xml_etree test_xml_etree_c test_capi $(ADDITIONAL_TESTS_TO_SKIP)
-
-
 
 package: package_jit package_autoload
 
@@ -83,8 +9,8 @@ package_jit:
 	bash -c 'if [ -d wheelhouse ]; then sudo rm -rf wheelhouse ; fi'
 	docker run --rm -e PLAT=manylinux2014_x86_64 -v `pwd`/../../:/io quay.io/pypa/manylinux2014_x86_64 bash -c "bash /io/pyston/pyston_lite/build_wheels.sh && chown -R $(shell id -u):$(shell id -g) /io/pyston/pyston_lite/wheelhouse"
 
-package_autoload: env
-	bash -c "cd autoload; rm -rf dist; ../env/bin/python setup.py sdist"
+package_autoload:
+	bash -c "cd autoload; rm -rf dist; $(PYTHON) setup.py sdist"
 
 upload_wheels: env
 	env/bin/pip install twine
@@ -102,10 +28,34 @@ test_packages:
 ######
 # The rest of this file is for testing things:
 
-env/update.stamp: env
+env:
+	$(PYTHON) -m venv env
+	touch $@
+
+env/lite.stamp: $(wildcard *.c) $(wildcard *.h) | env
+	./env/bin/python setup.py install
+	cd autoload; ../env/bin/python setup.py install
+	touch $@
+
+env/update.stamp: env/lite.stamp
 	./env/bin/pip install -r ../pgo_requirements.txt
 	touch $@
 
+
+# Skip the tests in ../test/ that test within virtual environments, because pyston-lite
+# won't get installed into them and we won't end up testing anything.
+#
+# test_code has a bug when run with another client that calls RequestCodeExtraIndex
+# note: the testsuite doesn't pass for my Ubuntu system cpython, but it does pass
+# if I reconfigure this makefile to use a manually-built cpython
+#
+# A number of other tests in the cpython testsuite fail with the Ubuntu packages, and I'm not sure why.
+# This happens regardless of whether pyston-lite is installed, so just exclude them.
+ADDITIONAL_TESTS_TO_SKIP?=
+test: env/lite.stamp
+	set -ex; for fn in ../test/*.py; do if [ $$fn = ../test/test_rebuild_packages.py -o $$fn = ../test/test_venvs.py ]; then continue; fi; ./env/bin/python $$fn; done
+	./env/bin/python -c 'import test.support; test.support.check_impl_detail = lambda **kw: False; import test.test_code; test.test_code.test_main()'
+	./env/bin/python -m test -j0 -x test_code test_distutils test_ensurepip test_minidom test_site test_xml_etree test_xml_etree_c test_capi $(ADDITIONAL_TESTS_TO_SKIP)
 
 ENV:=
 BENCH:=../macrobenchmarks/benchmarks/bm_flaskblogging/run_benchmark.py --legacy
