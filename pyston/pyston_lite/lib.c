@@ -10,6 +10,23 @@
 #include "moduleobject.h"
 #include "opcode.h"
 
+#undef _Py_Dealloc
+void
+_Py_Dealloc(PyObject *op)
+{
+    destructor dealloc = Py_TYPE(op)->tp_dealloc;
+#ifdef Py_TRACE_REFS
+    _Py_ForgetReference(op);
+#else
+    _Py_INC_TPFREES(op);
+#endif
+    (*dealloc)(op);
+}
+
+PyObject* _Py_CheckFunctionResult(PyObject *callable, PyObject *result, const char *where) {
+    return result;
+}
+
 __attribute__((visibility("hidden"))) inline PyObject * call_function_ceval_fast(
     PyThreadState *tstate, PyObject ***pp_stack,
     Py_ssize_t oparg, PyObject *kwnames);
@@ -358,4 +375,149 @@ PySlice_NewSteal(PyObject *start, PyObject *stop, PyObject *step) {
 
     _PyObject_GC_TRACK(obj);
     return (PyObject *) obj;
+}
+
+
+_Py_IDENTIFIER(__getattribute__);
+
+PyObject * lookup_maybe_method_cached(PyObject *self, _Py_Identifier *attrid, int *unbound, PyObject** cache_slot);
+
+static PyObject*
+call_unbound(int unbound, PyObject *func, PyObject *self,
+             PyObject **args, Py_ssize_t nargs)
+{
+    if (unbound) {
+        return _PyObject_FastCall_Prepend(func, self, args, nargs);
+    }
+    else {
+        return _PyObject_FastCall(func, args, nargs);
+    }
+}
+
+static PyObject*
+_process_method(PyObject* self, PyObject* res, int* unbound) {
+    if (res == NULL) {
+        return NULL;
+    }
+
+    if (PyType_HasFeature(Py_TYPE(res), Py_TPFLAGS_METHOD_DESCRIPTOR)) {
+        /* Avoid temporary PyMethodObject */
+        *unbound = 1;
+        Py_INCREF(res);
+    }
+    else {
+        *unbound = 0;
+        descrgetfunc f = Py_TYPE(res)->tp_descr_get;
+        if (f == NULL) {
+            Py_INCREF(res);
+        }
+        else {
+            res = f(res, self, (PyObject *)(Py_TYPE(self)));
+        }
+    }
+    return res;
+}
+
+static PyObject *
+lookup_maybe_method(PyObject *self, _Py_Identifier *attrid, int *unbound)
+{
+    PyObject *res = _PyType_LookupId(Py_TYPE(self), attrid);
+    return _process_method(self, res, unbound);
+}
+
+static PyObject *
+lookup_method_cached(PyObject *self, _Py_Identifier *attrid, int *unbound, PyObject** cache_slot)
+{
+    PyObject *res = lookup_maybe_method_cached(self, attrid, unbound, cache_slot);
+    if (res == NULL && !PyErr_Occurred()) {
+        PyErr_SetObject(PyExc_AttributeError, attrid->object);
+    }
+    return res;
+}
+
+static PyObject *
+lookup_method(PyObject *self, _Py_Identifier *attrid, int *unbound)
+{
+    PyObject *res = lookup_maybe_method(self, attrid, unbound);
+    if (res == NULL && !PyErr_Occurred()) {
+        PyErr_SetObject(PyExc_AttributeError, attrid->object);
+    }
+    return res;
+}
+
+static PyObject *
+call_method(PyObject *obj, _Py_Identifier *name,
+            PyObject **args, Py_ssize_t nargs)
+{
+    int unbound;
+    PyObject *func, *retval;
+
+    func = lookup_method(obj, name, &unbound);
+    if (func == NULL) {
+        return NULL;
+    }
+    retval = call_unbound(unbound, func, obj, args, nargs);
+    Py_DECREF(func);
+    return retval;
+}
+
+static PyObject *
+slot_tp_getattro(PyObject *self, PyObject *name)
+{
+    PyObject *stack[1] = {name};
+    return call_method(self, &PyId___getattribute__, stack, 1);
+}
+
+// This is Pyston's modified slot_tp_getattr_hook (but renamed)
+PyObject *
+slot_tp_getattr_hook_complex(PyObject *self, PyObject *name)
+{
+    PyTypeObject *tp = Py_TYPE(self);
+    PyObject *getattr, *getattribute, *res;
+    _Py_IDENTIFIER(__getattr__);
+
+    /* speed hack: we could use lookup_maybe, but that would resolve the
+       method fully for each attribute lookup for classes with
+       __getattr__, even when the attribute is present. So we use
+       _PyType_Lookup and create the method only when needed, with
+       call_attribute. */
+    getattr = _PyType_LookupId(tp, &PyId___getattr__);
+    if (getattr == NULL) {
+        /* No __getattr__ hook: use a simpler dispatcher */
+        tp->tp_getattro = slot_tp_getattro;
+        return slot_tp_getattro(self, name);
+    }
+    Py_INCREF(getattr);
+    /* speed hack: we could use lookup_maybe, but that would resolve the
+       method fully for each attribute lookup for classes with
+       __getattr__, even when self has the default __getattribute__
+       method. So we use _PyType_Lookup and create the method only when
+       needed, with call_attribute. */
+    getattribute = _PyType_LookupId(tp, &PyId___getattribute__);
+    if (getattribute == NULL ||
+        (Py_TYPE(getattribute) == &PyWrapperDescr_Type &&
+         ((PyWrapperDescrObject *)getattribute)->d_wrapped ==
+         (void *)PyObject_GenericGetAttr)) {
+#if PYSTON_SPEEDUPS
+        // switch to version which does not check for __getattribute__
+        tp->tp_getattro = slot_tp_getattr_hook_simple;
+        res = _PyObject_GenericGetAttrWithDict(self, name, NULL, 1 /* suppress */);
+#else
+        res = PyObject_GenericGetAttr(self, name);
+#endif
+    } else {
+        Py_INCREF(getattribute);
+        res = call_attribute(self, getattribute, name);
+        Py_DECREF(getattribute);
+    }
+#if PYSTON_SPEEDUPS
+    if (res == NULL && (!PyErr_Occurred() || PyErr_ExceptionMatches(PyExc_AttributeError))) {
+#else
+    if (res == NULL && PyErr_ExceptionMatches(PyExc_AttributeError)) {
+#endif
+        PyErr_Clear();
+        res = call_attribute(self, getattr, name);
+    }
+    Py_DECREF(getattr);
+    return res;
 }
