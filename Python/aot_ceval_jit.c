@@ -2681,7 +2681,10 @@ static int emit_special_concat_inplace(Jit* Dst, int inst_idx, int opcode, int o
         // store owned temporary into stack slot so that we can get a pointer to it
         emit_store64_mem(Dst, arg1_idx, sp_reg_idx, 0 /* stack slot */);
         // move address of stack slot entry into arg1
-        emit_mov64_reg(Dst, arg1_idx, sp_reg_idx);
+        // can't use emit_mov64_reg on arm because it will generate 'mov arg1, xzr' because xzr and sp have the same reg index
+        // and the encoder does not know we actually want to read sp instead of zeroing the reg.
+@ARM    | mov arg1, sp
+@X86    emit_mov64_reg(Dst, arg1_idx, sp_reg_idx);
     }
     emit_call_decref_args1(Dst, func, arg2_idx, &ref_status_right);
     // result got written into address arg1 pointed to
