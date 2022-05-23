@@ -252,19 +252,28 @@ cpython_testsuite_$(1): build/$(1)_build/pyston
 )
 endef
 
+BOLT_DISABLED_IN_ENVIRONMENT:=0
 
-# we only use BOLT on x86_64
+# Allow forcefully disabling BOLT even on x86_64 by setting USE_BOLT=0
+ifeq ($(USE_BOLT),0)
+	BOLT_DISABLED_IN_ENVIRONMENT:=1
+endif
+
 CPYTHON_EXTRA_CFLAGS_FOR_BOLT:=
 CPYTHON_EXTRA_LDFLAGS_FOR_BOLT:=
 BOLT_BINARY_ENABLE:=
 BOLT_SO_ENABLE:=
 USE_BOLT:=0
-ifeq ($(ARCH),x86_64)
-CPYTHON_EXTRA_CFLAGS_FOR_BOLT:=-fno-reorder-blocks-and-partition
-CPYTHON_EXTRA_LDFLAGS_FOR_BOLT:=-Wl,--emit-relocs
-BOLT_BINARY_ENABLE:=binary
-BOLT_SO_ENABLE:=so
-USE_BOLT:=1
+
+ifeq ($(BOLT_DISABLED_IN_ENVIRONMENT),0)
+	# we only use BOLT on x86_64
+	ifeq ($(ARCH),x86_64)
+		CPYTHON_EXTRA_CFLAGS_FOR_BOLT:=-fno-reorder-blocks-and-partition
+		CPYTHON_EXTRA_LDFLAGS_FOR_BOLT:=-Wl,--emit-relocs
+		BOLT_BINARY_ENABLE:=binary
+		BOLT_SO_ENABLE:=so
+		USE_BOLT:=1
+	endif
 endif
 
 $(call make_cpython_build,unopt,CFLAGS_NODIST="$(CPYTHON_EXTRA_CFLAGS) $(CPYTHON_EXTRA_CFLAGS_FOR_BOLT)" LDFLAGS_NODIST="$(CPYTHON_EXTRA_LDFLAGS) $(CPYTHON_EXTRA_LDFLAGS_FOR_BOLT)" ../../configure --prefix=$(abspath build/unopt_install/usr) --disable-debugging-features --enable-configure $(CONFIGURE_EXTRA_FLAGS),build/aot/aot_all.bc,,)
