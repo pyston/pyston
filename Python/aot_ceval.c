@@ -995,9 +995,6 @@ int setItemInitSplitDictCache(PyObject** dictptr, PyObject* obj, PyObject* v, Py
 
 int __attribute__((always_inline)) __attribute__((visibility("hidden")))
 storeAttrCache(PyObject* owner, PyObject* name, PyObject* v, _PyOpcache *co_opcache, int* err) {
-#ifdef PYSTON_LITE
-    return -1;
-#else
     _PyOpcache_StoreAttr *sa = &co_opcache->u.sa;
     PyTypeObject *tp = Py_TYPE(owner);
 
@@ -1028,6 +1025,9 @@ storeAttrCache(PyObject* owner, PyObject* name, PyObject* v, _PyOpcache *co_opca
         goto hit;
     }
 
+#ifdef PYSTON_LITE
+    return -1;
+#else
     PyObject** dictptr = _PyObject_GetDictPtr(owner);
     if (dictptr && !*dictptr) {
         // Check if this is the first attribute on the object.
@@ -1056,6 +1056,7 @@ storeAttrCache(PyObject* owner, PyObject* name, PyObject* v, _PyOpcache *co_opca
         // mark that we hit the dict already initalized path
         sa->cache_type = SA_CACHE_IDX_SPLIT_DICT;
     }
+#endif
 
 hit:
     co_opcache->num_failed = 0;
@@ -1063,14 +1064,10 @@ hit:
     storeattr_hits++;
 #endif
     return 0;
-#endif
 }
 
 int __attribute__((always_inline)) __attribute__((visibility("hidden")))
 setupStoreAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache) {
-#ifdef PYSTON_LITE
-    return -1;
-#else
     _PyOpcache_StoreAttr *sa = &co_opcache->u.sa;
     PyTypeObject *tp = Py_TYPE(obj);
 
@@ -1101,6 +1098,9 @@ setupStoreAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache) {
         return -1;
     }
 
+#ifdef PYSTON_LITE
+    return -1;
+#else
     PyObject** dictptr = _PyObject_GetDictPtr(obj);
     PyObject* dict;
     if (dictptr == NULL || (dict = *dictptr) == NULL)
@@ -1114,6 +1114,7 @@ setupStoreAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache) {
     sa->u.split_dict_cache.splitdict_index = _PyDict_GetItemIndexSplitDict(dict, name);
     // the index must be >= 0 because otherwise _PyObject_SetAttrCanCache would return 0
     assert(sa->u.split_dict_cache.splitdict_index >= 0);
+#endif
 
 common_cached:
     if (tp->tp_dictoffset < SHRT_MIN || tp->tp_dictoffset > SHRT_MAX) {
@@ -1124,7 +1125,6 @@ common_cached:
     sa->type_tp_dictoffset = (short)tp->tp_dictoffset;
     sa->type_ver = tp->tp_version_tag;
     return 0;
-#endif
 }
 
 PyObject* slot_tp_getattr_hook_simple(PyObject *self, PyObject *name);
@@ -7150,7 +7150,7 @@ _PyCode_InitOpcache_Pyston(PyCodeObject* co, OpCache* opcache)
         unsigned char opcode = _Py_OPCODE(opcodes[i]);
         i++;  // 'i' is now aligned to (next_instr - first_instr)
 
-        if (opcode == LOAD_GLOBAL || opcode == LOAD_METHOD || opcode == LOAD_ATTR /*|| opcode == STORE_ATTR*/) {
+        if (opcode == LOAD_GLOBAL || opcode == LOAD_METHOD || opcode == LOAD_ATTR || opcode == STORE_ATTR) {
             opts++;
             opcache->oc_opcache_map[i] = (unsigned char)opts;
             if (opts > 254) {
