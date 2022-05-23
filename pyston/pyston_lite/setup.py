@@ -12,6 +12,17 @@ class pyston_build_ext(build_ext):
         extra_args = ext.extra_compile_args
         extra_link_args = ext.extra_link_args
 
+        # I don't see a way to customize CFLAGS per source file, so reach into the
+        # CCompiler object and wrap the _compile method to add our flags.
+        orig_compile_func = self.compiler._compile
+        def new_compile(obj, src, ext, cc_args, extra_postargs, pp_opts):
+            # This file can't use lto due to the global registers:
+            if "aot_ceval_jit_helper" in src:
+                extra_postargs = extra_postargs + ["-fno-lto"]
+            return orig_compile_func(obj, src, ext, cc_args, extra_postargs, pp_opts)
+        self.compiler._compile = new_compile
+
+
         ext.extra_compile_args = extra_args + ["-fprofile-generate"]
         ext.extra_link_args = extra_link_args + ["-fprofile-generate"]
         super(pyston_build_ext, self).build_extension(ext)
@@ -40,6 +51,7 @@ class pyston_build_ext(build_ext):
 
         ext.extra_compile_args = extra_args
         ext.extra_link_args = extra_link_args
+        del self.compiler._compile
 
     def run(self):
         subprocess.check_call(["../../pyston/tools/dynasm_preprocess.py", "aot_ceval_jit.c", "aot_ceval_jit.prep.c"])
@@ -52,7 +64,8 @@ ext = Extension(
         sources=["aot_ceval.c", "aot_ceval_jit.gen.c", "aot_ceval_jit_helper.c", "lib.c"],
         include_dirs=["../../pyston/LuaJIT", os.path.join(sysconfig.get_python_inc(), "internal")],
         define_macros=[("PYSTON_LITE", None), ("PYSTON_SPEEDUPS", "1"), ("Py_BUILD_CORE", None), ("ENABLE_AOT", None)],
-        extra_compile_args=["-std=gnu99"],
+        extra_compile_args=["-std=gnu99", "-flto", "-fuse-linker-plugin", "-ffat-lto-objects", "-flto-partition=none", "-fno-semantic-interposition"],
+        extra_link_args=["-flto", "-fuse-linker-plugin", "-ffat-lto-objects", "-flto-partition=none", "-fno-semantic-interposition"],
 )
 
 setup(name="pyston_lite",
