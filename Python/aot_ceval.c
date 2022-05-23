@@ -7150,7 +7150,11 @@ _PyCode_InitOpcache_Pyston(PyCodeObject* co, OpCache* opcache)
         unsigned char opcode = _Py_OPCODE(opcodes[i]);
         i++;  // 'i' is now aligned to (next_instr - first_instr)
 
-        if (opcode == LOAD_GLOBAL || opcode == LOAD_METHOD || opcode == LOAD_ATTR || opcode == STORE_ATTR) {
+        if (opcode == LOAD_GLOBAL || opcode == LOAD_METHOD || opcode == LOAD_ATTR || opcode == STORE_ATTR
+            || opcode == BINARY_ADD || opcode == INPLACE_ADD
+            || opcode == BINARY_SUBTRACT || opcode == INPLACE_SUBTRACT
+            || opcode == BINARY_MULTIPLY || opcode == INPLACE_MULTIPLY
+            || opcode == BINARY_SUBSCR || opcode == STORE_SUBSCR) {
             opts++;
             opcache->oc_opcache_map[i] = (unsigned char)opts;
             if (opts > 254) {
