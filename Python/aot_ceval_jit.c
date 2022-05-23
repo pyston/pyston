@@ -2410,6 +2410,11 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
 
         // res = arg3[ix]
         emit_load64_mem(Dst, res_idx, arg3_idx, la->u.offset_cache_split.ix * sizeof(PyObject*));
+
+        // attr can be NULL
+        emit_cmp64_imm(Dst, res_idx, 0);
+        | branch_eq >3
+        *emit_load_attr_res_0_helper = 1; // makes sure we emit label 3
         emit_incref(Dst, res_idx);
 
     } else if (la->cache_type == LA_CACHE_SLOT_CACHE) {
