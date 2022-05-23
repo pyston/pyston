@@ -2508,7 +2508,7 @@ static int emit_special_binary_op_inplace(Jit* Dst, int inst_idx, int opcode, in
     }
     // should we inplace modify the right operand?
     int use_right = !load_store_left && ref_status_right == OWNED && cache->refcnt1_right >=  cache->refcnt1_left && cache->refcnt1_right >= opcache->optimized/2;
-    if (!use_right) { // try the left
+    if (!load_store_left && !use_right) { // try the left
         // the inplace modified reference must be owned otherwise the refcnt==1 does not mean it's temporary.
         if (ref_status_left != OWNED)
             return -1;
@@ -2627,10 +2627,6 @@ static int emit_special_concat_inplace(Jit* Dst, int inst_idx, int opcode, int o
     _PyOpcache_TypeRefcnt* cache = &opcache->u.t_refcnt;
     if (cache->type != &PyUnicode_Type && cache->type != &PyList_Type) {
         return -1;
-    }
-    if (cache->type == &PyUnicode_Type) {
-        // we always emit this IC even if the refcount is not 1 and it can't be modified inplace
-        // because
     }
     // some simple heuristics: if the object can only inplace modified in less than half the cases
     // don't do the optimization
