@@ -156,7 +156,8 @@ typedef struct {
 typedef struct {
     PyTypeObject* type;  /* borrowed type */
     unsigned char refcnt1_left; /* how many times had the left operand a refcnt of 1 */
-    unsigned char refcnt1_right;/* how many times had the left operand a refcnt of 1 */
+    unsigned char refcnt2_left; /* how many times had the left operand a refcnt of 2 */
+    unsigned char refcnt1_right;/* how many times had the right operand a refcnt of 1 */
 } _PyOpcache_TypeRefcnt;
 
 _Static_assert(sizeof(_PyOpcache_LoadMethod) <= 32,  "_data[32] needs to be updated");

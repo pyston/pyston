@@ -741,10 +741,10 @@ static unsigned long jit_stat_load_method_hit, jit_stat_load_method_miss, jit_st
 static unsigned long jit_stat_load_global_hit, jit_stat_load_global_miss, jit_stat_load_global_inline, jit_stat_load_global_total;
 static unsigned long jit_stat_call_method_hit, jit_stat_call_method_miss, jit_stat_call_method_inline, jit_stat_call_method_total;
 static unsigned long jit_stat_getitemlong, jit_stat_getitemlong_inlined, jit_stat_setitemlong_inlined;
-static unsigned long jit_stat_unicode_concat;
 static unsigned long jit_stat_load_attr_poly, jit_stat_load_attr_poly_entries;
 static unsigned long jit_stat_load_method_poly, jit_stat_load_method_poly_entries;
-static unsigned long jit_stat_binary_op_refcnt1, jit_stat_binary_op_refcnt1_miss, jit_stat_binary_op_refcnt1_hit;
+static unsigned long jit_stat_binary_op_inplace, jit_stat_binary_op_inplace_miss, jit_stat_binary_op_inplace_hit;
+static unsigned long jit_stat_concat_inplace, jit_stat_concat_inplace_miss, jit_stat_concat_inplace_hit;
 
 #define ENABLE_DEFERRED_RES_PUSH 1
 #define ENABLE_AVOID_SIG_TRACE_CHECK 1
@@ -2483,8 +2483,11 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
     }
 #endif
 }
+
+// special inplace modification code for float math functions
+// can modify either the left or right operand
 // returns 0 if generation succeeded
-static int emit_special_binary_op_refcnt1(Jit* Dst, int inst_idx, int opcode, int oparg, RefStatus ref_status[2]) {
+static int emit_special_binary_op_inplace(Jit* Dst, int inst_idx, int opcode, int oparg, RefStatus ref_status_left, RefStatus ref_status_right, int load_store_left_idx, PyObject* const_right_val) {
     switch (opcode) {
         case BINARY_ADD:
         case BINARY_SUBTRACT:
@@ -2498,40 +2501,58 @@ static int emit_special_binary_op_refcnt1(Jit* Dst, int inst_idx, int opcode, in
         default:
             return -1;
     }
-    _PyOpcache* co_opcache = get_opcache_entry(Dst->opcache, inst_idx);
-    if (!co_opcache || !co_opcache->optimized) {
+    _PyOpcache* opcache = get_opcache_entry(Dst->opcache, inst_idx);
+    if (!opcache || !opcache->optimized) {
         return -1;
     }
-    _PyOpcache_TypeRefcnt* cache = &co_opcache->u.t_refcnt;
-    if (!cache->refcnt1_left && !cache->refcnt1_right) {
-        return -1;
-    }
+    _PyOpcache_TypeRefcnt* cache = &opcache->u.t_refcnt;
     if (cache->type != &PyFloat_Type) {
         return -1;
     }
-    int use_left = cache->refcnt1_left > cache->refcnt1_right && ref_status[1] == OWNED;
-    // the inplace modified reference must be owned otherwise the refcnt==1 does not mean it's temporary.
-    if (ref_status[use_left ? 1 : 0] != OWNED)
+    // if the left operand is a fast variable and the result is stored in it we can do a special
+    // optimization if we know it's not stored anywhere else.
+    // In the interpreter this cases have refcnt == 2 because the variable is stored in the
+    // fast arg array and on the value stack.
+    // if profiling showed that the right operand can be inplace modifed more often use it instead
+    int load_store_left = load_store_left_idx != -1 && cache->refcnt2_left >= cache->refcnt1_right;
+    if (!cache->refcnt1_left && !cache->refcnt1_right && !load_store_left) {
         return -1;
-    // some simple heuristics: if it looks like the refcnt is only 1 in less than half the cases
-    // don't inline it
-    if ((use_left ? cache->refcnt1_left : cache->refcnt1_right) < co_opcache->optimized/2)
-        return -1;
-    int inplace_reg = arg1_idx;
-    int other_reg = arg2_idx;
-    if (!use_left) {
-        inplace_reg = arg2_idx;
-        other_reg = arg1_idx;
+    }
+    // should we inplace modify the right operand?
+    int use_right = !load_store_left && ref_status_right == OWNED && cache->refcnt1_right >=  cache->refcnt1_left && cache->refcnt1_right >= opcache->optimized/2;
+    if (!load_store_left && !use_right) { // try the left
+        // the inplace modified reference must be owned otherwise the refcnt==1 does not mean it's temporary.
+        if (ref_status_left != OWNED)
+            return -1;
+        // some simple heuristics: if it looks like the refcnt is only 1 in less than half the cases
+        // don't inline it
+        if (cache->refcnt1_left < opcache->optimized/2)
+            return -1;
     }
 
-    ++jit_stat_binary_op_refcnt1;
+    int inplace_reg = arg1_idx;
+    int other_reg = arg2_idx;
+    RefStatus other_reg_ref_status = ref_status_right;
+    if (use_right) {
+        inplace_reg = arg2_idx;
+        other_reg = arg1_idx;
+        other_reg_ref_status = ref_status_left;
+    }
+
+    ++jit_stat_binary_op_inplace;
 
     // check that PyREFCNT()==1
+    // this is also correct in case of ''load_store_left=1' because the JIT borrows the reference
     emit_cmp64_mem_imm(Dst, inplace_reg, 0, 1 /* value */);
     | branch_ne >1
 
     | type_check arg1_idx, cache->type, >1
-    | type_check arg2_idx, cache->type, >1
+    if (const_right_val && Py_TYPE(const_right_val) == cache->type) {
+        // right operand is constant, don't have to check the type
+        JIT_ASSERT(use_right == 0, "");
+    } else {
+        | type_check arg2_idx, cache->type, >1
+    }
 
     if (cache->type == &PyFloat_Type) {
         const int offset_fval = offsetof(PyFloatObject, ob_fval);
@@ -2553,14 +2574,20 @@ static int emit_special_binary_op_refcnt1(Jit* Dst, int inst_idx, int opcode, in
 @ARM    | str d0, [Rx(inplace_reg),#offset_fval]
 @X86    | movsd qword [Rq(inplace_reg)+offset_fval], xmm0
         emit_mov64_reg(Dst, res_idx, inplace_reg);
-        if (ref_status[use_left ? 0 : 1] == OWNED) {
+        if (other_reg_ref_status == OWNED) {
             emit_decref(Dst, other_reg, 1 /* preserve res */);
         }
     } else {
         JIT_ASSERT(0, "");
     }
     if (jit_stats_enabled) {
-        emit_inc_qword_ptr(Dst, &jit_stat_binary_op_refcnt1_hit, 0 /*=can't use tmp_reg*/);
+        emit_inc_qword_ptr(Dst, &jit_stat_binary_op_inplace_hit, 0 /*=can't use tmp_reg*/);
+    }
+    if (load_store_left) {
+        // skip STORE_FAST
+        int dst_idx = inst_idx+2;
+        JIT_ASSERT(dst_idx >= 0 && dst_idx < Dst->num_opcodes, "");
+        | branch =>dst_idx
     }
 
     // slowpath
@@ -2568,10 +2595,130 @@ static int emit_special_binary_op_refcnt1(Jit* Dst, int inst_idx, int opcode, in
         switch_section(Dst, SECTION_COLD);
         |1:
         void* func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
+        RefStatus ref_status[] = { ref_status_right, ref_status_left };
         emit_call_decref_args2(Dst, func, arg2_idx, arg1_idx, ref_status);
         emit_if_res_0_error(Dst);
         if (jit_stats_enabled) {
-            emit_inc_qword_ptr(Dst, &jit_stat_binary_op_refcnt1_miss, 0 /*=can't use tmp_reg*/);
+            emit_inc_qword_ptr(Dst, &jit_stat_binary_op_inplace_miss, 0 /*=can't use tmp_reg*/);
+        }
+        | branch >2
+        switch_section(Dst, SECTION_CODE);
+    }
+    |2:
+
+    deferred_vs_push(Dst, REGISTER, res_idx);
+    return 0;
+}
+
+// Same signature as PyUnicode_Append
+// except that it only handles the case where pleft refcnt = 1
+static void list_append(PyObject **pleft, PyObject *right) {
+    if (!PyList_CheckExact(*pleft) || !PyList_CheckExact(right)) {
+        __builtin_unreachable();
+    }
+    JIT_ASSERT(Py_REFCNT(*pleft)==1, "");
+    // returns Py_None on success...
+    PyObject* none = _PyList_Extend((PyListObject*)*pleft, right);
+    if (none == NULL) {
+        Py_CLEAR(*pleft);
+        return;
+    }
+    Py_DECREF(none);
+}
+// special inplace modification code for string and list concatenations
+// only supports modifying the left operand inplace.
+// returns 0 if generation succeeded
+static int emit_special_concat_inplace(Jit* Dst, int inst_idx, int opcode, int oparg, RefStatus ref_status_left, RefStatus ref_status_right, int load_store_left_idx, PyObject* const_right_val) {
+    if (opcode != BINARY_ADD && opcode != INPLACE_ADD) {
+        return -1;
+    }
+    _PyOpcache* opcache = get_opcache_entry(Dst->opcache, inst_idx);
+    if (!opcache || !opcache->optimized) {
+        return -1;
+    }
+    _PyOpcache_TypeRefcnt* cache = &opcache->u.t_refcnt;
+    if (cache->type != &PyUnicode_Type && cache->type != &PyList_Type) {
+        return -1;
+    }
+    // some simple heuristics: if the object can only inplace modified in less than half the cases
+    // don't do the optimization
+    if (load_store_left_idx != -1) {
+        // it's 2 here because the interpreter holds a reference in the locals array and one in the value stack while the JIT will only hold 1
+        if (cache->refcnt2_left < opcache->optimized/2) {
+            return -1;
+        }
+    } else {
+        if (cache->refcnt1_left < opcache->optimized/2) {
+            return -1;
+        }
+    }
+
+    if (load_store_left_idx != -1) {
+        JIT_ASSERT(ref_status_left == BORROWED, "");
+    } else if (ref_status_left != OWNED) {
+        // we can't do the optimization
+        return -1;
+    }
+
+    ++jit_stat_concat_inplace;
+
+    // check that PyREFCNT()==1
+    emit_cmp64_mem_imm(Dst, arg1_idx, 0, 1 /* value */);
+    | branch_ne >1
+
+    | type_check arg1_idx, cache->type, >1
+    if (const_right_val && Py_TYPE(const_right_val) == cache->type) {
+        // right operand is constant, don't have to check the type
+    } else {
+        | type_check arg2_idx, cache->type, >1
+    }
+
+    void* func = cache->type == &PyUnicode_Type ? PyUnicode_Append : list_append;
+    if (load_store_left_idx != -1) {
+        // load address of fast local entry
+        emit_add_or_sub_imm(Dst, arg1_idx, f_idx, get_fastlocal_offset(load_store_left_idx));
+    } else {
+        // store owned temporary into stack slot so that we can get a pointer to it
+        emit_store64_mem(Dst, arg1_idx, sp_reg_idx, 0 /* stack slot */);
+        // move address of stack slot entry into arg1
+        emit_mov64_reg(Dst, arg1_idx, sp_reg_idx);
+    }
+    emit_call_decref_args1(Dst, func, arg2_idx, &ref_status_right);
+    // result got written into address arg1 pointed to
+
+    if (load_store_left_idx != -1) {
+        // we don't have to load the result because we modified the fast local array entry directly and will
+        // jump to the instruction after the store.
+        // we just need to to check if it's 0 which means a error happened.
+        emit_cmp64_mem_imm(Dst, f_idx, get_fastlocal_offset(load_store_left_idx), 0 /* value */);
+        | branch_eq ->error
+    } else {
+        // load result into res
+        emit_load64_mem(Dst, res_idx, sp_reg_idx, 0 /* stack slot */);
+        emit_if_res_0_error(Dst);
+    }
+
+    if (jit_stats_enabled) {
+        emit_inc_qword_ptr(Dst, &jit_stat_concat_inplace_hit, 0 /*=can't use tmp_reg*/);
+    }
+
+    if (load_store_left_idx != -1) {
+        // skip STORE_FAST
+        int dst_idx = inst_idx+2;
+        JIT_ASSERT(dst_idx >= 0 && dst_idx < Dst->num_opcodes, "");
+        | branch =>dst_idx
+    }
+
+    // slowpath
+    {
+        switch_section(Dst, SECTION_COLD);
+        |1:
+        void* func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
+        RefStatus ref_status[] = { ref_status_right, ref_status_left };
+        emit_call_decref_args2(Dst, func, arg2_idx, arg1_idx, ref_status);
+        emit_if_res_0_error(Dst);
+        if (jit_stats_enabled) {
+            emit_inc_qword_ptr(Dst, &jit_stat_concat_inplace_miss, 0 /*=can't use tmp_reg*/);
         }
         | branch >2
         switch_section(Dst, SECTION_CODE);
@@ -3395,21 +3542,18 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         {
             RefStatus ref_status[2];
 
-            // check if we can use the fast unicode concatenation path which modifies the first string
-            int unicode_concat = -1;
-            if ((opcode == INPLACE_ADD || opcode == BINARY_ADD) &&
-                Dst->deferred_vs_next >= 2 && GET_DEFERRED[-2].loc == FAST &&
+            // if the left operand is coming from a local variable (LOAD_FAST)
+            // and is replaced by the result of the opcode (STORE_FAST) we store the index of the
+            // fast variable else it's -1
+            int load_store_left_idx = -1;
+            if (Dst->deferred_vs_next >= 2 && GET_DEFERRED[-2].loc == FAST &&
                 inst_idx + 1 < Dst->num_opcodes) {
-                _PyOpcache* co_opcache = get_opcache_entry(opcache, inst_idx);
                 _Py_CODEUNIT next_word = Dst->first_instr[inst_idx + 1];
-                // interpreter sets this to 1 if both operands have been unicode strings
-                int both_are_unicode = co_opcache && co_opcache->optimized && co_opcache->u.t_refcnt.type == &PyUnicode_Type;
                 int next_opcode = _Py_OPCODE(next_word);
                 int next_oparg = _Py_OPARG(next_word);
-                if (both_are_unicode &&
-                    next_opcode == STORE_FAST && next_oparg == (int)GET_DEFERRED[-2].val &&
+                if (next_opcode == STORE_FAST && next_oparg == (int)GET_DEFERRED[-2].val &&
                     !Dst->is_jmp_target[inst_idx + 1]) {
-                    unicode_concat = next_oparg;
+                    load_store_left_idx = next_oparg;
                 }
             }
 
@@ -3423,27 +3567,13 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             if (opcode == COMPARE_OP && emit_special_compare_op(Dst, oparg, ref_status) == 0) {
                 break; // we are finished
             }
-            if (emit_special_binary_op_refcnt1(Dst, inst_idx, opcode, oparg, ref_status) == 0) {
+            if (emit_special_binary_op_inplace(Dst, inst_idx, opcode, oparg, ref_status[1], ref_status[0], load_store_left_idx, const_val) == 0) {
+                break; // we are finished
+            }
+            if (emit_special_concat_inplace(Dst, inst_idx, opcode, oparg, ref_status[1], ref_status[0], load_store_left_idx, const_val) == 0) {
                 break; // we are finished
             }
             // generic path
-            if (unicode_concat != -1) {
-                JIT_ASSERT(ref_status[1] == BORROWED, "");
-                | type_check arg1_idx, &PyUnicode_Type, >1
-                | type_check arg2_idx, &PyUnicode_Type, >1
-
-                emit_add_or_sub_imm(Dst, arg1_idx, f_idx, get_fastlocal_offset(unicode_concat));
-                emit_call_decref_args2(Dst, PyUnicode_Append, arg2_idx, arg1_idx, ref_status);
-
-                emit_cmp64_mem_imm(Dst, f_idx, get_fastlocal_offset(unicode_concat), 0 /* = value */);
-                | branch_eq ->error
-                // skip STORE_FAST
-                int dst_idx = inst_idx+2;
-                JIT_ASSERT(dst_idx >= 0 && dst_idx < Dst->num_opcodes, "");
-                | branch =>dst_idx
-                ++jit_stat_unicode_concat;
-            }
-
             |1:
             void* func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
             emit_call_decref_args2(Dst, func, arg2_idx, arg1_idx, ref_status);
@@ -4777,8 +4907,8 @@ jit_stat_##name##_inline, jit_stat_##name##_total, #opcode, jit_stat_##name##_hi
 
     fprintf(stderr, "jit: num GetItemLong: %lu inlined: %lu\n", jit_stat_getitemlong, jit_stat_getitemlong_inlined);
     fprintf(stderr, "jit: num SetItemLong: %lu inlined: %lu\n", jit_stat_setitemlong_inlined, jit_stat_setitemlong_inlined);
-    fprintf(stderr, "jit: num unicode concatenation: %lu\n", jit_stat_unicode_concat);
-    fprintf(stderr, "jit: num inplace binary op: %lu hits: %lu misses: %lu\n", jit_stat_binary_op_refcnt1, jit_stat_binary_op_refcnt1_hit, jit_stat_binary_op_refcnt1_miss);
+    fprintf(stderr, "jit: num inplace binary op: %lu hits: %lu misses: %lu\n", jit_stat_binary_op_inplace, jit_stat_binary_op_inplace_hit, jit_stat_binary_op_inplace_miss);
+    fprintf(stderr, "jit: num inplace concat: %lu hits: %lu misses: %lu\n", jit_stat_concat_inplace, jit_stat_concat_inplace_hit, jit_stat_concat_inplace_miss);
 
     fprintf(stderr, "jit: num polymorphic LOAD_ATTR sites: %lu with %lu entries\n", jit_stat_load_attr_poly, jit_stat_load_attr_poly_entries);
     fprintf(stderr, "jit: num polymorphic LOAD_METHOD sites: %lu with %lu entries\n", jit_stat_load_method_poly, jit_stat_load_method_poly_entries);
