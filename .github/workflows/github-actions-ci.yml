@@ -93,7 +93,7 @@ jobs:
       - uses: actions/checkout@v2
       - name: checkout submodules
         run: |
-          git submodule update --init pyston/LuaJIT pyston/bolt
+          git submodule update --init pyston/LuaJIT
       - name: build pyston and test
         run: |
           # enable core dumps
@@ -103,7 +103,10 @@ jobs:
           echo "/cores/corefile-%e-%p-%t" | sudo tee /proc/sys/kernel/core_pattern
 
           docker build -t ubuntu_nonroot .github/workflows/
-          docker run -iv${PWD}:/pyston_dir -iv/cores:/cores --name pyston_build ubuntu_nonroot /pyston_dir/.github/workflows/pyston_lite.sh
+          docker run -e NOBOLT -iv${PWD}:/pyston_dir -iv/cores:/cores --name pyston_build ubuntu_nonroot /pyston_dir/.github/workflows/pyston_lite.sh
+
+        env:
+          NOBOLT: "1"
 
       # core dump handling steps in case of failure
       - name: Core dump - add conda build directory
