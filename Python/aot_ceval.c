@@ -3425,12 +3425,16 @@ main_loop:
 
             _PyOpcache *co_opcache;
             OPCACHE_CHECK();
-            if (USE_STORE_ATTR_CACHE && co_opcache && likely(v)) {
+            if (USE_STORE_ATTR_CACHE && co_opcache && co_opcache->optimized && likely(v)) {
                 if (likely(storeAttrCache(owner, name, v, co_opcache, &err) == 0)) {
                     STACK_SHRINK(2);
                     goto sa_common;
                 }
-                ++co_opcache->num_failed;
+                if (++co_opcache->num_failed > 15) {
+                    // stop even trying to use the cache
+                    // the cache setup code will also not fill it anymore because it checks num_failed
+                    co_opcache->optimized = 0;
+                }
             }
             STACK_SHRINK(2);
             err = PyObject_SetAttr(owner, name, v);
@@ -4064,10 +4068,14 @@ sa_common:
 
             _PyOpcache *co_opcache;
             OPCACHE_CHECK();
-            if (USE_LOAD_ATTR_CACHE && co_opcache) {
+            if (USE_LOAD_ATTR_CACHE && co_opcache && co_opcache->optimized) {
                 if (likely(loadAttrCache(owner, name, co_opcache, &res, NULL) == 0))
                     goto la_common;
-                ++co_opcache->num_failed;
+                if (++co_opcache->num_failed > 15) {
+                    // stop even trying to use the cache
+                    // the cache setup code will also not fill it anymore because it checks num_failed
+                    co_opcache->optimized = 0;
+                }
             }
 
 
@@ -4540,7 +4548,7 @@ la_common:
             OPCACHE_CHECK();
 
             int is_method;
-            if (USE_LOAD_METHOD_CACHE && co_opcache) {
+            if (USE_LOAD_METHOD_CACHE && co_opcache && co_opcache->optimized) {
                 if (likely(loadAttrCache(obj, name, co_opcache, &meth, &is_method) == 0)) {
                     if (meth == NULL) {
                         goto error;
@@ -4555,7 +4563,11 @@ la_common:
                     }
                     goto lm_before_dispatch;
                 }
-                ++co_opcache->num_failed;
+                if (++co_opcache->num_failed > 15) {
+                    // stop even trying to use the cache
+                    // the cache setup code will also not fill it anymore because it checks num_failed
+                    co_opcache->optimized = 0;
+                }
             }
             meth = NULL;
 
