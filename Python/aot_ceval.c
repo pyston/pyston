@@ -1515,20 +1515,16 @@ setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObje
         la->cache_type = LA_CACHE_BUILTIN;
         la->type = tp;
     } else {
+#ifndef PYSTON_LITE
         // guard on the instance dict shape if the instance dict is a splitdict and does not contain the attribute name as key.
         // else we will create guard which will check for the exact dict version (=less generic)
         int is_split_dict = dict && _PyDict_HasSplitTable((PyDictObject*)dict);
-#ifdef PYSTON_LITE
-        if (is_split_dict) {
-            return -1;
-        }
-#else
         if (is_split_dict && _PyDict_GetItemIndexSplitDict(dict, name) == -1) {
             la->u.value_cache.dict_ver = getSplitDictKeysVersionFromDictPtr(dictptr);
             la->cache_type = LA_CACHE_VALUE_CACHE_SPLIT_DICT;
-        }
+        } else
 #endif
-        else {
+        {
             la->u.value_cache.dict_ver = getDictVersionFromDictPtr(dictptr);
             la->cache_type = LA_CACHE_VALUE_CACHE_DICT;
         }
