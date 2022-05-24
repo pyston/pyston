@@ -31,6 +31,8 @@ class pyston_build_ext(build_ext):
             return orig_compile_func(obj, src, ext, cc_args, extra_postargs, pp_opts)
         self.compiler._compile = new_compile
 
+        PGO_TESTS_TO_SKIP = "test_posix test_asyncio test_cmd_line_script test_compiler test_concurrent_futures test_ctypes test_dbm_dumb test_dbm_ndbm test_distutils test_ensurepip test_ftplib test_gdb test_httplib test_imaplib test_ioctl test_linuxaudiodev test_multiprocessing test_nntplib test_ossaudiodev test_poplib test_pydoc test_signal test_socket test_socketserver test_ssl test_subprocess test_sundry test_thread test_threaded_import test_threadedtempfile test_threading test_threading_local test_threadsignals test_venv test_zipimport_support test_code test_capi test_multiprocessing_forkserver test_multiprocessing_spawn test_multiprocessing_fork".split()
+
         if "NOPGO" in os.environ:
             super(pyston_build_ext, self).build_extension(ext)
         else:
@@ -56,7 +58,7 @@ class pyston_build_ext(build_ext):
                 if subprocess.check_output(["uname", "-m"]).decode("utf8").strip() == "aarch64":
                     parallel = "-j1"
 
-                subprocess.call([env_python, os.path.join(os.path.dirname(__file__), "../../Lib/test/regrtest.py"), parallel, "-unone,decimal", "-x", *"test_posix test_asyncio test_cmd_line_script test_compiler test_concurrent_futures test_ctypes test_dbm_dumb test_dbm_ndbm test_distutils test_ensurepip test_ftplib test_gdb test_httplib test_imaplib test_ioctl test_linuxaudiodev test_multiprocessing test_nntplib test_ossaudiodev test_poplib test_pydoc test_signal test_socket test_socketserver test_ssl test_subprocess test_sundry test_thread test_threaded_import test_threadedtempfile test_threading test_threading_local test_threadsignals test_venv test_zipimport_support test_code test_capi".split()])
+                subprocess.call([env_python, os.path.join(os.path.dirname(__file__), "../../Lib/test/regrtest.py"), parallel, "-unone,decimal", "-x"] + PGO_TESTS_TO_SKIP)
 
             # Step 3, recompile using profiling data:
 
@@ -89,7 +91,7 @@ class pyston_build_ext(build_ext):
                 check_call(["../../build/bolt/bin/llvm-bolt", ext_name + ".prebolt", "-instrument", "-instrumentation-file-append-pid", "-instrumentation-file=" + install_extname, "-o", install_extname, "-skip-funcs=_PyEval_EvalFrameDefault,_PyEval_EvalFrame_AOT_Interpreter.*"])
 
 
-                subprocess.call([env_python, os.path.join(os.path.dirname(__file__), "../../Lib/test/regrtest.py"), "-j0", "-unone,decimal", "-x", *"test_posix test_asyncio test_cmd_line_script test_compiler test_concurrent_futures test_ctypes test_dbm_dumb test_dbm_ndbm test_distutils test_ensurepip test_ftplib test_gdb test_httplib test_imaplib test_ioctl test_linuxaudiodev test_multiprocessing test_nntplib test_ossaudiodev test_poplib test_pydoc test_signal test_socket test_socketserver test_ssl test_subprocess test_sundry test_thread test_threaded_import test_threadedtempfile test_threading test_threading_local test_threadsignals test_venv test_zipimport_support test_code test_capi".split()])
+                subprocess.call([env_python, os.path.join(os.path.dirname(__file__), "../../Lib/test/regrtest.py"), "-j0", "-unone,decimal", "-x"] + PGO_TESTS_TO_SKIP)
 
                 check_call(["../../build/bolt/bin/merge-fdata"] + glob.glob(install_extname + ".*.fdata"), stdout=open(install_extname + ".fdata", "wb"))
 
