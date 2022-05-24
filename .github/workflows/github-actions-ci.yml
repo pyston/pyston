@@ -136,11 +136,12 @@ jobs:
       - name: build pyston and test
         run: |
           docker buildx build -t ubuntu_nonroot --platform linux/arm64 .github/workflows/
-          docker run -e ADDITIONAL_TESTS_TO_SKIP -e NOPGO -iv${PWD}:/pyston_dir -iv/cores:/cores --name pyston_build ubuntu_nonroot /pyston_dir/.github/workflows/pyston_lite.sh
+          docker run -e ADDITIONAL_TESTS_TO_SKIP -e NOPGO -e NOBOLT -iv${PWD}:/pyston_dir -iv/cores:/cores --name pyston_build ubuntu_nonroot /pyston_dir/.github/workflows/pyston_lite.sh
         env:
           # this tests fail with qemu
           ADDITIONAL_TESTS_TO_SKIP: "test_cmd_line test_faulthandler test_posix test_signal test_socket
     test_subprocess"
           # Disable PGO to keep the build time down:
           NOPGO: "1"
+          NOBOLT: "1"
 
