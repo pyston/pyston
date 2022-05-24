@@ -76,7 +76,7 @@ ext = Extension(
         include_dirs=["../../pyston/LuaJIT", os.path.join(sysconfig.get_python_inc(), "internal")],
         define_macros=[("PYSTON_LITE", None), ("PYSTON_SPEEDUPS", "1"), ("Py_BUILD_CORE", None), ("ENABLE_AOT", None)],
         extra_compile_args=["-std=gnu99", "-flto", "-fuse-linker-plugin", "-ffat-lto-objects", "-flto-partition=none", "-fno-semantic-interposition", "-specs=../tools/no-pie-compile.specs"],
-        extra_link_args=["-flto", "-fuse-linker-plugin", "-ffat-lto-objects", "-flto-partition=none", "-fno-semantic-interposition"],
+        extra_link_args=["-flto", "-fuse-linker-plugin", "-ffat-lto-objects", "-flto-partition=none", "-fno-semantic-interposition", "-specs=../tools/no-pie-link.specs"],
 )
 
 setup(name="pyston_lite",
