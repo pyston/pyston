@@ -15,4 +15,8 @@ sudo chown -R `whoami` /pyston_dir
 
 cd /pyston_dir/pyston/pyston_lite
 
+if [ -z ${NOBOLT+x} ]; then
+    make -C ../.. -j$(nproc) bolt
+fi
+
 make test -j$(nproc)
