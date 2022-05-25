@@ -5,6 +5,7 @@
 4. update `pyston/docker/Dockerfile\*` and `pyston/docker/build_docker.sh`
 5. update `pyston/conda/{pyston,python,python_abi}/meta.yaml` and update `build_num` if necessary
 6. update `pyston/conda/installer/construct.yaml`
+7. update `pyston/pyston_lite/setup.py` and `pyston/pyston_lite/autoload/setup.py`
 
 In addition if more than only the micro version changes:
 1. adjust `PYSTON_VERSION` inside `configure.ac` and run `autoconf`
@@ -25,6 +26,15 @@ We use a script which builds automatically packages for all supported distributi
 7. Upload to github
 8. Generate new docker images using `pyston/docker/build_docker.sh` (Generates Arm and X86 at same time)
 9. Update https://github.com/pyston/pyston/wiki/Using-conda
+
+## Releasing pyston-lite
+```bash
+cd pyston/pyston_lite
+git clean -fxdi
+make package
+make upload_wheels
+make test_packages
+```
 
 ## Testing a release
 1. Build the release as above

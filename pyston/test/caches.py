@@ -197,3 +197,25 @@ def test_set_slot():
     f(c)
     assert c.get() == -42
 test_set_slot()
+
+
+def test_splitdict_unset():
+    class C:
+        pass
+
+    def f(b):
+        c = C()
+        c.y = 1
+        if not b:
+            c.x = 1
+
+        c.x
+
+    for i in range(200):
+        f(0)
+    try:
+        f(1)
+        raise Exception()
+    except AttributeError:
+        pass
+test_splitdict_unset()
