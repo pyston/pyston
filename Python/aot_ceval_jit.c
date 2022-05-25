@@ -2261,15 +2261,10 @@ static int emit_special_compare_op(Jit* Dst, int oparg, RefStatus ref_status[2])
 }
 
 static int emit_inline_cache_loadattr_is_version_zero(_PyOpcache_LoadAttr *la) {
-#ifdef PYSTON_LITE
     int version_zero = (la->cache_type == LA_CACHE_VALUE_CACHE_DICT && la->u.value_cache.dict_ver == 0);
-#else
-    int version_zero = (la->cache_type == LA_CACHE_VALUE_CACHE_DICT && la->u.value_cache.dict_ver == 0) ||
-        (la->cache_type == LA_CACHE_IDX_SPLIT_DICT && la->u.split_dict_cache.splitdict_keys_version == 0);
-#endif
 
 #ifndef PYSTON_LITE
-    if (version_zero == 1 && la->cache_type == LA_CACHE_IDX_SPLIT_DICT) {
+    if (la->cache_type == LA_CACHE_IDX_SPLIT_DICT && la->u.split_dict_cache.splitdict_keys_version == 0) {
         // This case is currently impossible since it will always be a miss and we don't cache
         // misses, so it's untested.
         fprintf(stderr, "untested jit case");
@@ -2285,7 +2280,6 @@ static int emit_inline_cache_loadattr_supported(_PyOpcache *co_opcache, _PyOpcac
         return 0;
 
     int version_zero = emit_inline_cache_loadattr_is_version_zero(la);
-
     if (la->cache_type != LA_CACHE_BUILTIN && la->cache_type != LA_CACHE_DATA_DESCR && la->cache_type != LA_CACHE_SLOT_CACHE) {
         // fail the cache if dictoffset<0 rather than do the lengthier dict_ptr computation
         if (version_zero) {
@@ -2349,8 +2343,9 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
             emit_load64_mem(Dst, arg2_idx, arg1_idx, la->type_tp_dictoffset);
             emit_cmp64_imm(Dst, arg2_idx, 0);
             if (version_zero) {
-                // null dict is always a cache hit
-                | branch_eq >2
+                // non-null dict is always a cache miss
+                | branch_ne >1
+                // we are finished and fallthrough to 2
             } else {
                 // null dict is always a cache miss
                 | branch_eq >1
@@ -2430,7 +2425,7 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
             la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT ||
 #endif
             la->cache_type == LA_CACHE_BUILTIN) {
-        if (version_zero && la->type_tp_dictoffset == 0) {
+        if (version_zero) {
             // Already guarded
         }
 #ifndef PYSTON_LITE
