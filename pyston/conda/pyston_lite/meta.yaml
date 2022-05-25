@@ -1,0 +1,43 @@
+{% set build_num = 0 %} # caution: only reset when python_version changes
+{% set pyston_version = "2.3.3" %}
+{% set python_version = "3.8" %}
+
+package:
+  name: pyston_lite
+  version: {{ pyston_version }}
+  skip: True  # [not linux]
+
+source:
+  path: ../../../
+
+outputs:
+  - name: pyston_lite
+
+    build:
+      script: cd pyston/pyston_lite; python setup.py install -v
+      detect_binary_files_with_prefix: true
+
+    requirements:
+      host:
+        - {{ compiler('c') }}
+        - python {{ python_version }}
+        - luajit
+      run:
+        - python {{ python_version }}
+
+  - name: pyston_lite_autoload
+
+    build:
+      script: cd pyston/pyston_lite/autoload; python setup.py install -v
+
+    requirements:
+      host:
+        - python {{ python_version }}
+        - {{ compiler('c') }}
+      run:
+        - {{ pin_subpackage('pyston_lite', exact=True) }}
+
+
+    test:
+      commands:
+        - python -c "import sys; assert 'pyston_lite' in sys.modules"
