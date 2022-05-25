@@ -148,3 +148,25 @@ jobs:
           NOPGO: "1"
           NOBOLT: "1"
 
+  pyston_lite_macos:
+    runs-on: macos-11
+    steps:
+      - uses: actions/checkout@v2
+      - name: checkout submodules
+        run: |
+          git submodule update --init pyston/LuaJIT
+      - name: run code
+        run: |
+          brew install gcc@11 luajit-openresty
+          export PATH="/usr/local/opt/luajit-openresty/bin:$PATH"
+          # gcc-11 is already in path
+
+          # install official python3.8 package
+          curl https://www.python.org/ftp/python/3.8.10/python-3.8.10-macosx10.9.pkg -o python.pkg
+          sudo installer -pkg python.pkg -target /
+
+          cd pyston/pyston_lite
+
+          # pyston must be compiled by gcc not clang
+          CC=gcc-11 make test
+          SHOW_JIT_STATS=1 ./env/bin/python ../test/inplace_math.py

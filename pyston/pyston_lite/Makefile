@@ -52,6 +52,10 @@ env/update.stamp: env/lite.stamp
 # A number of other tests in the cpython testsuite fail with the Ubuntu packages, and I'm not sure why.
 # This happens regardless of whether pyston-lite is installed, so just exclude them.
 ADDITIONAL_TESTS_TO_SKIP?=
+ifeq ($(shell uname),Darwin)
+# this test errors on macOS (also with stock cpython)
+ADDITIONAL_TESTS_TO_SKIP:=$(ADDITIONAL_TESTS_TO_SKIP) test_ctypes
+endif
 test: env/lite.stamp
 	set -ex; for fn in ../test/*.py; do if [ $$fn = ../test/test_rebuild_packages.py -o $$fn = ../test/test_venvs.py ]; then continue; fi; ./env/bin/python $$fn; done
 	./env/bin/python -c 'import test.support; test.support.check_impl_detail = lambda **kw: False; import test.test_code; test.test_code.test_main()'

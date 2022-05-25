@@ -599,16 +599,6 @@ lookup_maybe_method(PyObject *self, _Py_Identifier *attrid, int *unbound)
 }
 
 static PyObject *
-lookup_method_cached(PyObject *self, _Py_Identifier *attrid, int *unbound, PyObject** cache_slot)
-{
-    PyObject *res = lookup_maybe_method_cached(self, attrid, unbound, cache_slot);
-    if (res == NULL && !PyErr_Occurred()) {
-        PyErr_SetObject(PyExc_AttributeError, attrid->object);
-    }
-    return res;
-}
-
-static PyObject *
 lookup_method(PyObject *self, _Py_Identifier *attrid, int *unbound)
 {
     PyObject *res = lookup_maybe_method(self, attrid, unbound);
