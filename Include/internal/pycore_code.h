@@ -36,18 +36,18 @@ enum _PyOpcache_LoadAttr_Types {
     LA_CACHE_VALUE_CACHE_DICT = 0,
 
 #ifndef PYSTON_LITE
-    // caching an index inside instance splitdict, guarded by the splitdict keys version (dict->ma_keys->dk_version_tag)
+    // caching an index inside instance splitdict, guarded by either the splitdict keys version (dict->ma_keys->dk_version_tag)
+    // or the keys identity + keys size if the version is not available
     LA_CACHE_IDX_SPLIT_DICT = 1,
 #endif
 
     // caching a data descriptor object, guarded by data descriptor types version
     LA_CACHE_DATA_DESCR = 2,
 
-#ifndef PYSTON_LITE
-    // caching an object from the type, guarded by instance splitdict keys version (dict->ma_keys->dk_version_tag)
+    // caching an object from the type, guarded by either the instance splitdict keys version (dict->ma_keys->dk_version_tag)
+    // or the keys identity + keys size if the version is not available
     // (making sure the attribute is not getting overwritten in the instance dict)
     LA_CACHE_VALUE_CACHE_SPLIT_DICT = 3,
-#endif
 
     // caching the offset to the instance dict entry inside the hash table.
     // Works for non split dicts but retrieval is slower than LA_CACHE_VALUE_CACHE_DICT
@@ -88,6 +88,12 @@ typedef struct {
                 (used when we guard that a attribute is coming from the type and is not inside the instance dict) */
             uint64_t dict_ver;
         } value_cache;
+        struct {
+            PyObject *obj;  /* Cached pointer (borrowed reference) */
+            // TODO maybe we can use the bottom bits of obj and keys_obj to store dk_nentries?
+            void* keys_obj;
+            Py_ssize_t dk_nentries;
+        } value_cache_split;
         struct {
             uint64_t splitdict_keys_version;  /* dk_version_tag of dict */
             Py_ssize_t splitdict_index;  /* index into dict value array */
@@ -160,11 +166,6 @@ typedef struct {
     unsigned char refcnt1_right;/* how many times had the right operand a refcnt of 1 */
 } _PyOpcache_TypeRefcnt;
 
-_Static_assert(sizeof(_PyOpcache_LoadMethod) <= 32,  "_data[32] needs to be updated");
-_Static_assert(sizeof(_PyOpcache_LoadAttr) <= 32,  "_data[32] needs to be updated");
-_Static_assert(sizeof(_PyOpcache_StoreAttr) <= 32,  "_data[32] needs to be updated");
-_Static_assert(sizeof(_PyOpcache_Type) <= 32,  "_data[32] needs to be updated");
-_Static_assert(sizeof(_PyOpcache_TypeRefcnt) <= 32,  "_data[32] needs to be updated");
 #endif
 
 struct _PyOpcache {

@@ -39,6 +39,8 @@
 #include <sys/mman.h>
 
 #ifdef PYSTON_LITE
+#include "dict-common.h"
+
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
@@ -79,8 +81,8 @@ uint64_t _PyDict_GetDictKeyVersionFromKeys(PyObject *op);
 PyObject *_PyDict_GetItemFromSplitDict(PyObject *op, Py_ssize_t index);
 int _PyDict_SetItemFromSplitDict(PyObject *op, PyObject *key, Py_ssize_t index, PyObject* value);
 int _PyDict_SetItemInitialFromSplitDict(PyTypeObject *tp, PyObject **dict_ptr, PyObject *key, Py_ssize_t index, PyObject* value);
-Py_ssize_t _PyDict_GetItemIndexSplitDict(PyObject *op, PyObject *key);
 #endif
+Py_ssize_t _PyDict_GetItemIndexSplitDict(PyObject *op, PyObject *key);
 
 typedef PyObject *(*callproc)(PyObject *, PyObject *, PyObject *);
 
@@ -1230,18 +1232,24 @@ loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject*
             return -1;
         Py_INCREF(*res);
     } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT ||
-#ifndef PYSTON_LITE
             la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT ||
-#endif
             la->cache_type == LA_CACHE_BUILTIN)
     {
-#ifndef PYSTON_LITE
         if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
+#ifdef NO_DKVERSION
+            if (!dictptr || !*dictptr) {
+                if (la->u.value_cache_split.keys_obj != NULL)
+                    return -1;
+            } else {
+                PyDictKeysObject *keys = (*(PyDictObject**)dictptr)->ma_keys;
+                if (la->u.value_cache_split.keys_obj != keys || la->u.value_cache_split.dk_nentries != keys->dk_nentries)
+                    return -1;
+            }
+#else
             if (la->u.value_cache.dict_ver != getSplitDictKeysVersionFromDictPtr(dictptr))
                 return -1;
-        } else
 #endif
-        if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT) {
+        } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT) {
             if (la->u.value_cache.dict_ver != getDictVersionFromDictPtr(dictptr))
                 return -1;
         } else {
@@ -1515,20 +1523,28 @@ setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObje
         la->cache_type = LA_CACHE_BUILTIN;
         la->type = tp;
     } else {
-#ifndef PYSTON_LITE
         // guard on the instance dict shape if the instance dict is a splitdict and does not contain the attribute name as key.
         // else we will create guard which will check for the exact dict version (=less generic)
         int is_split_dict = dict && _PyDict_HasSplitTable((PyDictObject*)dict);
         if (is_split_dict && _PyDict_GetItemIndexSplitDict(dict, name) == -1) {
+#ifdef NO_DKVERSION
+            PyDictKeysObject *keys = ((PyDictObject*)dict)->ma_keys;
+            // We guard on the value of the PyDictKeysObject pointer, so we have to make sure that
+            // the keys object doesn't get deallocated+reallocated. So we incref the keys object.
+            // Unfortunately this means the keys object will leak, but hopefully that's not that big a deal.
+            keys->dk_refcnt++;
+            la->u.value_cache_split.keys_obj = keys;
+            la->u.value_cache_split.dk_nentries = keys->dk_nentries;
+#else
             la->u.value_cache.dict_ver = getSplitDictKeysVersionFromDictPtr(dictptr);
-            la->cache_type = LA_CACHE_VALUE_CACHE_SPLIT_DICT;
-        } else
 #endif
-        {
+            la->cache_type = LA_CACHE_VALUE_CACHE_SPLIT_DICT;
+        } else {
             la->u.value_cache.dict_ver = getDictVersionFromDictPtr(dictptr);
             la->cache_type = LA_CACHE_VALUE_CACHE_DICT;
         }
     }
+    // TODO this should be value_cache_split in some cases
     la->u.value_cache.obj = res;
 
 common_cached:

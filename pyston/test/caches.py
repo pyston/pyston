@@ -119,7 +119,7 @@ def main():
     # Scanning different number of iters to try to test different opcache/jit combinations
     for i in range(15):
         iters = int(1.5 * (1 << i))
-        print("Testing with %d iters" % iters)
+        # print("Testing with %d iters" % iters)
         testLoadMethodCache(iters)
 
 main()
@@ -219,3 +219,44 @@ def test_splitdict_unset():
     except AttributeError:
         pass
 test_splitdict_unset()
+
+
+def test_splitdict_fromtype():
+    """
+    tests some edge cases around getting attributes
+    from the type when the instances have split dicts
+    """
+
+    class C:
+        def __init__(self):
+            self.x = 2
+            self.y = 2
+
+        def f(self):
+            return 1
+
+    def f():
+        c2 = C()
+
+        def g(c):
+            return c.f()
+
+        for i in range(1000):
+            g(c2)
+
+        assert g(c2) == 1
+        c3 = C()
+        c3.f = lambda: 2
+        assert g(c3) == 2, g(c3)
+
+        def h(c):
+            return c.f()
+
+        for i in range(1000):
+            h(c3)
+
+        assert h(c3) == 2
+        assert h(c2) == 1
+
+    f()
+test_splitdict_fromtype()

@@ -314,6 +314,18 @@ int64_t _PyDict_GetItemOffsetSplit(PyDictObject *mp, PyObject *key, Py_ssize_t *
     return ix;
 }
 
+Py_ssize_t
+_PyDict_GetItemIndexSplitDict(PyObject *op, PyObject *key) {
+    PyDictObject* mp = (PyDictObject *)op;
+    Py_hash_t hash = ((PyASCIIObject *) key)->hash;
+    PyObject *value;
+
+    // this should always be set because we will get only here if a previous lookup succeeded
+    // and the keys are static unicode strings
+    assert(hash != -1);
+
+    return (mp->ma_keys->dk_lookup)(mp, key, hash, &value);
+}
 
 PyObject * _Py_HOT_FUNCTION
 call_function_ceval_fast(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg, PyObject *kwnames)
