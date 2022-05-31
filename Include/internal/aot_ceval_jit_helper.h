@@ -21,11 +21,22 @@ extern "C" {
 #define JIT_HELPER_WITH_NAME_OPCACHE_AOT1(name_, py1) PyObject* JIT_HELPER_##name_(PyObject* name, PyObject* py1, _PyOpcache *co_opcache)
 #define JIT_HELPER_WITH_NAME_OPCACHE_AOT2(name_, py1, py2) PyObject* JIT_HELPER_##name_(PyObject* name, PyObject* py1, PyObject* py2, _PyOpcache *co_opcache)
 
+// on apple arm64 we can't have a writable and executable page at the same time.
+// instead the provide an api to quickly change the protection.
+#if __APPLE__ && __aarch64__
+#define JIT_MEM_RW() pthread_jit_write_protect_np(0)
+#define JIT_MEM_RX() pthread_jit_write_protect_np(1)
+#else
+#define JIT_MEM_RW()
+#define JIT_MEM_RX()
+#endif
+
 /* this directly modifies the destination of the jit generated call instruction */\
 #if __aarch64__
 #define SET_JIT_AOT_FUNC(dst_addr) do { \
     /* retrieve address of the instruction following the call instruction */ \
     unsigned int* ret_addr = (unsigned int*)__builtin_extract_return_addr(__builtin_return_address(0)); \
+    JIT_MEM_RW(); \
     if (ret_addr[-1] == 0xD63F00C0 /* blr x6 */ ) { \
         /* we generated one 'mov' followed by 3 'movk' */ \
         ret_addr[-5] = 0xD2800006 | ((unsigned long)dst_addr&0xFFFF)<<5; \
@@ -38,6 +49,7 @@ extern "C" {
         ret_addr[-1] = 0x94000000 | (((long)dst_addr - (long)&ret_addr[-1])&((1<<29)-1))>>2; \
         __builtin___clear_cache(&ret_addr[-1], &ret_addr[0]); \
     } \
+    JIT_MEM_RX(); \
 } while(0)
 #else
 #define SET_JIT_AOT_FUNC(dst_addr) do { \

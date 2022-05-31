@@ -56,6 +56,7 @@ import sys
 
 ARCHS = {
     "aarch64": "ARM",
+    "arm64": "ARM", # macOS name
     "x86_64": "X86",
 }
 

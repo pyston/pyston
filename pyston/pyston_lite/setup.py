@@ -35,7 +35,7 @@ class pyston_build_ext(build_ext):
             return orig_compile_func(obj, src, ext, cc_args, extra_postargs, pp_opts)
         self.compiler._compile = new_compile
 
-        PGO_TESTS_TO_SKIP = "test_posix test_asyncio test_cmd_line_script test_compiler test_concurrent_futures test_ctypes test_dbm_dumb test_dbm_ndbm test_distutils test_ensurepip test_ftplib test_gdb test_httplib test_imaplib test_ioctl test_linuxaudiodev test_multiprocessing test_nntplib test_ossaudiodev test_poplib test_pydoc test_signal test_socket test_socketserver test_ssl test_subprocess test_sundry test_thread test_threaded_import test_threadedtempfile test_threading test_threading_local test_threadsignals test_venv test_zipimport_support test_code test_capi test_multiprocessing_forkserver test_multiprocessing_spawn test_multiprocessing_fork".split()
+        PGO_TESTS_TO_SKIP = "test_posix test_asyncio test_cmd_line_script test_compiler test_concurrent_futures test_ctypes test_dbm test_dbm_dumb test_dbm_ndbm test_distutils test_ensurepip test_ftplib test_gdb test_httplib test_imaplib test_ioctl test_linuxaudiodev test_multiprocessing test_nntplib test_ossaudiodev test_poplib test_pydoc test_signal test_socket test_socketserver test_ssl test_subprocess test_sundry test_thread test_threaded_import test_threadedtempfile test_threading test_threading_local test_threadsignals test_venv test_zipimport_support test_code test_capi test_multiprocessing_forkserver test_multiprocessing_spawn test_multiprocessing_fork".split()
 
         if NOPGO:
             super(pyston_build_ext, self).build_extension(ext)
