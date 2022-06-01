@@ -1235,6 +1235,7 @@ loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject*
             la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT ||
             la->cache_type == LA_CACHE_BUILTIN)
     {
+        PyObject* obj;
         if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
 #ifdef NO_DKVERSION
             if (!dictptr || !*dictptr) {
@@ -1246,23 +1247,28 @@ loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject*
                     return -1;
             }
 #else
-            if (la->u.value_cache.dict_ver != getSplitDictKeysVersionFromDictPtr(dictptr))
+            if (la->u.value_cache_split.dk_version != getSplitDictKeysVersionFromDictPtr(dictptr))
                 return -1;
 #endif
+            obj = la->u.value_cache_split.obj;
         } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT) {
             if (la->u.value_cache.dict_ver != getDictVersionFromDictPtr(dictptr))
                 return -1;
-        } else {
+            obj = la->u.value_cache.obj;
+        } else if (la->cache_type == LA_CACHE_BUILTIN) {
             if (la->type != Py_TYPE(owner))
                 return -1;
+            obj = la->u.builtin_cache.obj;
+        } else {
+            abort();
         }
 
-        if (la->guard_tp_descr_get && Py_TYPE(la->u.value_cache.obj)->tp_descr_get != NULL)
+        if (la->guard_tp_descr_get && Py_TYPE(obj)->tp_descr_get != NULL)
             return -1;
 
-        *res = la->u.value_cache.obj;
-        assert(*res); // must be set because otherwise we would not have cached the value
-        Py_INCREF(*res);
+        assert(obj); // must be set because otherwise we would not have cached the value
+        Py_INCREF(obj);
+        *res = obj;
 #ifndef PYSTON_LITE
     } else if (la->cache_type == LA_CACHE_IDX_SPLIT_DICT) {
         // check if this dict has the same keys as the cached one
@@ -1522,6 +1528,7 @@ setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObje
         // Simple case: this is a static (immutable) type, so we don't have to guard on as much.
         la->cache_type = LA_CACHE_BUILTIN;
         la->type = tp;
+        la->u.builtin_cache.obj = res;
     } else {
         // guard on the instance dict shape if the instance dict is a splitdict and does not contain the attribute name as key.
         // else we will create guard which will check for the exact dict version (=less generic)
@@ -1536,16 +1543,16 @@ setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObje
             la->u.value_cache_split.keys_obj = keys;
             la->u.value_cache_split.dk_nentries = keys->dk_nentries;
 #else
-            la->u.value_cache.dict_ver = getSplitDictKeysVersionFromDictPtr(dictptr);
+            la->u.value_cache_split.dk_version = getSplitDictKeysVersionFromDictPtr(dictptr);
 #endif
+            la->u.value_cache_split.obj = res;
             la->cache_type = LA_CACHE_VALUE_CACHE_SPLIT_DICT;
         } else {
             la->u.value_cache.dict_ver = getDictVersionFromDictPtr(dictptr);
+            la->u.value_cache.obj = res;
             la->cache_type = LA_CACHE_VALUE_CACHE_DICT;
         }
     }
-    // TODO this should be value_cache_split in some cases
-    la->u.value_cache.obj = res;
 
 common_cached:
     if (tp->tp_dictoffset < SHRT_MIN || tp->tp_dictoffset > SHRT_MAX) {

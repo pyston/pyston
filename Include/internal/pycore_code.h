@@ -35,9 +35,8 @@ enum _PyOpcache_LoadAttr_Types {
     // (only used if the more powerful LA_CACHE_IDX_SPLIT_DICT or LA_CACHE_VALUE_CACHE_SPLIT_DICT is not possible)
     LA_CACHE_VALUE_CACHE_DICT = 0,
 
-#ifndef PYSTON_LITE
-    // caching an index inside instance splitdict, guarded by either the splitdict keys version (dict->ma_keys->dk_version_tag)
-    // or the keys identity + keys size if the version is not available
+#ifndef NO_DKVERSION
+    // caching an index inside instance splitdict, guarded by the splitdict keys version (dict->ma_keys->dk_version_tag)
     LA_CACHE_IDX_SPLIT_DICT = 1,
 #endif
 
@@ -45,17 +44,22 @@ enum _PyOpcache_LoadAttr_Types {
     LA_CACHE_DATA_DESCR = 2,
 
     // caching an object from the type, guarded by either the instance splitdict keys version (dict->ma_keys->dk_version_tag)
-    // or the keys identity + keys size if the version is not available
+    // or the keys identity + keys nentries if the version is not available
     // (making sure the attribute is not getting overwritten in the instance dict)
+    // Instances may have fewer attributes than there are keys, but that is ok because we just
+    // need to prove that the instance does *not* have the relevant attribute.
     LA_CACHE_VALUE_CACHE_SPLIT_DICT = 3,
 
     // caching the offset to the instance dict entry inside the hash table.
     // Works for non split dicts but retrieval is slower than LA_CACHE_VALUE_CACHE_DICT
     // so only gets used if the lookups miss frequently.
     // Has the advantage that even with modifications to the dict the cache will mostly hit.
+    // Guards on the hashtable size to ensure that the index points to a valid entry, but
+    // doesn't need to guard on the number of entries in the hashtable since it checks the entry.
     LA_CACHE_OFFSET_CACHE = 4,
 
-    // The same thing as LA_CACHE_OFFSET_CACHE but for split dicts
+    // The same thing as LA_CACHE_OFFSET_CACHE but for split dicts.
+    // Since the instance can have fewer attributes set than keys set, this cache can return NULL.
     LA_CACHE_OFFSET_CACHE_SPLIT = 5,
 
     // caching the offset to attribute slot inside a python object.
@@ -82,22 +86,32 @@ typedef struct {
     };
     union {
         struct {
+            PyObject *obj;
+        } builtin_cache;
+        struct {
             PyObject *obj;  /* Cached pointer (borrowed reference) */
-            /* cache_type=0 guard on the exact instance dict version (dict_ver contains dict->ma_version)
-               cache_type=3 guard on instance split dict keys not changing (dict_ver contains dict->ma_keys->dk_version_tag)
-                (used when we guard that a attribute is coming from the type and is not inside the instance dict) */
+            // guard on the exact instance dict version (dict_ver contains dict->ma_version)
             uint64_t dict_ver;
         } value_cache;
+#ifdef NO_DKVERSION
         struct {
             PyObject *obj;  /* Cached pointer (borrowed reference) */
             // TODO maybe we can use the bottom bits of obj and keys_obj to store dk_nentries?
             void* keys_obj;
             Py_ssize_t dk_nentries;
         } value_cache_split;
+#else
+        struct {
+            PyObject *obj;  /* Cached pointer (borrowed reference) */
+            uint64_t dk_version;
+        } value_cache_split;
+#endif
+#ifndef NO_DKVERSION
         struct {
             uint64_t splitdict_keys_version;  /* dk_version_tag of dict */
             Py_ssize_t splitdict_index;  /* index into dict value array */
         } split_dict_cache;
+#endif
         struct {
             PyObject *descr;  /* Cached pointer (borrowed reference) */
             uint64_t descr_type_ver;  /* tp_version_tag of the descriptor type */

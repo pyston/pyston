@@ -2438,18 +2438,30 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
 #else
             // _PyDict_GetDictKeyVersionFromSplitDict:
             // arg3 = arg2->ma_keys
-            emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeysObject, dk_version_tag), (uint64_t)la->u.value_cache.dict_ver);
+            emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeysObject, dk_version_tag), (uint64_t)la->u.value_cache_split.dk_version);
 #endif
             | branch_ne >1
         }
         else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT) {
             emit_cmp64_mem_imm(Dst, arg2_idx, offsetof(PyDictObject, ma_version_tag), (uint64_t)la->u.value_cache.dict_ver);
             | branch_ne >1
-        } else {
+        } else if (la->cache_type == LA_CACHE_BUILTIN) {
             // Already guarded
+        } else {
+            abort();
         }
         | 2:
-        PyObject* r = la->u.value_cache.obj;
+
+        PyObject* r;
+        if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT)
+            r = la->u.value_cache_split.obj;
+        else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT)
+            r = la->u.value_cache.obj;
+        else if (la->cache_type == LA_CACHE_BUILTIN)
+            r = la->u.builtin_cache.obj;
+        else
+            abort();
+
         emit_mov_imm(Dst, res_idx, (uint64_t)r);
 
         // In theory we could remove some of these checks, since we could prove that tp_descr_get wouldn't
@@ -2818,7 +2830,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                     CallMethodHint* hint = Dst->call_method_hints;
                     if (hint) {
                         hint->type = la->type;
-                        hint->attr = la->u.value_cache.obj;
+                        hint->attr = la->u.builtin_cache.obj;
                         hint->meth_found = la->meth_found;
                         hint->is_self_const = const_val != NULL;
                     }
@@ -2828,7 +2840,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 if (const_val && la->cache_type == LA_CACHE_BUILTIN && la->meth_found &&
                     la->type == Py_TYPE(const_val)) {
                     deferred_vs_remove(Dst, 1); // this is LOAD_CONST 'self'
-                    deferred_vs_push(Dst, CONST, (unsigned long)la->u.value_cache.obj);
+                    deferred_vs_push(Dst, CONST, (unsigned long)la->u.builtin_cache.obj);
                     deferred_vs_push(Dst, CONST, (unsigned long)const_val);
                     if (jit_stats_enabled) {
                         emit_inc_qword_ptr(Dst, &jit_stat_load_method_hit, 1 /*=can use tmp_reg*/);
