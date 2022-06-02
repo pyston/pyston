@@ -2771,7 +2771,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
         // I think it's still worth leaving it in to reduce potential downside in bad cases,
         // as it definitely helps with the other opcodes.
         // globals_ver != 0 makes sure we don't write out an always-failing inline cache
-        if (co_opcache->num_failed == 0 && co_opcache->u.lg.globals_ver != 0) {
+        if (co_opcache->num_failed == 0) {
             _PyOpcache_LoadGlobal *lg = &co_opcache->u.lg;
 
             ++jit_stat_load_global_inline;
@@ -2779,16 +2779,53 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             deferred_vs_convert_reg_to_stack(Dst);
 
             emit_load64_mem(Dst, arg3_idx, f_idx, offsetof(PyFrameObject, f_globals));
-            emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictObject, ma_version_tag), (uint64_t)lg->globals_ver);
-            | branch_ne >1
-            if (lg->builtins_ver != LOADGLOBAL_WAS_GLOBAL) {
-                emit_load64_mem(Dst, arg3_idx, f_idx, offsetof(PyFrameObject, f_builtins));
-                emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictObject, ma_version_tag), (uint64_t)lg->builtins_ver);
+
+            if (lg->cache_type == LG_GLOBAL) {
+                emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictObject, ma_version_tag), (uint64_t)lg->u.global_cache.globals_ver);
                 | branch_ne >1
-            }
-            emit_mov_imm(Dst, res_idx, (uint64_t)lg->ptr);
-            if (!IS_IMMORTAL(lg->ptr))
+
+                emit_mov_imm(Dst, res_idx, (uint64_t)lg->u.global_cache.ptr);
+                if (!IS_IMMORTAL(lg->u.global_cache.ptr))
+                    emit_incref(Dst, res_idx);
+
+            } else if (lg->cache_type == LG_BUILTIN) {
+                emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictObject, ma_version_tag), (uint64_t)lg->u.builtin_cache.globals_ver);
+                | branch_ne >1
+
+                emit_load64_mem(Dst, arg3_idx, f_idx, offsetof(PyFrameObject, f_builtins));
+                emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictObject, ma_version_tag), (uint64_t)lg->u.builtin_cache.builtins_ver);
+                | branch_ne >1
+
+                emit_mov_imm(Dst, res_idx, (uint64_t)lg->u.builtin_cache.ptr);
+                if (!IS_IMMORTAL(lg->u.builtin_cache.ptr))
+                    emit_incref(Dst, res_idx);
+
+            } else if (lg->cache_type == LG_GLOBAL_OFFSET) {
+                // if (mp->ma_keys->dk_size != dk_size) goto slow_path;
+                emit_load64_mem(Dst, res_idx, arg3_idx, offsetof(PyDictObject, ma_keys));
+                emit_cmp64_mem_imm(Dst, res_idx, offsetof(PyDictKeysObject, dk_size), (uint64_t)lg->u.global_offset_cache.dk_size);
+                | branch_ne >1
+
+                // if (mp->ma_keys->dk_lookup == lookdict_split) goto slow_path;
+                emit_cmp64_mem_imm(Dst, res_idx, offsetof(PyDictKeysObject, dk_lookup), (uint64_t)lookdict_split);
+                | branch_eq >1
+
+                // PyDictKeyEntry *arg3 = (PyDictKeyEntry*)(mp->ma_keys->dk_indices + offset);
+                uint64_t total_offset = offsetof(PyDictKeysObject, dk_indices) + lg->u.global_offset_cache.offset;
+                emit_add_or_sub_imm(Dst, arg3_idx, res_idx, total_offset);
+
+                // if (ep->me_key != key) goto slow_path;
+                emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeyEntry, me_key), (uint64_t)PyTuple_GET_ITEM(Dst->co_names, oparg));
+                | branch_ne >1
+
+                // res = ep->me_value;
+                emit_load64_mem(Dst, res_idx, arg3_idx, offsetof(PyDictKeyEntry, me_value));
                 emit_incref(Dst, res_idx);
+
+            } else {
+                abort();
+            }
+
             if (jit_stats_enabled) {
                 emit_inc_qword_ptr(Dst, &jit_stat_load_global_hit, 1 /*=can use tmp_reg*/);
             }

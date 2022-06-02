@@ -3622,16 +3622,26 @@ sa_common:
                 if (co_opcache != NULL && co_opcache->optimized > 0) {
                     _PyOpcache_LoadGlobal *lg = &co_opcache->u.lg;
 
-                    if (lg->globals_ver ==
-                            ((PyDictObject *)f->f_globals)->ma_version_tag
-                        && (lg->builtins_ver == LOADGLOBAL_WAS_GLOBAL ||
-                            lg->builtins_ver == ((PyDictObject *)f->f_builtins)->ma_version_tag))
+                    PyObject *ptr = NULL;
+                    if (lg->cache_type == LG_GLOBAL) {
+                        if (lg->u.global_cache.globals_ver == ((PyDictObject *)f->f_globals)->ma_version_tag)
+                            ptr = lg->u.global_cache.ptr;
+                    } else if (lg->cache_type == LG_BUILTIN) {
+                        if (lg->u.builtin_cache.globals_ver == ((PyDictObject *)f->f_globals)->ma_version_tag &&
+                                lg->u.builtin_cache.builtins_ver == ((PyDictObject *)f->f_builtins)->ma_version_tag)
+                            ptr = lg->u.builtin_cache.ptr;
+                    } else if (lg->cache_type == LG_GLOBAL_OFFSET) {
+                        ptr = _PyDict_GetItemByOffset((PyDictObject*)f->f_globals, name, lg->u.global_offset_cache.dk_size, lg->u.global_offset_cache.offset);
+                    } else {
+                        abort();
+                    }
+
+                    if (ptr)
                     {
 #if OPCACHE_STATS
                         loadglobal_hits++;
 #endif
                         co_opcache->num_failed = 0;
-                        PyObject *ptr = lg->ptr;
                         OPCACHE_STAT_GLOBAL_HIT();
                         assert(ptr != NULL);
                         Py_INCREF(ptr);
@@ -3674,14 +3684,30 @@ sa_common:
                     }
 
                     co_opcache->optimized = 1;
-                    lg->globals_ver =
-                        ((PyDictObject *)f->f_globals)->ma_version_tag;
-                    if (wasglobal)
-                        lg->builtins_ver = LOADGLOBAL_WAS_GLOBAL;
-                    else
-                        lg->builtins_ver =
+                    if (wasglobal && co_opcache->num_failed >= 2 && !_PyDict_HasSplitTable((PyDictObject*)f->f_globals)) {
+                        Py_ssize_t dk_size;
+                        int64_t offset = _PyDict_GetItemOffset((PyDictObject*)f->f_globals, name, &dk_size);
+
+                        if (offset >= 0) {
+                            lg->u.global_offset_cache.dk_size = dk_size;
+                            lg->u.global_offset_cache.offset = offset;
+                            lg->cache_type = LG_GLOBAL_OFFSET;
+                        } else {
+                            co_opcache->optimized = 0;
+                        }
+                    } else if (wasglobal) {
+                        lg->cache_type = LG_GLOBAL;
+                        lg->u.global_cache.globals_ver =
+                            ((PyDictObject *)f->f_globals)->ma_version_tag;
+                        lg->u.global_cache.ptr = v; /* borrowed */
+                    } else {
+                        lg->cache_type = LG_BUILTIN;
+                        lg->u.builtin_cache.globals_ver =
+                            ((PyDictObject *)f->f_globals)->ma_version_tag;
+                        lg->u.builtin_cache.builtins_ver =
                             ((PyDictObject *)f->f_builtins)->ma_version_tag;
-                    lg->ptr = v; /* borrowed */
+                        lg->u.builtin_cache.ptr = v; /* borrowed */
+                    }
                 }
 
                 Py_INCREF(v);

@@ -192,6 +192,7 @@ int setupStoreAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache)
 int loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject** res, int *meth_found);
 int setupLoadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject* res, int is_load_method, int inside_interpreter);
 
+PyObject* _PyDict_GetItemByOffset(PyDictObject *mp, PyObject *key, Py_ssize_t dk_size, int64_t offset);
 
 JIT_HELPER1(PRINT_EXPR, value) {
     _Py_IDENTIFIER(displayhook);
@@ -757,12 +758,22 @@ JIT_HELPER_WITH_NAME_OPCACHE_AOT(LOAD_GLOBAL) {
     if (co_opcache != NULL && co_opcache->optimized > 0) {
         _PyOpcache_LoadGlobal *lg = &co_opcache->u.lg;
 
-        if (lg->globals_ver ==
-                ((PyDictObject *)f->f_globals)->ma_version_tag
-            && lg->builtins_ver ==
-                ((PyDictObject *)f->f_builtins)->ma_version_tag)
+        PyObject *ptr = NULL;
+        if (lg->cache_type == LG_GLOBAL) {
+            if (lg->u.global_cache.globals_ver == ((PyDictObject *)f->f_globals)->ma_version_tag)
+                ptr = lg->u.global_cache.ptr;
+        } else if (lg->cache_type == LG_BUILTIN) {
+            if (lg->u.builtin_cache.globals_ver == ((PyDictObject *)f->f_globals)->ma_version_tag &&
+                    lg->u.builtin_cache.builtins_ver == ((PyDictObject *)f->f_builtins)->ma_version_tag)
+                ptr = lg->u.builtin_cache.ptr;
+        } else if (lg->cache_type == LG_GLOBAL_OFFSET) {
+            ptr = _PyDict_GetItemByOffset((PyDictObject*)f->f_globals, name, lg->u.global_offset_cache.dk_size, lg->u.global_offset_cache.offset);
+        } else {
+            abort();
+        }
+
+        if (ptr)
         {
-            PyObject *ptr = lg->ptr;
             OPCACHE_STAT_GLOBAL_HIT();
             assert(ptr != NULL);
             Py_INCREF(ptr);
@@ -801,11 +812,13 @@ JIT_HELPER_WITH_NAME_OPCACHE_AOT(LOAD_GLOBAL) {
         }
 
         co_opcache->optimized = 1;
-        lg->globals_ver =
+
+        lg->cache_type = LG_BUILTIN;
+        lg->u.builtin_cache.globals_ver =
             ((PyDictObject *)f->f_globals)->ma_version_tag;
-        lg->builtins_ver =
+        lg->u.builtin_cache.builtins_ver =
             ((PyDictObject *)f->f_builtins)->ma_version_tag;
-        lg->ptr = v; /* borrowed */
+        lg->u.builtin_cache.ptr = v; /* borrowed */
     }
 
     Py_INCREF(v);
