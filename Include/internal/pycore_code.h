@@ -94,10 +94,16 @@ typedef struct {
         } value_cache;
 #ifdef NO_DKVERSION
         struct {
-            PyObject *obj;  /* Cached pointer (borrowed reference) */
-            // TODO maybe we can use the bottom bits of obj and keys_obj to store dk_nentries?
-            void* keys_obj;
-            Py_ssize_t dk_nentries;
+            // This struct notionally stores the following fields:
+            // PyObject *obj;
+            // void* keys_obj;
+            // Py_ssize_t dk_nentries;
+            // But since that would make this the largest struct in the union,
+            // we try a bit harder to save space. Both obj and keys_obj are
+            // 16-bit aligned, so we steal the bottom 4 bits of each to store dk_nentries,
+            // and punt on caching this cache type if there are >=256 attributes
+            uintptr_t obj_and_nentries;
+            uintptr_t keysobj_and_nentries;
         } value_cache_split;
 #else
         struct {

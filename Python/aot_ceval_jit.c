@@ -2425,46 +2425,48 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
     } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT ||
             la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT ||
             la->cache_type == LA_CACHE_BUILTIN) {
+        PyObject *obj;
         if (version_zero) {
             // Already guarded
+            if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT)
+                obj = la->u.value_cache.obj;
+            else
+                abort();
         }
         else if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
             emit_cmp64_mem_imm(Dst, arg2_idx, offsetof(PyDictObject, ma_values), 0);
             | branch_eq >1 // fail if dict->ma_values == NULL
             emit_load64_mem(Dst, arg3_idx, arg2_idx, offsetof(PyDictObject, ma_keys));
 #ifdef NO_DKVERSION
-            emit_cmp64_imm(Dst, arg3_idx, (uint64_t)la->u.value_cache_split.keys_obj);
+            obj = (PyObject*)(la->u.value_cache_split.obj_and_nentries & ~0xfLL);
+            PyDictKeysObject *cached_keys = (PyDictKeysObject*)(la->u.value_cache_split.keysobj_and_nentries & ~0xfLL);
+            Py_ssize_t dk_nentries = ((la->u.value_cache_split.obj_and_nentries & 0xf) << 4) | (la->u.value_cache_split.keysobj_and_nentries & 0xf);
+
+            emit_cmp64_imm(Dst, arg3_idx, (uint64_t)cached_keys);
             | branch_ne >1
-            emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeysObject, dk_nentries), (uint64_t)la->u.value_cache_split.dk_nentries);
+            emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeysObject, dk_nentries), dk_nentries);
             | branch_ne >1
 #else
             // _PyDict_GetDictKeyVersionFromSplitDict:
             // arg3 = arg2->ma_keys
             emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeysObject, dk_version_tag), (uint64_t)la->u.value_cache_split.dk_version);
+            obj = la->u.value_cache_split.obj;
 #endif
             | branch_ne >1
         }
         else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT) {
             emit_cmp64_mem_imm(Dst, arg2_idx, offsetof(PyDictObject, ma_version_tag), (uint64_t)la->u.value_cache.dict_ver);
             | branch_ne >1
+            obj = la->u.value_cache.obj;
         } else if (la->cache_type == LA_CACHE_BUILTIN) {
             // Already guarded
+            obj = la->u.builtin_cache.obj;
         } else {
             abort();
         }
         | 2:
 
-        PyObject* r;
-        if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT)
-            r = la->u.value_cache_split.obj;
-        else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT)
-            r = la->u.value_cache.obj;
-        else if (la->cache_type == LA_CACHE_BUILTIN)
-            r = la->u.builtin_cache.obj;
-        else
-            abort();
-
-        emit_mov_imm(Dst, res_idx, (uint64_t)r);
+        emit_mov_imm(Dst, res_idx, (uint64_t)obj);
 
         // In theory we could remove some of these checks, since we could prove that tp_descr_get wouldn't
         // be able to change.  But we have to do that determination at cache-set time, because that's the
@@ -2476,7 +2478,7 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
             | branch_ne >1
         }
 
-        if (!IS_IMMORTAL(r))
+        if (!IS_IMMORTAL(obj))
             emit_incref(Dst, res_idx);
     }
     else if (la->cache_type == LA_CACHE_IDX_SPLIT_DICT) {

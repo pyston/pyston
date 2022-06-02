@@ -1250,19 +1250,23 @@ loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject*
         PyObject* obj;
         if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
 #ifdef NO_DKVERSION
+            obj = (PyObject*)(la->u.value_cache_split.obj_and_nentries & ~0xfLL);
+            PyDictKeysObject *cached_keys = (PyDictKeysObject*)(la->u.value_cache_split.keysobj_and_nentries & ~0xfLL);
+            Py_ssize_t dk_nentries = ((la->u.value_cache_split.obj_and_nentries & 0xf) << 4) | (la->u.value_cache_split.keysobj_and_nentries & 0xf);
+
             if (!dictptr || !*dictptr) {
-                if (la->u.value_cache_split.keys_obj != NULL)
+                if (cached_keys != NULL)
                     return -1;
             } else {
                 PyDictKeysObject *keys = (*(PyDictObject**)dictptr)->ma_keys;
-                if (la->u.value_cache_split.keys_obj != keys || la->u.value_cache_split.dk_nentries != keys->dk_nentries)
+                if (cached_keys != keys || dk_nentries != keys->dk_nentries)
                     return -1;
             }
 #else
             if (la->u.value_cache_split.dk_version != getSplitDictKeysVersionFromDictPtr(dictptr))
                 return -1;
-#endif
             obj = la->u.value_cache_split.obj;
+#endif
         } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT) {
             if (la->u.value_cache.dict_ver != getDictVersionFromDictPtr(dictptr))
                 return -1;
@@ -1564,12 +1568,18 @@ setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObje
             // the keys object doesn't get deallocated+reallocated. So we incref the keys object.
             // Unfortunately this means the keys object will leak, but hopefully that's not that big a deal.
             keys->dk_refcnt++;
-            la->u.value_cache_split.keys_obj = keys;
-            la->u.value_cache_split.dk_nentries = keys->dk_nentries;
+
+            if (keys->dk_nentries >= 256) {
+                co_opcache->optimized = 0; // we already modified the cache entry
+                return -1; // can't fit in our cache
+            }
+
+            la->u.value_cache_split.keysobj_and_nentries = ((uintptr_t)keys) | (keys->dk_nentries & 0xf);
+            la->u.value_cache_split.obj_and_nentries = ((uintptr_t)res) | ((keys->dk_nentries >> 4) & 0xf);
 #else
             la->u.value_cache_split.dk_version = getSplitDictKeysVersionFromDictPtr(dictptr);
-#endif
             la->u.value_cache_split.obj = res;
+#endif
             la->cache_type = LA_CACHE_VALUE_CACHE_SPLIT_DICT;
         } else {
             la->u.value_cache.dict_ver = getDictVersionFromDictPtr(dictptr);
