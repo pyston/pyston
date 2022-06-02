@@ -314,6 +314,179 @@ int64_t _PyDict_GetItemOffsetSplit(PyDictObject *mp, PyObject *key, Py_ssize_t *
     return ix;
 }
 
+PyObject *
+_PyDict_GetItemFromSplitDict(PyObject *op, Py_ssize_t index) {
+    PyDictObject* mp = (PyDictObject *)op;
+    assert(index >= 0);
+    return mp->ma_values[index];
+}
+
+Py_ssize_t
+_PyDict_GetItemIndexSplitDict(PyObject *op, PyObject *key) {
+    PyDictObject* mp = (PyDictObject *)op;
+    Py_hash_t hash = ((PyASCIIObject *) key)->hash;
+    PyObject *value;
+
+    // this should always be set because we will get only here if a previous lookup succeeded
+    // and the keys are static unicode strings
+    assert(hash != -1);
+
+    return (mp->ma_keys->dk_lookup)(mp, key, hash, &value);
+}
+
+#define MAINTAIN_TRACKING(mp, key, value) \
+    do { \
+        if (!_PyObject_GC_IS_TRACKED(mp)) { \
+            if (_PyObject_GC_MAY_BE_TRACKED(key) || \
+                _PyObject_GC_MAY_BE_TRACKED(value)) { \
+                _PyObject_GC_TRACK(mp); \
+            } \
+        } \
+    } while(0)
+
+#define CACHED_KEYS(tp) (((PyHeapTypeObject*)tp)->ht_cached_keys)
+
+#ifdef DEBUG_PYDICT
+#  define ASSERT_CONSISTENT(op) assert(_PyDict_CheckConsistency((PyObject *)(op), 1))
+#else
+#  define ASSERT_CONSISTENT(op) assert(_PyDict_CheckConsistency((PyObject *)(op), 0))
+#endif
+
+#define new_values(size) PyMem_NEW(PyObject *, size)
+#define free_values(values) PyMem_FREE(values)
+
+#define USABLE_FRACTION(n) (((n) << 1)/3)
+
+#define PyDict_MINSIZE 8
+
+// Pyston: I can't find a way to access CPython's pydict_global_version field,
+// but it should be ok if we maintain our own counter which will never overlap with theirs.
+static uint64_t pydict_global_version = 1LL << 63;
+#define DICT_NEXT_VERSION() (++pydict_global_version)
+
+// Pyston: Similarly we have to maintain our own freelist:
+#define PyDict_MAXFREELIST 80
+static PyDictObject *free_list[PyDict_MAXFREELIST];
+static int numfree = 0;
+static PyDictKeysObject *keys_free_list[PyDict_MAXFREELIST];
+static int numfreekeys = 0;
+
+static PyObject *empty_values[1] = { NULL };
+
+static void
+free_keys_object(PyDictKeysObject *keys)
+{
+    PyDictKeyEntry *entries = DK_ENTRIES(keys);
+    Py_ssize_t i, n;
+    for (i = 0, n = keys->dk_nentries; i < n; i++) {
+        Py_XDECREF(entries[i].me_key);
+        Py_XDECREF(entries[i].me_value);
+    }
+    if (keys->dk_size == PyDict_MINSIZE && numfreekeys < PyDict_MAXFREELIST) {
+        keys_free_list[numfreekeys++] = keys;
+        return;
+    }
+    PyObject_FREE(keys);
+}
+
+static inline void
+dictkeys_incref(PyDictKeysObject *dk)
+{
+    _Py_INC_REFTOTAL;
+    dk->dk_refcnt++;
+}
+
+static inline void
+dictkeys_decref(PyDictKeysObject *dk)
+{
+    assert(dk->dk_refcnt > 0);
+    _Py_DEC_REFTOTAL;
+    if (--dk->dk_refcnt == 0) {
+        free_keys_object(dk);
+    }
+}
+
+static PyObject *
+new_dict(PyDictKeysObject *keys, PyObject **values)
+{
+    PyDictObject *mp;
+    assert(keys != NULL);
+    if (numfree) {
+        mp = free_list[--numfree];
+        assert (mp != NULL);
+        assert (Py_TYPE(mp) == &PyDict_Type);
+        _Py_NewReference((PyObject *)mp);
+    }
+    else {
+        mp = PyObject_GC_New(PyDictObject, &PyDict_Type);
+        if (mp == NULL) {
+            dictkeys_decref(keys);
+            if (values != empty_values) {
+                free_values(values);
+            }
+            return NULL;
+        }
+    }
+    mp->ma_keys = keys;
+    mp->ma_values = values;
+    mp->ma_used = 0;
+    mp->ma_version_tag = DICT_NEXT_VERSION();
+    ASSERT_CONSISTENT(mp);
+    return (PyObject *)mp;
+}
+
+static PyObject *
+new_dict_with_shared_keys(PyDictKeysObject *keys)
+{
+    PyObject **values;
+    Py_ssize_t i, size;
+
+    size = USABLE_FRACTION(DK_SIZE(keys));
+    values = new_values(size);
+    if (values == NULL) {
+        dictkeys_decref(keys);
+        return PyErr_NoMemory();
+    }
+    for (i = 0; i < size; i++) {
+        values[i] = NULL;
+    }
+    return new_dict(keys, values);
+}
+
+int
+_PyDict_SetItemFromSplitDict(PyObject *op, PyObject *key, Py_ssize_t index, PyObject* value) {
+    PyDictObject* mp = (PyDictObject *)op;
+    PyObject* old_val = mp->ma_values[index];
+
+    // we have to do the slow thing will convert splitdict to regular one
+    if (old_val == NULL && mp->ma_used != index)
+        return PyDict_SetItem(op, key, value);
+
+    Py_INCREF(value);
+    mp->ma_values[index] = value;
+
+    if (old_val == NULL) {
+        /* pending state */
+        assert(index == mp->ma_used);
+        mp->ma_used++;
+    } else
+        Py_DECREF(old_val);
+
+    if (old_val != value)
+        mp->ma_version_tag = DICT_NEXT_VERSION();
+    MAINTAIN_TRACKING(mp, key, value);
+    return 0;
+}
+
+int
+_PyDict_SetItemInitialFromSplitDict(PyTypeObject *tp, PyObject **dictptr, PyObject* key, Py_ssize_t index, PyObject* value) {
+    PyObject *dict;
+    dictkeys_incref(CACHED_KEYS(tp));
+    *dictptr = dict = new_dict_with_shared_keys(CACHED_KEYS(tp));
+    if (dict == NULL)
+        return -1;
+    return _PyDict_SetItemFromSplitDict(dict, key, index, value);
+}
 
 PyObject * _Py_HOT_FUNCTION
 call_function_ceval_fast(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg, PyObject *kwnames)

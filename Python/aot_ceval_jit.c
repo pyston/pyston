@@ -280,10 +280,8 @@ PyObject* cmp_outcomePyCmp_EXC_MATCH(PyObject *v, PyObject *w);
 
 int eval_breaker_jit_helper();
 PyObject* loadAttrCacheAttrNotFound(PyObject *owner, PyObject *name);
-#ifndef PYSTON_LITE
 int setItemSplitDictCache(PyObject* dict, Py_ssize_t splitdict_index, PyObject* v, PyObject* name);
 int setItemInitSplitDictCache(PyObject** dictptr, PyObject* obj, PyObject* v, Py_ssize_t splitdict_index,PyObject* name);
-#endif
 
 PyObject * import_name(PyThreadState *, PyFrameObject *,
                               PyObject *, PyObject *, PyObject *);
@@ -2263,14 +2261,18 @@ static int emit_special_compare_op(Jit* Dst, int oparg, RefStatus ref_status[2])
 static int emit_inline_cache_loadattr_is_version_zero(_PyOpcache_LoadAttr *la) {
     int version_zero = (la->cache_type == LA_CACHE_VALUE_CACHE_DICT && la->u.value_cache.dict_ver == 0);
 
-#ifndef PYSTON_LITE
-    if (la->cache_type == LA_CACHE_IDX_SPLIT_DICT && la->u.split_dict_cache.splitdict_keys_version == 0) {
+    if (la->cache_type == LA_CACHE_IDX_SPLIT_DICT &&
+#ifdef NO_DKVERSION
+            la->u.split_dict_cache.keys_obj == NULL
+#else
+            la->u.split_dict_cache.splitdict_keys_version == 0
+#endif
+            ) {
         // This case is currently impossible since it will always be a miss and we don't cache
         // misses, so it's untested.
         fprintf(stderr, "untested jit case");
         abort();
     }
-#endif
     return version_zero;
 }
 
@@ -2421,33 +2423,50 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
         | branch_eq >1
         emit_incref(Dst, res_idx);
     } else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT ||
-#ifndef PYSTON_LITE
             la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT ||
-#endif
             la->cache_type == LA_CACHE_BUILTIN) {
+        PyObject *obj;
         if (version_zero) {
             // Already guarded
+            if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT)
+                obj = la->u.value_cache.obj;
+            else
+                abort();
         }
-#ifndef PYSTON_LITE
         else if (la->cache_type == LA_CACHE_VALUE_CACHE_SPLIT_DICT) {
             emit_cmp64_mem_imm(Dst, arg2_idx, offsetof(PyDictObject, ma_values), 0);
             | branch_eq >1 // fail if dict->ma_values == NULL
+            emit_load64_mem(Dst, arg3_idx, arg2_idx, offsetof(PyDictObject, ma_keys));
+#ifdef NO_DKVERSION
+            obj = (PyObject*)(la->u.value_cache_split.obj_and_nentries & ~0xfLL);
+            PyDictKeysObject *cached_keys = (PyDictKeysObject*)(la->u.value_cache_split.keysobj_and_nentries & ~0xfLL);
+            Py_ssize_t dk_nentries = ((la->u.value_cache_split.obj_and_nentries & 0xf) << 4) | (la->u.value_cache_split.keysobj_and_nentries & 0xf);
+
+            emit_cmp64_imm(Dst, arg3_idx, (uint64_t)cached_keys);
+            | branch_ne >1
+            emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeysObject, dk_nentries), dk_nentries);
+            | branch_ne >1
+#else
             // _PyDict_GetDictKeyVersionFromSplitDict:
             // arg3 = arg2->ma_keys
-            emit_load64_mem(Dst, arg3_idx, arg2_idx, offsetof(PyDictObject, ma_keys));
-            emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeysObject, dk_version_tag), (uint64_t)la->u.value_cache.dict_ver);
+            emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeysObject, dk_version_tag), (uint64_t)la->u.value_cache_split.dk_version);
+            obj = la->u.value_cache_split.obj;
+#endif
             | branch_ne >1
         }
-#endif
         else if (la->cache_type == LA_CACHE_VALUE_CACHE_DICT) {
             emit_cmp64_mem_imm(Dst, arg2_idx, offsetof(PyDictObject, ma_version_tag), (uint64_t)la->u.value_cache.dict_ver);
             | branch_ne >1
-        } else {
+            obj = la->u.value_cache.obj;
+        } else if (la->cache_type == LA_CACHE_BUILTIN) {
             // Already guarded
+            obj = la->u.builtin_cache.obj;
+        } else {
+            abort();
         }
         | 2:
-        PyObject* r = la->u.value_cache.obj;
-        emit_mov_imm(Dst, res_idx, (uint64_t)r);
+
+        emit_mov_imm(Dst, res_idx, (uint64_t)obj);
 
         // In theory we could remove some of these checks, since we could prove that tp_descr_get wouldn't
         // be able to change.  But we have to do that determination at cache-set time, because that's the
@@ -2459,10 +2478,9 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
             | branch_ne >1
         }
 
-        if (!IS_IMMORTAL(r))
+        if (!IS_IMMORTAL(obj))
             emit_incref(Dst, res_idx);
     }
-#ifndef PYSTON_LITE
     else if (la->cache_type == LA_CACHE_IDX_SPLIT_DICT) {
         // arg4 = dict->ma_values
         emit_load64_mem(Dst, arg4_idx, arg2_idx, offsetof(PyDictObject, ma_values));
@@ -2471,7 +2489,11 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
         // _PyDict_GetDictKeyVersionFromSplitDict:
         // arg3 = arg2->ma_keys
         emit_load64_mem(Dst, arg3_idx, arg2_idx, offsetof(PyDictObject, ma_keys));
+#ifdef NO_DKVERSION
+        emit_cmp64_imm(Dst, arg3_idx, (uint64_t)la->u.split_dict_cache.keys_obj);
+#else
         emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeysObject, dk_version_tag), (uint64_t)la->u.split_dict_cache.splitdict_keys_version);
+#endif
         | branch_ne >1
         // res = arg4[splitdict_index]
         emit_load64_mem(Dst, res_idx, arg4_idx, sizeof(PyObject*) * la->u.split_dict_cache.splitdict_index);
@@ -2481,7 +2503,6 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
         *emit_load_attr_res_0_helper = 1; // makes sure we emit label 3
         emit_incref(Dst, res_idx);
     }
-#endif
 }
 
 // special inplace modification code for float math functions
@@ -2815,7 +2836,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                     CallMethodHint* hint = Dst->call_method_hints;
                     if (hint) {
                         hint->type = la->type;
-                        hint->attr = la->u.value_cache.obj;
+                        hint->attr = la->u.builtin_cache.obj;
                         hint->meth_found = la->meth_found;
                         hint->is_self_const = const_val != NULL;
                     }
@@ -2825,7 +2846,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 if (const_val && la->cache_type == LA_CACHE_BUILTIN && la->meth_found &&
                     la->type == Py_TYPE(const_val)) {
                     deferred_vs_remove(Dst, 1); // this is LOAD_CONST 'self'
-                    deferred_vs_push(Dst, CONST, (unsigned long)la->u.value_cache.obj);
+                    deferred_vs_push(Dst, CONST, (unsigned long)la->u.builtin_cache.obj);
                     deferred_vs_push(Dst, CONST, (unsigned long)const_val);
                     if (jit_stats_enabled) {
                         emit_inc_qword_ptr(Dst, &jit_stat_load_method_hit, 1 /*=can use tmp_reg*/);
@@ -2960,13 +2981,11 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
         ++jit_stat_store_attr_total;
         _PyOpcache_StoreAttr *sa = &co_opcache->u.sa;
         if (co_opcache->num_failed == 0 && sa->type_ver != 0 && co_opcache->optimized) {
-#ifndef PYSTON_LITE
             if ((sa->cache_type == SA_CACHE_IDX_SPLIT_DICT || sa->cache_type == SA_CACHE_IDX_SPLIT_DICT_INIT)
                 && sa->type_tp_dictoffset <= 0) {
                 // fail the cache if dictoffset<=0 rather than do the lengthier dict_ptr computation
                 return -1;
             }
-#endif
 
             ++jit_stat_store_attr_inline;
 
@@ -2986,7 +3005,6 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 }
                 emit_xdecref(Dst, res_idx);
             } else {
-#ifndef PYSTON_LITE
                 if (sa->cache_type == SA_CACHE_IDX_SPLIT_DICT) {
                     // arg1 = *(obj + dictoffset)
                     emit_load64_mem(Dst, arg1_idx, arg2_idx, sa->type_tp_dictoffset);
@@ -2999,7 +3017,11 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                     // _PyDict_GetDictKeyVersionFromSplitDict:
                     // arg5 = arg1->ma_keys
                     emit_load64_mem(Dst, arg5_idx, arg1_idx, offsetof(PyDictObject, ma_keys));
+#ifdef NO_DKVERSION
+                    emit_cmp64_imm(Dst, arg5_idx, (uint64_t)sa->u.split_dict_cache.keys_obj);
+#else
                     emit_cmp64_mem_imm(Dst, arg5_idx, offsetof(PyDictKeysObject, dk_version_tag), (uint64_t)sa->u.split_dict_cache.splitdict_keys_version);
+#endif
                     | branch_ne >1
 
                     if (ref_status[0] == OWNED) {
@@ -3024,8 +3046,12 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                     emit_cmp64_imm(Dst, arg4_idx, 0);
                     | branch_eq >1
 
+#ifdef NO_DKVERSION
+                    emit_cmp64_imm(Dst, arg5_idx, (uint64_t)sa->u.split_dict_cache.keys_obj);
+#else
                     //if (_PyDict_GetDictKeyVersionFromKeys((PyObject*)keys) != sa->u.split_dict_cache.splitdict_keys_version)
                     emit_cmp64_mem_imm(Dst, arg4_idx, offsetof(PyDictKeysObject, dk_version_tag), (uint64_t)sa->u.split_dict_cache.splitdict_keys_version);
+#endif
                     | branch_ne >1
 
                     emit_mov_imm2(Dst, arg4_idx, (void*)sa->u.split_dict_cache.splitdict_index,
@@ -3033,8 +3059,6 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                     emit_call_decref_args2(Dst, setItemInitSplitDictCache, arg2_idx, arg3_idx, ref_status);
                     emit_if_res_32b_not_0_error(Dst);
                 }
-
-#endif
             }
             if (jit_stats_enabled) {
                 emit_inc_qword_ptr(Dst, &jit_stat_store_attr_hit, 1 /*=can use tmp_reg*/);
