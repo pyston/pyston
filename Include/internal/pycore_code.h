@@ -143,11 +143,13 @@ typedef struct {
 enum _PyOpcache_StoreAttr_Types {
     // we always guard on the type version - in addition:
 
-#ifndef PYSTON_LITE
     // caching an index inside instance splitdict, guarded by the splitdict keys version (dict->ma_keys->dk_version_tag)
+    // if available, otherwise by the keys pointer value.
+    // When we guard on the pointer value it's possible that additional keys have been added since we populated
+    // the cache, but this is ok because it won't change the index of the attribute in question.
+    // (If enough keys are added that the keys are resized, then the keys pointer will change.)
     SA_CACHE_IDX_SPLIT_DICT = 0,
     SA_CACHE_IDX_SPLIT_DICT_INIT = 1, // same as the first but means we hit the dict not initialized path
-#endif
 
     // caching the offset to attribute slot inside a python object.
     // used for __slots__
@@ -158,7 +160,11 @@ typedef struct {
     uint64_t type_ver;  /* tp_version_tag of type */
     union {
         struct {
+#ifdef NO_DKVERSION
+            void* keys_obj;
+#else
             uint64_t splitdict_keys_version;  /* dk_version_tag of dict */
+#endif
             Py_ssize_t splitdict_index;  /* index into dict value array */
         } split_dict_cache;
         struct {
