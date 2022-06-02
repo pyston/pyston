@@ -314,6 +314,13 @@ int64_t _PyDict_GetItemOffsetSplit(PyDictObject *mp, PyObject *key, Py_ssize_t *
     return ix;
 }
 
+PyObject *
+_PyDict_GetItemFromSplitDict(PyObject *op, Py_ssize_t index) {
+    PyDictObject* mp = (PyDictObject *)op;
+    assert(index >= 0);
+    return mp->ma_values[index];
+}
+
 Py_ssize_t
 _PyDict_GetItemIndexSplitDict(PyObject *op, PyObject *key) {
     PyDictObject* mp = (PyDictObject *)op;

@@ -35,10 +35,9 @@ enum _PyOpcache_LoadAttr_Types {
     // (only used if the more powerful LA_CACHE_IDX_SPLIT_DICT or LA_CACHE_VALUE_CACHE_SPLIT_DICT is not possible)
     LA_CACHE_VALUE_CACHE_DICT = 0,
 
-#ifndef NO_DKVERSION
     // caching an index inside instance splitdict, guarded by the splitdict keys version (dict->ma_keys->dk_version_tag)
+    // if available, otherwise by the keys pointer value.
     LA_CACHE_IDX_SPLIT_DICT = 1,
-#endif
 
     // caching a data descriptor object, guarded by data descriptor types version
     LA_CACHE_DATA_DESCR = 2,
@@ -106,12 +105,14 @@ typedef struct {
             uint64_t dk_version;
         } value_cache_split;
 #endif
-#ifndef NO_DKVERSION
         struct {
+#ifdef NO_DKVERSION
+            void* keys_obj;
+#else
             uint64_t splitdict_keys_version;  /* dk_version_tag of dict */
+#endif
             Py_ssize_t splitdict_index;  /* index into dict value array */
         } split_dict_cache;
-#endif
         struct {
             PyObject *descr;  /* Cached pointer (borrowed reference) */
             uint64_t descr_type_ver;  /* tp_version_tag of the descriptor type */

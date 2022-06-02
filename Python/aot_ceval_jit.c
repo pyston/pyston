@@ -2261,14 +2261,18 @@ static int emit_special_compare_op(Jit* Dst, int oparg, RefStatus ref_status[2])
 static int emit_inline_cache_loadattr_is_version_zero(_PyOpcache_LoadAttr *la) {
     int version_zero = (la->cache_type == LA_CACHE_VALUE_CACHE_DICT && la->u.value_cache.dict_ver == 0);
 
-#ifndef PYSTON_LITE
-    if (la->cache_type == LA_CACHE_IDX_SPLIT_DICT && la->u.split_dict_cache.splitdict_keys_version == 0) {
+    if (la->cache_type == LA_CACHE_IDX_SPLIT_DICT &&
+#ifdef NO_DKVERSION
+            la->u.split_dict_cache.keys_obj == NULL
+#else
+            la->u.split_dict_cache.splitdict_keys_version == 0
+#endif
+            ) {
         // This case is currently impossible since it will always be a miss and we don't cache
         // misses, so it's untested.
         fprintf(stderr, "untested jit case");
         abort();
     }
-#endif
     return version_zero;
 }
 
@@ -2475,7 +2479,6 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
         if (!IS_IMMORTAL(r))
             emit_incref(Dst, res_idx);
     }
-#ifndef PYSTON_LITE
     else if (la->cache_type == LA_CACHE_IDX_SPLIT_DICT) {
         // arg4 = dict->ma_values
         emit_load64_mem(Dst, arg4_idx, arg2_idx, offsetof(PyDictObject, ma_values));
@@ -2484,7 +2487,11 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
         // _PyDict_GetDictKeyVersionFromSplitDict:
         // arg3 = arg2->ma_keys
         emit_load64_mem(Dst, arg3_idx, arg2_idx, offsetof(PyDictObject, ma_keys));
+#ifdef NO_DKVERSION
+        emit_cmp64_imm(Dst, arg3_idx, (uint64_t)la->u.split_dict_cache.keys_obj);
+#else
         emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictKeysObject, dk_version_tag), (uint64_t)la->u.split_dict_cache.splitdict_keys_version);
+#endif
         | branch_ne >1
         // res = arg4[splitdict_index]
         emit_load64_mem(Dst, res_idx, arg4_idx, sizeof(PyObject*) * la->u.split_dict_cache.splitdict_index);
@@ -2494,7 +2501,6 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
         *emit_load_attr_res_0_helper = 1; // makes sure we emit label 3
         emit_incref(Dst, res_idx);
     }
-#endif
 }
 
 // special inplace modification code for float math functions
