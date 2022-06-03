@@ -3,16 +3,44 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-typedef struct {
-    PyObject *ptr;  /* Cached pointer (borrowed reference) */
-    uint64_t globals_ver;  /* ma_version of global dict */
-    uint64_t builtins_ver; /* ma_version of builtin dict */
-} _PyOpcache_LoadGlobal;
 
-// This is a special value for the builtins_ver field
-// that specifies that the LOAD_GLOBAL hit came from the globals
-// and thus the builtins version doesn't matter.
-#define LOADGLOBAL_WAS_GLOBAL UINT64_MAX
+enum _PyOpcache_LoadGlobal_Types {
+    // Value came from the globals dictionary.
+    // We guard on the ma_version of the globals dict, and can cache the exact object value
+    LG_GLOBAL = 0,
+
+    // Same as LG_GLOBAL but comes from the builtins dictionary, so we need to guard on
+    // the versions of both the globals and builtins dictionaries.
+    LG_BUILTIN = 1,
+
+    // LG_GLOBAL and LG_BUILTIN only work if there are no modifications to the globals dictionary,
+    // so LG_GLOBAL_OFFSET is for lookups that come from globals, and stores the offset into
+    // the globals hashtable.
+    LG_GLOBAL_OFFSET = 2,
+
+    // TODO: we could add a dk_version-based cache as well, which would be faster than the offset cache,
+    // as well as allow caching results from the builtins dict
+};
+
+typedef struct {
+    union {
+        struct {
+            PyObject *ptr;  /* Cached pointer (borrowed reference) */
+            uint64_t globals_ver;  /* ma_version of global dict */
+        } global_cache;
+        struct {
+            PyObject *ptr;  /* Cached pointer (borrowed reference) */
+            uint64_t globals_ver;  /* ma_version of global dict */
+            uint64_t builtins_ver; /* ma_version of builtin dict */
+        } builtin_cache;
+        struct {
+            Py_ssize_t dk_size;
+            int64_t offset;
+        } global_offset_cache;
+    } u;
+
+    char cache_type;
+} _PyOpcache_LoadGlobal;
 
 #if PYSTON_SPEEDUPS
 struct PyDictKeysObject;
