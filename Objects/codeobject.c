@@ -283,6 +283,7 @@ _PyCode_InitOpcache(PyCodeObject *co)
                 || opcode == BINARY_SUBTRACT || opcode == INPLACE_SUBTRACT
                 || opcode == BINARY_MULTIPLY || opcode == INPLACE_MULTIPLY
                 || opcode == BINARY_SUBSCR || opcode == STORE_SUBSCR
+                || opcode == LOAD_NAME
 #endif
                 ) {
             opts++;

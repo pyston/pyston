@@ -2762,7 +2762,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
     if (!co_opcache->optimized)
         return 1;
 
-    if (opcode == LOAD_GLOBAL)  {
+    if (opcode == LOAD_GLOBAL || opcode == LOAD_NAME)  {
         ++jit_stat_load_global_total;
         // The co_opcache->num_failed==0 check is to try to avoid writing out inline
         // caches that might end up missing, since we currently don't rewrite them.
@@ -2779,6 +2779,24 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             deferred_vs_convert_reg_to_stack(Dst);
 
             emit_load64_mem(Dst, arg3_idx, f_idx, offsetof(PyFrameObject, f_globals));
+            if (opcode == LOAD_NAME) {
+                // if f_globals != f_locals we have to call the LOAD_NAME helper else we call LOAD_GLOBAL
+                emit_load64_mem(Dst, arg2_idx, f_idx, offsetof(PyFrameObject, f_locals));
+                | cmp arg3, arg2
+                | branch_ne >2
+
+                switch_section(Dst, SECTION_COLD);
+                | 2:
+                if (jit_stats_enabled) {
+                    emit_inc_qword_ptr(Dst, &jit_stat_load_global_miss, 1 /*=can use tmp_reg*/);
+                }
+                emit_mov_imm(Dst, arg1_idx, PyTuple_GET_ITEM(Dst->co_names, oparg));
+                emit_call_ext_func(Dst, get_addr_of_helper_func(opcode, oparg));
+                emit_if_res_0_error(Dst);
+                | branch <4 // jump to the common code which pushes the result
+                // Switch back to the normal section
+                switch_section(Dst, SECTION_CODE);
+            }
 
             if (lg->cache_type == LG_GLOBAL) {
                 emit_cmp64_mem_imm(Dst, arg3_idx, offsetof(PyDictObject, ma_version_tag), (uint64_t)lg->u.global_cache.globals_ver);
@@ -2840,7 +2858,8 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             }
             emit_mov_imm2(Dst, arg1_idx, PyTuple_GET_ITEM(Dst->co_names, oparg),
                                 arg2_idx, co_opcache);
-            emit_call_ext_func(Dst, get_aot_func_addr(Dst, opcode, oparg, co_opcache != 0 /*= use op cache */));
+            // we always use LOAD_GLOBAL here even for LOAD_NAME
+            emit_call_ext_func(Dst, get_aot_func_addr(Dst, LOAD_GLOBAL, oparg, co_opcache != 0 /*= use op cache */));
             emit_if_res_0_error(Dst);
             | branch <4 // jump to the common code which pushes the result
             // Switch back to the normal section
@@ -4911,7 +4930,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
             } else if (opcode == LOAD_FAST || opcode == STORE_FAST || opcode == DELETE_FAST) {
                 PyObject* name = PyTuple_GET_ITEM(co->co_varnames, oparg | extended_arg);
                 fprintf(perf_map_opcode_map, " (%.60s)\n", PyUnicode_AsUTF8(name));
-            } else if (opcode == LOAD_ATTR || opcode == STORE_ATTR || opcode == DELETE_ATTR || opcode == LOAD_METHOD || opcode == LOAD_GLOBAL) {
+            } else if (opcode == LOAD_ATTR || opcode == STORE_ATTR || opcode == DELETE_ATTR || opcode == LOAD_METHOD || opcode == LOAD_GLOBAL || opcode == LOAD_NAME) {
                 PyObject* name = PyTuple_GET_ITEM(co->co_names, oparg | extended_arg);
                 fprintf(perf_map_opcode_map, " (%.60s)\n", PyUnicode_AsUTF8(name));
             } else {

@@ -3548,9 +3548,14 @@ sa_common:
         }
 
         case TARGET(LOAD_NAME): {
+            // same as LOAD_GLOBAL but can use caches
+            if (f->f_locals == f->f_globals && PyDict_CheckExact(f->f_globals)) {
+                goto TARGET_LOAD_GLOBAL;
+            }
             PyObject *name = GETITEM(names, oparg);
             PyObject *locals = f->f_locals;
             PyObject *v;
+
             if (locals == NULL) {
                 _PyErr_Format(tstate, PyExc_SystemError,
                               "no locals when loading %R", name);
