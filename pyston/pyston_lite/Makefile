@@ -4,10 +4,12 @@ PYTHON:=python3.8
 
 package: package_jit package_autoload
 
+ARCH:=$(shell uname -m)
+
 package_jit:
 	git clean -x -i -d -f .
 	bash -c 'if [ -d wheelhouse ]; then sudo rm -rf wheelhouse ; fi'
-	docker run --rm -e NOBOLT=1 -e BOLTFLAGS=1 -e PLAT=manylinux2014_x86_64 -v `pwd`/../../:/io quay.io/pypa/manylinux2014_x86_64 bash -c "bash /io/pyston/pyston_lite/build_wheels.sh && chown -R $(shell id -u):$(shell id -g) /io/pyston/pyston_lite/wheelhouse"
+	docker run --rm -e NOBOLT=1 -e BOLTFLAGS=1 -e PLAT=manylinux2014_$(ARCH) -v `pwd`/../../:/io quay.io/pypa/manylinux2014_$(ARCH) bash -c "bash /io/pyston/pyston_lite/build_wheels.sh && chown -R $(shell id -u):$(shell id -g) /io/pyston/pyston_lite/wheelhouse"
 	python3.8 bolt_wheel.py wheelhouse/*.whl
 
 package_autoload:
