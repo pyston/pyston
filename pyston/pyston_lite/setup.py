@@ -11,6 +11,7 @@ import tempfile
 NOBOLT = "NOBOLT" in os.environ or sys.platform == "darwin"
 NOLTO = "NOLTO" in os.environ or sys.platform == "darwin"
 NOPGO = "NOPGO" in os.environ
+BOLTFLAGS = "BOLTFLAGS" in os.environ
 
 def check_call(args, **kw):
     print("check_call", " ".join([repr(a) for a in args]), kw)
@@ -114,7 +115,7 @@ def get_cflags():
     flags = ["-std=gnu99", "-fno-semantic-interposition", "-specs=../tools/no-pie-compile.specs"]
     if not NOLTO:
         flags += ["-flto", "-fuse-linker-plugin", "-ffat-lto-objects", "-flto-partition=none"]
-    if not NOBOLT:
+    if not NOBOLT or BOLTFLAGS:
         flags += ["-fno-reorder-blocks-and-partition"]
     return flags
 
@@ -122,7 +123,7 @@ def get_ldflags():
     flags = ["-fno-semantic-interposition", "-specs=../tools/no-pie-link.specs"]
     if not NOLTO:
         flags += ["-flto", "-fuse-linker-plugin", "-ffat-lto-objects", "-flto-partition=none"]
-    if not NOBOLT:
+    if not NOBOLT or BOLTFLAGS:
         flags += ["-Wl,--emit-relocs"]
     return flags
 
