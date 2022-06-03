@@ -1,6 +1,6 @@
 FROM debian:bullseye-slim
 
-ENV PYSTON_VERSION='2.3.3'
+ENV PYSTON_VERSION='2.3.4'
 ENV INSTALLER_VERSION='1.1'
 
 RUN set -eux; \

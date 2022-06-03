@@ -1,6 +1,6 @@
 FROM buildpack-deps:20.04
 
-ENV PYSTON_VERSION='2.3.3'
+ENV PYSTON_VERSION='2.3.4'
 ENV UBUNTU_VERSION='20.04'
 
 # http://bugs.python.org/issue19846
