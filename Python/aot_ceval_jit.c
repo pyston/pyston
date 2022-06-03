@@ -443,7 +443,6 @@ static void* __attribute__ ((const)) get_addr_of_aot_func(int opcode, int oparg,
     OPCODE_PROFILE(DELETE_SUBSCR, PyObject_DelItem);
 
     OPCODE_STATIC(LOAD_GLOBAL, JIT_HELPER_LOAD_GLOBAL);
-    OPCODE_STATIC(LOAD_NAME, JIT_HELPER_LOAD_NAME);
     if (opcache_available) {
         OPCODE_STATIC(LOAD_ATTR, JIT_HELPER_LOAD_ATTR_CACHED);
         OPCODE_STATIC(STORE_ATTR, JIT_HELPER_STORE_ATTR_CACHED);
@@ -2781,9 +2780,22 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
 
             emit_load64_mem(Dst, arg3_idx, f_idx, offsetof(PyFrameObject, f_globals));
             if (opcode == LOAD_NAME) {
+                // if f_globals != f_locals we have to call the LOAD_NAME helper else we call LOAD_GLOBAL
                 emit_load64_mem(Dst, arg2_idx, f_idx, offsetof(PyFrameObject, f_locals));
                 | cmp arg3, arg2
-                | branch_ne >1
+                | branch_ne >2
+
+                switch_section(Dst, SECTION_COLD);
+                | 2:
+                if (jit_stats_enabled) {
+                    emit_inc_qword_ptr(Dst, &jit_stat_load_global_miss, 1 /*=can use tmp_reg*/);
+                }
+                emit_mov_imm(Dst, arg1_idx, PyTuple_GET_ITEM(Dst->co_names, oparg));
+                emit_call_ext_func(Dst, get_addr_of_helper_func(opcode, oparg));
+                emit_if_res_0_error(Dst);
+                | branch <4 // jump to the common code which pushes the result
+                // Switch back to the normal section
+                switch_section(Dst, SECTION_CODE);
             }
 
             if (lg->cache_type == LG_GLOBAL) {
@@ -2846,7 +2858,8 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
             }
             emit_mov_imm2(Dst, arg1_idx, PyTuple_GET_ITEM(Dst->co_names, oparg),
                                 arg2_idx, co_opcache);
-            emit_call_ext_func(Dst, get_aot_func_addr(Dst, opcode, oparg, co_opcache != 0 /*= use op cache */));
+            // we always use LOAD_GLOBAL here even for LOAD_NAME
+            emit_call_ext_func(Dst, get_aot_func_addr(Dst, LOAD_GLOBAL, oparg, co_opcache != 0 /*= use op cache */));
             emit_if_res_0_error(Dst);
             | branch <4 // jump to the common code which pushes the result
             // Switch back to the normal section
@@ -4397,7 +4410,6 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 // and a 4th arg which is a pointer to the func address so it can patch itself
                 case LOAD_METHOD:
                 case LOAD_GLOBAL:
-                case LOAD_NAME:
                     // Often the name and opcache pointers are close to each other,
                     // so instead of doing two 64-bit moves, we can do the second
                     // one as a lea off the first one and save a few bytes
