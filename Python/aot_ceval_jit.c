@@ -4767,32 +4767,46 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         mem_chunk_bytes_remaining = size > (1<<18) ? size : (1<<18);
 
 #ifdef __amd64__
-        // allocate memory which address fits inside a 32bit pointer (makes sure we can use 32bit rip relative addressing)
+        int map_flags = 0;
+#if __linux__
+        // allocate memory which address fits inside a 32bit pointer (makes sure we can use 32bit rip relative addressing which results in smaller instructions)
+        map_flags |= MAP_32BIT;
+#elif __APPLE__
+        map_flags |= MAP_JIT;
+#endif
         void* new_chunk = mmap(0, mem_chunk_bytes_remaining,
                                PROT_READ | PROT_WRITE | PROT_EXEC,
-                               MAP_32BIT | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+                               MAP_PRIVATE | MAP_ANONYMOUS | map_flags, -1, 0);
+        int failed = new_chunk == MAP_FAILED;
 #elif __aarch64__
+        int map_flags = 0;
+#if __linux__
+        // MAP_FIXED_NOREPLACE is available from linux 4.17, but older glibc don't define it.
+        // Older kernel will ignore this flag and will try to allocate the address supplied as hint
+        // but if not possible will just return a different address.
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
+        map_flags |= MAP_FIXED_NOREPLACE;
+#elif __APPLE__
+        map_flags |= MAP_JIT;
+#endif
         // we try to allocate a memory block close to our AOT functions, because on ARM64 the relative call insruction 'bl'
         // can only address +-128MB from current IP. And this allows us to use bl for most calls.
         void* new_chunk = MAP_FAILED;
         // try allocate memory 25MB after this AOT func.
         char* start_addr = (char*)(((uint64_t)LAYOUT_TARGET + 25*1024*1024 + 4095) / 4096 * 4096);
         for (int i=0; i<8 && new_chunk == MAP_FAILED; ++i, start_addr += 5*1024*1024) {
-            // MAP_FIXED_NOREPLACE is available from linux 4.17, but older glibc don't define it.
-            // Older kernel will ignore this flag and will try to allocate the address supplied as hint
-            // but if not possible will just return a different address.
             // If the returned adddress does not fix in 32bit we abort the JIT compilation.
-#ifndef MAP_FIXED_NOREPLACE
-#define MAP_FIXED_NOREPLACE 0x100000
-#endif
             new_chunk = mmap(start_addr + mem_bytes_allocated, mem_chunk_bytes_remaining,
                              PROT_READ | PROT_WRITE | PROT_EXEC,
-                             MAP_FIXED_NOREPLACE | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+                             MAP_PRIVATE | MAP_ANONYMOUS | map_flags, -1, 0);
         }
+        int failed = new_chunk == MAP_FAILED || !can_use_relative_call(new_chunk);
 #else
 #error "unknown arch"
 #endif
-        if (new_chunk == MAP_FAILED || !can_use_relative_call(new_chunk)) {
+        if (failed) {
 #if JIT_DEBUG
             JIT_ASSERT(0, "mmap() returned error %d", errno);
 #endif
@@ -4809,6 +4823,8 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     mem_chunk += size;
     mem_chunk_bytes_remaining -= size;
     mem_bytes_used += size;
+
+    JIT_MEM_RW();
 
     int dasm_encode_err = dasm_encode(Dst, mem);
     if (dasm_encode_err) {
@@ -4827,6 +4843,8 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         JIT_ASSERT(IS_32BIT_SIGNED_VAL(offset),"");
         opcode_offset_begin[inst_idx] = (int)offset;
     }
+
+    JIT_MEM_RX();
 
     if (perf_map_file) {
         PyObject *type, *value, *traceback;

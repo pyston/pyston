@@ -8,6 +8,10 @@ import subprocess
 import sys
 import tempfile
 
+NOBOLT = "NOBOLT" in os.environ or sys.platform == "darwin"
+NOLTO = "NOLTO" in os.environ or sys.platform == "darwin"
+NOPGO = "NOPGO" in os.environ
+
 def check_call(args, **kw):
     print("check_call", " ".join([repr(a) for a in args]), kw)
     return subprocess.check_call(args, **kw)
@@ -31,9 +35,9 @@ class pyston_build_ext(build_ext):
             return orig_compile_func(obj, src, ext, cc_args, extra_postargs, pp_opts)
         self.compiler._compile = new_compile
 
-        PGO_TESTS_TO_SKIP = "test_posix test_asyncio test_cmd_line_script test_compiler test_concurrent_futures test_ctypes test_dbm_dumb test_dbm_ndbm test_distutils test_ensurepip test_ftplib test_gdb test_httplib test_imaplib test_ioctl test_linuxaudiodev test_multiprocessing test_nntplib test_ossaudiodev test_poplib test_pydoc test_signal test_socket test_socketserver test_ssl test_subprocess test_sundry test_thread test_threaded_import test_threadedtempfile test_threading test_threading_local test_threadsignals test_venv test_zipimport_support test_code test_capi test_multiprocessing_forkserver test_multiprocessing_spawn test_multiprocessing_fork".split()
+        PGO_TESTS_TO_SKIP = "test_posix test_asyncio test_cmd_line_script test_compiler test_concurrent_futures test_ctypes test_dbm test_dbm_dumb test_dbm_ndbm test_distutils test_ensurepip test_ftplib test_gdb test_httplib test_imaplib test_ioctl test_linuxaudiodev test_multiprocessing test_nntplib test_ossaudiodev test_poplib test_pydoc test_signal test_socket test_socketserver test_ssl test_subprocess test_sundry test_thread test_threaded_import test_threadedtempfile test_threading test_threading_local test_threadsignals test_venv test_zipimport_support test_code test_capi test_multiprocessing_forkserver test_multiprocessing_spawn test_multiprocessing_fork".split()
 
-        if "NOPGO" in os.environ:
+        if NOPGO:
             super(pyston_build_ext, self).build_extension(ext)
         else:
             # Step 1, build with instrumentation:
@@ -74,7 +78,7 @@ class pyston_build_ext(build_ext):
             ext.extra_link_args = extra_link_args
 
 
-        if "NOBOLT" not in os.environ:
+        if not NOBOLT:
             with tempfile.TemporaryDirectory() as dir:
                 envdir = os.path.join(dir, "bolt_env")
                 check_call([sys.executable, "-m", "venv", envdir])
@@ -106,13 +110,29 @@ class pyston_build_ext(build_ext):
 
         super(pyston_build_ext, self).run()
 
+def get_cflags():
+    flags = ["-std=gnu99", "-fno-semantic-interposition", "-specs=../tools/no-pie-compile.specs"]
+    if not NOLTO:
+        flags += ["-flto", "-fuse-linker-plugin", "-ffat-lto-objects", "-flto-partition=none"]
+    if not NOBOLT:
+        flags += ["-fno-reorder-blocks-and-partition"]
+    return flags
+
+def get_ldflags():
+    flags = ["-fno-semantic-interposition", "-specs=../tools/no-pie-link.specs"]
+    if not NOLTO:
+        flags += ["-flto", "-fuse-linker-plugin", "-ffat-lto-objects", "-flto-partition=none"]
+    if not NOBOLT:
+        flags += ["-Wl,--emit-relocs"]
+    return flags
+
 ext = Extension(
         "pyston_lite",
         sources=["aot_ceval.c", "aot_ceval_jit.gen.c", "aot_ceval_jit_helper.c", "lib.c"],
         include_dirs=["../../pyston/LuaJIT", os.path.join(sysconfig.get_python_inc(), "internal")],
         define_macros=[("PYSTON_LITE", None), ("PYSTON_SPEEDUPS", "1"), ("Py_BUILD_CORE", None), ("ENABLE_AOT", None), ("NO_DKVERSION", None)],
-        extra_compile_args=["-std=gnu99", "-flto", "-fuse-linker-plugin", "-ffat-lto-objects", "-flto-partition=none", "-fno-semantic-interposition", "-specs=../tools/no-pie-compile.specs", "-fno-reorder-blocks-and-partition"],
-        extra_link_args=["-flto", "-fuse-linker-plugin", "-ffat-lto-objects", "-flto-partition=none", "-fno-semantic-interposition", "-specs=../tools/no-pie-link.specs", "-Wl,--emit-relocs"],
+        extra_compile_args=get_cflags(),
+        extra_link_args=get_ldflags(),
 )
 
 setup(name="pyston_lite",
