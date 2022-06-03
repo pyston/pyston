@@ -12,6 +12,9 @@ NOBOLT = "NOBOLT" in os.environ or sys.platform == "darwin"
 NOLTO = "NOLTO" in os.environ or sys.platform == "darwin"
 NOPGO = "NOPGO" in os.environ
 
+if sys.version_info[:2] != (3, 8):
+    raise Exception("pyston-lite currently only targets Python 3.8")
+
 def check_call(args, **kw):
     print("check_call", " ".join([repr(a) for a in args]), kw)
     return subprocess.check_call(args, **kw)
