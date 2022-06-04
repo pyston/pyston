@@ -170,3 +170,6 @@ jobs:
           # pyston must be compiled by gcc not clang
           CC=gcc-11 make test
           SHOW_JIT_STATS=1 ./env/bin/python ../test/inplace_math.py
+        env:
+          # this tests are flaky
+          ADDITIONAL_TESTS_TO_SKIP: "test_asyncgen test_ssl"
