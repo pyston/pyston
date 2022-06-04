@@ -3,7 +3,8 @@
 2. add a `pyston/debian/changelog` entry (make sure the date is correct or the build fails in odd ways)
 3. adjust `PYSTON_*_VERSION` inside `Include/patchlevel.h`
 4. update `pyston/docker/Dockerfile\*` and `pyston/docker/build_docker.sh`
-5. update `pyston/conda/{pyston,python,python_abi,pyston_lite}/meta.yaml` and update `build_num` if necessary
+5. update `pyston/conda/{pyston,python,python_abi,pyston_lite}/meta.yaml` 
+   and update `build_num` if necessary (mandatory for `python` and `python_abi`)
 6. update "version" `pyston/conda/installer/construct.yaml`
 7. update `pyston/pyston_lite/setup.py` and `pyston/pyston_lite/autoload/setup.py`
 
