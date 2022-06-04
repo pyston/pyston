@@ -27,6 +27,7 @@ upload_wheels: env
 test_packages:
 	rm -rf /tmp/env
 	$(PYTHON) -m venv /tmp/env
+	/tmp/env/bin/pip install wheel
 	/tmp/env/bin/pip install --upgrade pyston_lite_autoload
 	time /tmp/env/bin/python -c 'for i in range(100000000): pass'
 	DISABLE_PYSTON=1 time /tmp/env/bin/python -c 'for i in range(100000000): pass'
