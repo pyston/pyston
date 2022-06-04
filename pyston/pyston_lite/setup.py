@@ -12,6 +12,9 @@ NOBOLT = "NOBOLT" in os.environ or sys.platform == "darwin"
 NOLTO = "NOLTO" in os.environ or sys.platform == "darwin"
 NOPGO = "NOPGO" in os.environ
 
+if sys.version_info[:2] != (3, 8):
+    raise Exception("pyston-lite currently only targets Python 3.8")
+
 def check_call(args, **kw):
     print("check_call", " ".join([repr(a) for a in args]), kw)
     return subprocess.check_call(args, **kw)
@@ -19,6 +22,11 @@ def check_call(args, **kw):
 def check_output(args, **kw):
     print("check_output", " ".join([repr(a) for a in args]), kw)
     return subprocess.check_output(args, **kw)
+
+def bolt_bin(name):
+    if "PYSTON_USE_SYS_BINS" in os.environ:
+        return name
+    return os.path.join("../../build/bolt/bin", name)
 
 class pyston_build_ext(build_ext):
     def build_extension(self, ext):
@@ -92,14 +100,14 @@ class pyston_build_ext(build_ext):
                 ext_name = self.get_ext_fullpath(ext.name)
                 os.rename(ext_name, ext_name + ".prebolt")
                 install_extname = os.path.join(site_packages, os.path.basename(ext_name))
-                check_call(["../../build/bolt/bin/llvm-bolt", ext_name + ".prebolt", "-instrument", "-instrumentation-file-append-pid", "-instrumentation-file=" + install_extname, "-o", install_extname, "-skip-funcs=_PyEval_EvalFrameDefault,_PyEval_EvalFrame_AOT_Interpreter.*"])
+                check_call([bolt_bin("llvm-bolt"), ext_name + ".prebolt", "-instrument", "-instrumentation-file-append-pid", "-instrumentation-file=" + install_extname, "-o", install_extname, "-skip-funcs=_PyEval_EvalFrameDefault,_PyEval_EvalFrame_AOT_Interpreter.*"])
 
 
                 subprocess.call([env_python, os.path.join(os.path.dirname(__file__), "../../Lib/test/regrtest.py"), "-j0", "-unone,decimal", "-x"] + PGO_TESTS_TO_SKIP)
 
-                check_call(["../../build/bolt/bin/merge-fdata"] + glob.glob(install_extname + ".*.fdata"), stdout=open(install_extname + ".fdata", "wb"))
+                check_call([bolt_bin("merge-fdata")] + glob.glob(install_extname + ".*.fdata"), stdout=open(install_extname + ".fdata", "wb"))
 
-                check_call(["../../build/bolt/bin/llvm-bolt", ext_name + ".prebolt", "-o", ext_name, "-data=" + install_extname + ".fdata", "-update-debug-sections", "-reorder-blocks=cache+", "-reorder-functions=hfsort+", "-split-functions=3", "-icf=1", "-inline-all", "-split-eh", "-reorder-functions-use-hot-size", "-peepholes=all", "-jump-tables=aggressive", "-inline-ap", "-indirect-call-promotion=all", "-dyno-stats", "-use-gnu-stack", "-jump-tables=none", "-frame-opt=hot"])
+                check_call([bolt_bin("llvm-bolt"), ext_name + ".prebolt", "-o", ext_name, "-data=" + install_extname + ".fdata", "-update-debug-sections", "-reorder-blocks=cache+", "-reorder-functions=hfsort+", "-split-functions=3", "-icf=1", "-inline-all", "-split-eh", "-reorder-functions-use-hot-size", "-peepholes=all", "-jump-tables=aggressive", "-inline-ap", "-indirect-call-promotion=all", "-dyno-stats", "-use-gnu-stack", "-jump-tables=none", "-frame-opt=hot"])
                 os.unlink(ext_name + ".prebolt")
 
         del self.compiler._compile
