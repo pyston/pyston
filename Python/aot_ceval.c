@@ -3617,7 +3617,7 @@ sa_common:
         }
 
         case TARGET(LOAD_GLOBAL): {
-            PyObject *name;
+            PyObject *name = GETITEM(names, oparg);
             PyObject *v;
             if (PyDict_CheckExact(f->f_globals)
                 && PyDict_CheckExact(f->f_builtins))
@@ -3663,7 +3663,6 @@ sa_common:
                     loadglobal_noopcache++;
 #endif
 
-                name = GETITEM(names, oparg);
                 int wasglobal;
                 v = _PyDict_LoadGlobalEx((PyDictObject *)f->f_globals,
                                        (PyDictObject *)f->f_builtins,
