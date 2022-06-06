@@ -93,7 +93,7 @@ outputs:
         - libtool
         - sqlite
         - luajit  # [not aarch64] # unfortunately not available on aarch64, use the debian package instead
-        - bolt==2022.03.10 *_pyston  # [x86]
+        - bolt>=2022.04.11 *_pyston  # [x86]
         - zlib
 
         # nitrous needs 'nm'
