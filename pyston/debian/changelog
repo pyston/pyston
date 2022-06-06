@@ -1,3 +1,8 @@
+pyston (2.3.4) unstable; urgency=medium
+
+  * Performance improvements and bugfixes
+
+ -- Kevin Modzelewski <kevmod@gmail.com>  Fri, 03 Jun 2022 17:46:12 +0200
 pyston (2.3.3) unstable; urgency=medium
 
   * First release which supports Arm64 (=aarch64)
