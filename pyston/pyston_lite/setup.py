@@ -3,12 +3,13 @@ from distutils.command.build_ext import build_ext
 from distutils import sysconfig
 import glob
 import os
+import platform
 import shutil
 import subprocess
 import sys
 import tempfile
 
-NOBOLT = "NOBOLT" in os.environ or sys.platform == "darwin"
+NOBOLT = "NOBOLT" in os.environ or sys.platform == "darwin" or platform.machine() == "aarch64"
 NOLTO = "NOLTO" in os.environ or sys.platform == "darwin"
 NOPGO = "NOPGO" in os.environ
 BOLTFLAGS = "BOLTFLAGS" in os.environ
