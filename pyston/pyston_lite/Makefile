@@ -4,10 +4,17 @@ PYTHON:=python3.8
 
 package: package_jit package_autoload
 
+ARCH:=$(shell uname -m)
+ifeq ($(ARCH),x86_64)
+	BOLT_DOCKERFLAGS:=-e BOLTFLAGS=1
+	BOLT_CMD:=python3 bolt_wheel.py wheelhouse/*.whl
+endif
+
 package_jit:
 	git clean -x -i -d -f .
 	bash -c 'if [ -d wheelhouse ]; then sudo rm -rf wheelhouse ; fi'
-	docker run --rm -e PLAT=manylinux2014_x86_64 -v `pwd`/../../:/io quay.io/pypa/manylinux2014_x86_64 bash -c "bash /io/pyston/pyston_lite/build_wheels.sh && chown -R $(shell id -u):$(shell id -g) /io/pyston/pyston_lite/wheelhouse"
+	docker run -e NOBOLT=1 $(BOLT_DOCKERFLAGS) -e PLAT=manylinux2014_$(ARCH) -v `pwd`/../../:/io quay.io/pypa/manylinux2014_$(ARCH) bash -c "bash /io/pyston/pyston_lite/build_wheels.sh && chown -R $(shell id -u):$(shell id -g) /io/pyston/pyston_lite/wheelhouse"
+	$(BOLT_CMD)
 
 package_autoload:
 	bash -c "cd autoload; rm -rf dist; $(PYTHON) setup.py sdist"
@@ -19,7 +26,8 @@ upload_wheels: env
 
 test_packages:
 	rm -rf /tmp/env
-	python3.8 -m venv /tmp/env
+	$(PYTHON) -m venv /tmp/env
+	/tmp/env/bin/pip install wheel
 	/tmp/env/bin/pip install --upgrade pyston_lite_autoload
 	time /tmp/env/bin/python -c 'for i in range(100000000): pass'
 	DISABLE_PYSTON=1 time /tmp/env/bin/python -c 'for i in range(100000000): pass'
