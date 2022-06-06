@@ -3617,7 +3617,7 @@ sa_common:
         }
 
         case TARGET(LOAD_GLOBAL): {
-            PyObject *name;
+            PyObject *name = GETITEM(names, oparg);
             PyObject *v;
             if (PyDict_CheckExact(f->f_globals)
                 && PyDict_CheckExact(f->f_builtins))
@@ -3663,7 +3663,6 @@ sa_common:
                     loadglobal_noopcache++;
 #endif
 
-                name = GETITEM(names, oparg);
                 int wasglobal;
                 v = _PyDict_LoadGlobalEx((PyDictObject *)f->f_globals,
                                        (PyDictObject *)f->f_builtins,
@@ -7250,7 +7249,8 @@ _PyCode_InitOpcache_Pyston(PyCodeObject* co, OpCache* opcache)
             || opcode == BINARY_ADD || opcode == INPLACE_ADD
             || opcode == BINARY_SUBTRACT || opcode == INPLACE_SUBTRACT
             || opcode == BINARY_MULTIPLY || opcode == INPLACE_MULTIPLY
-            || opcode == BINARY_SUBSCR || opcode == STORE_SUBSCR) {
+            || opcode == BINARY_SUBSCR || opcode == STORE_SUBSCR
+            || opcode == LOAD_NAME) {
             opts++;
             opcache->oc_opcache_map[i] = (unsigned char)opts;
             if (opts > 254) {
