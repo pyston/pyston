@@ -41,6 +41,7 @@ conda build pyston_dir/pyston/conda/bolt -c pyston --skip-existing -c conda-forg
 conda build pyston_dir/pyston/conda/pyston -c pyston -c conda-forge --override-channels -m pyston_dir/pyston/conda/pyston/variants.yaml
 conda build pyston_dir/pyston/conda/python_abi -c conda-forge --override-channels
 conda build pyston_dir/pyston/conda/python -c conda-forge --override-channels
+conda build pyston_dir/pyston/conda/pyston_lite -c pyston -c conda-forge --override-channels
 
 # This are the arch dependent pip dependencies.
 for pkg in certifi setuptools

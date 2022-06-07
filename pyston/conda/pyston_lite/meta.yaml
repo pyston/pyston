@@ -1,6 +1,6 @@
-{% set build_num = 0 %} # caution: only reset when python_version changes
+{% set build_num = 1 %} # caution: only reset when python_version changes
 {% set pyston_version = "2.3.4" %}
-{% set python_version = "3.8" %}
+{% set python_version = "3.8.*" %}
 
 package:
   name: pyston_lite
@@ -14,16 +14,17 @@ outputs:
   - name: pyston_lite
 
     build:
-      script: cd pyston/pyston_lite; python setup.py install -v
+      script: cd pyston/pyston_lite; PYSTON_USE_SYS_BINS=1 python setup.py install -v
       detect_binary_files_with_prefix: true
 
     requirements:
       host:
         - {{ compiler('c') }}
-        - python {{ python_version }}
-        - luajit
+        - python {{ python_version }} *_cpython
+        - luajit  # [not aarch64] # unfortunately not available on aarch64, use the debian package instead
+        - bolt >=2022.04.11 *_pyston  # [x86]
       run:
-        - python {{ python_version }}
+        - python {{ python_version }} *_cpython
 
   - name: pyston_lite_autoload
 
@@ -32,7 +33,7 @@ outputs:
 
     requirements:
       host:
-        - python {{ python_version }}
+        - python {{ python_version }} *_cpython
         - {{ compiler('c') }}
       run:
         - {{ pin_subpackage('pyston_lite', exact=True) }}
