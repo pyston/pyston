@@ -63,7 +63,7 @@ function make_release {
 set -ex
 
 # make a copy of the source because it's mounted read only and we want to modify it
-rsync -r /src/src_dir_host/ /src/build/ --exclude build
+rsync -rl /src/src_dir_host/ /src/build/ --exclude build
 cd /src/build
 rm -rf build
 git clean -fdx
