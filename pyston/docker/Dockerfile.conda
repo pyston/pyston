@@ -1,7 +1,6 @@
 FROM debian:bullseye-slim
 
 ENV PYSTON_VERSION='2.3.4'
-ENV INSTALLER_VERSION='1.1'
 
 RUN set -eux; \
     apt-get update; \
@@ -9,7 +8,7 @@ RUN set -eux; \
             ca-certificates \
             wget \
         ; \
-    wget https://github.com/pyston/pyston/releases/download/pyston_${PYSTON_VERSION}/PystonConda-${INSTALLER_VERSION}-Linux-`uname -m`.sh; \
+    wget https://github.com/pyston/pyston/releases/download/pyston_${PYSTON_VERSION}/PystonConda-${PYSTON_VERSION}-Linux-`uname -m`.sh; \
     bash PystonConda* -b; \
     rm PystonConda*; \
     /root/pystonconda/bin/conda init; \
