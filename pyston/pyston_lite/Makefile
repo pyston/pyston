@@ -2,7 +2,10 @@
 
 PYTHON:=python3.8
 
-package: build_wheels build_autoload_sdist
+package:
+	# They have to be built sequentially in this order:
+	$(MAKE) build_wheels
+	$(MAKE) build_autoload_sdist
 
 ARCH:=$(shell uname -m)
 ifeq ($(ARCH),x86_64)
