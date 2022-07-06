@@ -240,6 +240,10 @@ struct _PyOpcache {
 #endif
 };
 
+#if PYSTON_SPEEDUPS
+typedef struct _PyOpcache _PyOpcache;
+#endif
+
 /* Private API */
 int _PyCode_InitOpcache(PyCodeObject *co);
 

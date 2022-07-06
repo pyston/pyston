@@ -1,8 +1,12 @@
 #include "Python.h"
 
+#if PY_MINOR_VERSION == 7
+#include "internal/pystate.h"
+#else
 #include "pycore_object.h"
 #include "pycore_pyerrors.h"
 #include "pycore_pystate.h"
+#endif
 
 // Use the cpython version of this file:
 #include "dict-common.h"
@@ -27,19 +31,10 @@ PyObject* _Py_CheckFunctionResult(PyObject *callable, PyObject *result, const ch
     return result;
 }
 
-__attribute__((visibility("hidden"))) inline PyObject * call_function_ceval_fast(
-    PyThreadState *tstate, PyObject ***pp_stack,
-    Py_ssize_t oparg, PyObject *kwnames);
 PyObject * _Py_HOT_FUNCTION
-call_function_ceval_no_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg) {
-    return call_function_ceval_fast(tstate, &stack, oparg, NULL /*kwnames*/);
-}
+call_function_ceval_no_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);
 PyObject * _Py_HOT_FUNCTION
-call_function_ceval_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg, PyObject *kwnames) {
-    if (kwnames == NULL)
-        __builtin_unreachable();
-    return call_function_ceval_fast(tstate, &stack, oparg, kwnames);
-}
+call_function_ceval_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg, PyObject *kwnames);
 PyObject* PyNumber_PowerNone(PyObject *v, PyObject *w) {
   return PyNumber_Power(v, w, Py_None);
 }
@@ -176,6 +171,10 @@ PyObject* module_getattro_not_found(PyObject *_m, PyObject *name)
         _Py_IDENTIFIER(__name__);
         mod_name = _PyDict_GetItemId(m->md_dict, &PyId___name__);
         if (mod_name && PyUnicode_Check(mod_name)) {
+#if PY_MINOR_VERSION == 7
+            PyErr_Format(PyExc_AttributeError,
+                        "module '%U' has no attribute '%U'", mod_name, name);
+#else
             _Py_IDENTIFIER(__spec__);
             Py_INCREF(mod_name);
             PyObject *spec = _PyDict_GetItemId(m->md_dict, &PyId___spec__);
@@ -194,6 +193,7 @@ PyObject* module_getattro_not_found(PyObject *_m, PyObject *name)
             }
             Py_XDECREF(spec);
             Py_DECREF(mod_name);
+#endif
             return NULL;
         }
     }
@@ -488,42 +488,6 @@ _PyDict_SetItemInitialFromSplitDict(PyTypeObject *tp, PyObject **dictptr, PyObje
     return _PyDict_SetItemFromSplitDict(dict, key, index, value);
 }
 
-PyObject * _Py_HOT_FUNCTION
-call_function_ceval_fast(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg, PyObject *kwnames)
-{
-    PyObject** stack_top = *pp_stack;
-    PyObject **pfunc = stack_top - oparg - 1;
-    PyObject *func = *pfunc;
-    PyObject *x, *w;
-    Py_ssize_t nkwargs = (kwnames == NULL) ? 0 : PyTuple_GET_SIZE(kwnames);
-    Py_ssize_t nargs = oparg - nkwargs;
-    PyObject **stack = stack_top - nargs - nkwargs;
-
-    if (__builtin_expect(tstate->use_tracing, 0)) {
-        x = trace_call_function(tstate, func, stack, nargs, kwnames);
-    }
-    else {
-        x = _PyObject_Vectorcall(func, stack, nargs | PY_VECTORCALL_ARGUMENTS_OFFSET, kwnames);
-    }
-
-    assert((x != NULL) ^ (_PyErr_Occurred(tstate) != NULL));
-
-    /* Clear the stack of the function object. */
-#if !defined(LLTRACE_DEF)
-    for (int i = oparg; i >= 0; i--) {
-        Py_DECREF(pfunc[i]);
-    }
-    *pp_stack = pfunc;
-#else
-    while ((*pp_stack) > pfunc) {
-        w = EXT_POP(*pp_stack);
-        Py_DECREF(w);
-    }
-#endif
-
-    return x;
-}
-
 static PySliceObject *slice_cache = NULL;
 PyObject *
 PySlice_NewSteal(PyObject *start, PyObject *stop, PyObject *step) {
@@ -573,12 +537,15 @@ _process_method(PyObject* self, PyObject* res, int* unbound) {
         return NULL;
     }
 
+#if PY_MINOR_VERSION >= 8
     if (PyType_HasFeature(Py_TYPE(res), Py_TPFLAGS_METHOD_DESCRIPTOR)) {
         /* Avoid temporary PyMethodObject */
         *unbound = 1;
         Py_INCREF(res);
     }
-    else {
+    else
+#endif
+    {
         *unbound = 0;
         descrgetfunc f = Py_TYPE(res)->tp_descr_get;
         if (f == NULL) {

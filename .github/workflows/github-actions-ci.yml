@@ -89,6 +89,9 @@ jobs:
           if-no-files-found: ignore
   pyston_lite:
     runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        python-version: [ '3.7', '3.8' ]
     steps:
       - uses: actions/checkout@v2
       - name: checkout submodules
@@ -103,7 +106,7 @@ jobs:
           echo "/cores/corefile-%e-%p-%t" | sudo tee /proc/sys/kernel/core_pattern
 
           docker build -t ubuntu_nonroot .github/workflows/
-          docker run -e NOBOLT -iv${PWD}:/pyston_dir -iv/cores:/cores --name pyston_build ubuntu_nonroot /pyston_dir/.github/workflows/pyston_lite.sh
+          docker run -e NOBOLT -iv${PWD}:/pyston_dir -iv/cores:/cores --name pyston_build ubuntu_nonroot /pyston_dir/.github/workflows/pyston_lite.sh ${{ matrix.python-version }}
 
         env:
           NOBOLT: "1"
@@ -127,7 +130,7 @@ jobs:
           path: /cores/
           if-no-files-found: ignore
 
-  pyston_lite_arm64_qemu:
+  pyston_lite_38_arm64_qemu:
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v2
@@ -139,7 +142,7 @@ jobs:
       - name: build pyston and test
         run: |
           docker buildx build -t ubuntu_nonroot --platform linux/arm64 .github/workflows/
-          docker run -e ADDITIONAL_TESTS_TO_SKIP -e NOPGO -e NOBOLT -iv${PWD}:/pyston_dir -iv/cores:/cores --name pyston_build ubuntu_nonroot /pyston_dir/.github/workflows/pyston_lite.sh
+          docker run -e ADDITIONAL_TESTS_TO_SKIP -e NOPGO -e NOBOLT -iv${PWD}:/pyston_dir -iv/cores:/cores --name pyston_build ubuntu_nonroot /pyston_dir/.github/workflows/pyston_lite.sh 3.8
         env:
           # this tests fail with qemu
           ADDITIONAL_TESTS_TO_SKIP: "test_cmd_line test_faulthandler test_posix test_signal test_socket

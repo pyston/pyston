@@ -14,8 +14,8 @@ NOLTO = "NOLTO" in os.environ or sys.platform == "darwin"
 NOPGO = "NOPGO" in os.environ
 BOLTFLAGS = "BOLTFLAGS" in os.environ
 
-if sys.version_info[:2] != (3, 8):
-    raise Exception("pyston-lite currently only targets Python 3.8")
+if sys.version_info[:2] != (3, 7) and sys.version_info[:2] != (3, 8):
+    raise Exception("pyston-lite currently only targets Python 3.7 and 3.8")
 
 def check_call(args, **kw):
     print("check_call", " ".join([repr(a) for a in args]), kw)
@@ -121,7 +121,7 @@ class pyston_build_ext(build_ext):
         super(pyston_build_ext, self).run()
 
 def get_cflags():
-    flags = ["-std=gnu99", "-fno-semantic-interposition", "-specs=../tools/no-pie-compile.specs"]
+    flags = ["-std=gnu99", "-fno-semantic-interposition", "-specs=../tools/no-pie-compile.specs", "-Wno-unused-function"]
     if not NOLTO:
         flags += ["-flto", "-fuse-linker-plugin", "-ffat-lto-objects", "-flto-partition=none"]
     if not NOBOLT or BOLTFLAGS:

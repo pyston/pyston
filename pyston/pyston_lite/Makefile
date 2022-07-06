@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := env/lite.stamp
 
-PYTHON:=python3.8
+PYTHON?=python3.8
 
 package:
 	# They have to be built sequentially in this order:

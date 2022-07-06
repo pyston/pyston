@@ -118,6 +118,13 @@ __attribute__((flatten)) JIT_HELPER_WITH_OPARG3(CALL_FUNCTION_EX_KWARGS, kwargs,
 JIT_HELPER_WITH_OPARG2(MAKE_FUNCTION, qualname, codeobj);
 JIT_HELPER_WITH_OPARG(FORMAT_VALUE);
 
+
+#if PY_MINOR_VERSION == 7
+enum why_code;
+PyObject* JIT_HELPER_END_FINALLY37(enum why_code* why);
+void JIT_HELPER_POP_BLOCK37(void);
+#endif
+
 #endif
 
 #ifdef __cplusplus
