@@ -2,7 +2,7 @@
 
 PYTHON:=python3.8
 
-package: package_jit package_autoload
+package: build_wheels build_autoload_sdist
 
 ARCH:=$(shell uname -m)
 ifeq ($(ARCH),x86_64)
@@ -10,19 +10,19 @@ ifeq ($(ARCH),x86_64)
 	BOLT_CMD:=python3 bolt_wheel.py wheelhouse/*.whl
 endif
 
-package_jit:
+build_wheels:
 	git clean -x -i -d -f .
 	bash -c 'if [ -d wheelhouse ]; then sudo rm -rf wheelhouse ; fi'
-	docker run -e NOBOLT=1 $(BOLT_DOCKERFLAGS) -e PLAT=manylinux2014_$(ARCH) -v `pwd`/../../:/io quay.io/pypa/manylinux2014_$(ARCH) bash -c "bash /io/pyston/pyston_lite/build_wheels.sh && chown -R $(shell id -u):$(shell id -g) /io/pyston/pyston_lite/wheelhouse"
+	docker run -e NOBOLT=1 $(BOLT_DOCKERFLAGS) -e PLAT=manylinux2014_$(ARCH) -v `pwd`/../../:/io quay.io/pypa/manylinux2014_$(ARCH) bash -c "bash /io/pyston/pyston_lite/build_wheels.sh && chown -R $(shell id -u):$(shell id -g) /io/pyston/pyston_lite/"
 	$(BOLT_CMD)
 
-package_autoload:
+build_autoload_sdist:
 	bash -c "cd autoload; rm -rf dist; $(PYTHON) setup.py sdist"
 
 upload_wheels: env
 	env/bin/pip install twine
 	./env/bin/twine upload autoload/dist/pyston_lite_autoload* || true
-	./env/bin/twine upload wheelhouse/*manylinux*.whl || true
+	./env/bin/twine upload wheelhouse/*.whl || true
 
 test_packages:
 	rm -rf /tmp/env

@@ -53,5 +53,8 @@ def bolt_wheel(wheel):
 
 if __name__ == "__main__":
     args = sys.argv[1:]
-    assert len(args) == 1, args
-    bolt_wheel(args[0])
+
+    for a in args:
+        if "none-any" in a:
+            continue
+        bolt_wheel(args[0])
