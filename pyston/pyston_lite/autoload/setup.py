@@ -36,7 +36,7 @@ class install_with_pth(install):
         if suffix.strip() == self._pth_contents.strip():
             self.install_lib = self.install_libbase
 
-VERSION = "2.3.4.1"
+VERSION = "2.3.4.4"
 setup(name="pyston_lite_autoload",
       cmdclass={"install": install_with_pth},
       version=VERSION,

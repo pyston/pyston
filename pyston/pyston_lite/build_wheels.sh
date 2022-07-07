@@ -1,5 +1,7 @@
 #/bin/sh
 
+set -ex
+
 cd $(dirname $0)
 
 PYTHON=/opt/python/cp38-cp38/bin/python3
@@ -15,9 +17,13 @@ fi
 
 $PYTHON -m pip wheel . --no-deps -w wheelhouse/
 
+$PYTHON -m pip wheel autoload/ --no-deps -w wheelhouse/
+
 rm -rf build pyston_lite.egg-info
 
 for whl in wheelhouse/*.whl; do
-    auditwheel repair $whl --plat $PLAT -w wheelhouse/
-    rm $whl
+    if [[ $whl != *"none-any"* ]]; then
+        auditwheel repair $whl --plat $PLAT -w wheelhouse/
+        rm $whl
+    fi
 done
