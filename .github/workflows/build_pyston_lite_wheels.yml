@@ -37,7 +37,7 @@ jobs:
       - name: create pyston_lite_autoload wheel
         working-directory: pyston/pyston_lite
         run: |
-          make package_autoload
+          make build_autoload_sdist
           mkdir wheelhouse/
           cp autoload/dist/pyston_lite_autoload* wheelhouse/
 
