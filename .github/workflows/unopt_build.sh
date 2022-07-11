@@ -32,6 +32,6 @@ make unopt -j$(nproc)
 # running the tests
 git submodule update --init "pyston/test/*"
 # have to install late because it will update llvm-10 to 13 or so
-sudo --preserve-env=DEBIAN_FRONTEND apt-get install -y rustc
+sudo --preserve-env=DEBIAN_FRONTEND apt-get install -y rustc cargo
 
 make test -j$(nproc)
