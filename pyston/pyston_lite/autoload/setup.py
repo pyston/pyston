@@ -36,7 +36,15 @@ class install_with_pth(install):
         if suffix.strip() == self._pth_contents.strip():
             self.install_lib = self.install_libbase
 
-VERSION = "2.3.4.4"
+long_description = """
+pyston-lite-autoload is a small package that simply imports and enables
+[pyston-lite](https://pypi.org/project/pyston-lite/) on python startup. It is possible
+to use pyston-lite without this autoload package, but it is generally
+recommended to install the autoloader to automatically get the performance
+benefits
+""".strip()
+
+VERSION = "2.3.4.2"
 setup(name="pyston_lite_autoload",
       cmdclass={"install": install_with_pth},
       version=VERSION,
@@ -44,4 +52,6 @@ setup(name="pyston_lite_autoload",
       author="The Pyston Team",
       url="https://www.github.com/pyston/pyston",
       install_requires=["pyston_lite==" + VERSION],
+      long_description=long_description,
+      long_description_content_type="text/markdown",
 )

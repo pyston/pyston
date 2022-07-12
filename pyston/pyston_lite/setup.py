@@ -145,11 +145,21 @@ ext = Extension(
         extra_link_args=get_ldflags(),
 )
 
+long_description = """
+pyston-lite is the JIT part of [Pyston](https://github.com/pyston/pyston),
+a faster implementation of Python. pyston-lite does not contain all of the
+optimizations of full Pyston, but it is still 10-25% faster on many workloads.
+
+pyston-lite is currently only available for Python 3.8
+""".strip()
+
 setup(name="pyston_lite",
       cmdclass={"build_ext":pyston_build_ext},
-      version="2.3.4.1",
+      version="2.3.4.2",
       description="A JIT for Python",
       author="The Pyston Team",
       url="https://www.github.com/pyston/pyston",
       ext_modules=[ext],
+      long_description=long_description,
+      long_description_content_type="text/markdown",
 )

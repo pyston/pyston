@@ -6,6 +6,7 @@ cd $(dirname $0)
 
 PYTHON=/opt/python/cp38-cp38/bin/python3
 
+make -C ../LuaJIT clean
 make -C ../LuaJIT -j`nproc`
 make -C ../LuaJIT -j`nproc` install
 ln -sf luajit-2.1.0-beta3 /usr/local/bin/luajit

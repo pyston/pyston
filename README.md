@@ -117,3 +117,13 @@ or
 ```
 make script_opt
 ```
+
+### Building pyston-lite
+
+```
+make -j`nproc` bolt
+cd pyston/pyston_lite
+python3 setup.py build
+```
+
+You can set the `NOBOLT=1` environment variable for setup.py if you'd like to skip building bolt. You can also pass `NOPGO=1` and `NOLTO=1` if you'd like the fastest build times, such as for development.
