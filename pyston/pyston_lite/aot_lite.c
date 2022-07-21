@@ -292,21 +292,20 @@ _PyFunction_Vectorcall(PyObject *func, PyObject* const* stack,
         (co->co_flags & ~PyCF_MASK) == (CO_OPTIMIZED | CO_NEWLOCALS | CO_NOFREE))
 #endif
     {
-        if (
-#if !PYSTON_SPEEDUPS
-                argdefs == NULL &&
-#endif
-                co->co_argcount == nargs) {
-            return function_code_fastcall(co, stack, nargs, globals);
-        }
+        int dofast = 0;
+        if (co->co_argcount == nargs)
+            dofast = 1;
         else if (nargs == 0 && argdefs != NULL
                  && co->co_argcount == PyTuple_GET_SIZE(argdefs)) {
             /* function called with no arguments, but all parameters have
                a default value: use default values as arguments .*/
             stack = _PyTuple_ITEMS(argdefs);
-            return function_code_fastcall(co, stack, PyTuple_GET_SIZE(argdefs),
-                                          globals);
+            nargs = PyTuple_GET_SIZE(argdefs);
+            dofast = 1;
         }
+
+        if (dofast)
+            return function_code_fastcall(co, stack, nargs, globals);
     }
 
     kwdefs = PyFunction_GET_KW_DEFAULTS(func);
