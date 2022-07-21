@@ -2793,7 +2793,7 @@ static int emit_inline_cache(Jit* Dst, int opcode, int oparg, _PyOpcache* co_opc
                 emit_mov_imm(Dst, arg1_idx, PyTuple_GET_ITEM(Dst->co_names, oparg));
                 emit_call_ext_func(Dst, get_addr_of_helper_func(opcode, oparg));
                 emit_if_res_0_error(Dst);
-                | branch <4 // jump to the common code which pushes the result
+                | branch >4 // jump to the common code which pushes the result
                 // Switch back to the normal section
                 switch_section(Dst, SECTION_CODE);
             }
