@@ -114,7 +114,7 @@
 #ifdef PYSTON_LITE
 #define ENABLE_DEFINED_TRACKING 0
 #else
-#define ENABLE_DEFINED_TRACKING 0
+#define ENABLE_DEFINED_TRACKING 1
 #endif
 
 #define DEFERRED_VS_MAX         16 /* used by STORE_SUBSCR */

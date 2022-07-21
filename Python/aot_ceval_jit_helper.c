@@ -1256,7 +1256,7 @@ JIT_HELPER_WITH_NAME_OPCACHE_AOT1(LOAD_ATTR_CACHED, owner) {
 
     if (++co_opcache->num_failed >= 5) {
         // don't use the cache anymore
-        //SET_JIT_AOT_FUNC(JIT_HELPER_LOAD_ATTR);
+        SET_JIT_AOT_FUNC(JIT_HELPER_LOAD_ATTR);
     }
 
     res = PyObject_GetAttr(owner, name);
@@ -1268,7 +1268,7 @@ JIT_HELPER_WITH_NAME_OPCACHE_AOT1(LOAD_ATTR_CACHED, owner) {
     if (res) {
         if (setupLoadAttrCache(owner, name, co_opcache, res, 0/*= not LOAD_METHOD*/, 0 /*not inside_interpreter */)) {
             // don't use the cache anymore
-            //SET_JIT_AOT_FUNC(JIT_HELPER_LOAD_ATTR);
+            SET_JIT_AOT_FUNC(JIT_HELPER_LOAD_ATTR);
         }
     }
 la_common:
