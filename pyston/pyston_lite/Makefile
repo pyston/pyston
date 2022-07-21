@@ -1,6 +1,7 @@
 .DEFAULT_GOAL := env/lite.stamp
 
 PYTHON:=python3.8
+PYTHON:=/home/kmod/cpython_3.8/install/bin/python3
 
 package:
 	# They have to be built sequentially in this order:
@@ -77,11 +78,15 @@ test: env/lite.stamp
 	./env/bin/python -m test -j0 -x test_code test_distutils test_ensurepip test_minidom test_site test_xml_etree test_xml_etree_c test_capi $(ADDITIONAL_TESTS_TO_SKIP)
 
 ENV:=
-BENCH:=../macrobenchmarks/benchmarks/bm_flaskblogging/run_benchmark.py --legacy
+BENCH:=/tmp/env/lib/python3.8/site-packages/pyperformance/data-files/benchmarks/bm_python_startup/run_benchmark.py --worker -p 1 -w 0 -n 10 -l 10
+BENCH:=fib.py
 
 
 bench: env/update.stamp
 	$(ENV) ./env/bin/python $(BENCH)
+
+bench311: env/update.stamp
+	./env311/bin/python $(BENCH)
 
 bench_baseline: env/update.stamp
 	DISABLE_PYSTON=1 ./env/bin/python $(BENCH)
@@ -98,8 +103,18 @@ perf_bench_baseline: env/update.stamp
 perf_report_baseline:
 	perf report -i perf_baseline.data -n --objdump=../../pyston/tools/perf_jit.py
 
+perf_bench311: env/update.stamp
+	perf record -o perf_311.data ./env311/bin/python $(BENCH)
+	$(MAKE) perf_report311
+perf_report311:
+	perf report -i perf_311.data -n
+
 dbg_bench: env/update.stamp
-	DISABLE_PYSTONFULL=1 $(ENV) gdb --args ./env/bin/python $(BENCH) 1000000
+	$(ENV) gdb --args ./env/bin/python $(BENCH) -l 100000000
+
+dbg_bench311: env/update.stamp
+	gdb --args ./env311/bin/python $(BENCH) -l 100000000
+
 
 
 bench_full:
