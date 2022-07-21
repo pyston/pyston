@@ -1360,8 +1360,8 @@ setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObje
     if (!res)
         return -1;
 
-    if (co_opcache->num_failed >= 5)
-        return -1;
+    //if (co_opcache->num_failed >= 5)
+        //return -1;
 
     if (!PyType_HasFeature(tp, Py_TPFLAGS_VALID_VERSION_TAG))
         return -1;
