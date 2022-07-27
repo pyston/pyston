@@ -392,10 +392,13 @@ static void* __attribute__ ((const)) get_addr_of_helper_func(int opcode, int opa
 
 static void* __attribute__ ((const)) get_addr_of_aot_func(int opcode, int oparg, int opcache_available) {
     #define OPCODE_STATIC(x, func) if (opcode == x) return (func)
+    #define _OPCODE_PROFILE(x, func) OPCODE_STATIC(x, jit_use_aot ? func##Profile : func)
 #ifdef PYSTON_LITE
     #define OPCODE_PROFILE(x, func) OPCODE_STATIC(x, func)
+    #define OPCODE_PROFILE_LITE(x, func) _OPCODE_PROFILE(x, func)
 #else
-    #define OPCODE_PROFILE(x, func) OPCODE_STATIC(x, jit_use_aot ? func##Profile : func)
+    #define OPCODE_PROFILE(x, func) _OPCODE_PROFILE(x, func)
+    #define OPCODE_PROFILE_LITE(x, func) _OPCODE_PROFILE(x, func)
 #endif
 
     OPCODE_PROFILE(UNARY_POSITIVE, PyNumber_Positive);
@@ -436,13 +439,8 @@ static void* __attribute__ ((const)) get_addr_of_aot_func(int opcode, int oparg,
     OPCODE_PROFILE(BINARY_POWER, PyNumber_PowerNone);
     OPCODE_PROFILE(INPLACE_POWER, PyNumber_InPlacePowerNone);
 
-#ifdef PYSTON_LITE
-    OPCODE_PROFILE(CALL_FUNCTION, call_function_ceval_no_kwProfile);
-    OPCODE_PROFILE(CALL_METHOD, call_function_ceval_no_kwProfile);
-#else
-    OPCODE_PROFILE(CALL_FUNCTION, call_function_ceval_no_kw);
-    OPCODE_PROFILE(CALL_METHOD, call_function_ceval_no_kw);
-#endif
+    OPCODE_PROFILE_LITE(CALL_FUNCTION, call_function_ceval_no_kw);
+    OPCODE_PROFILE_LITE(CALL_METHOD, call_function_ceval_no_kw);
     OPCODE_PROFILE(CALL_FUNCTION_KW, call_function_ceval_kw);
 
     OPCODE_PROFILE(STORE_SUBSCR, PyObject_SetItem);
