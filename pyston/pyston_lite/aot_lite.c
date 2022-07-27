@@ -19,6 +19,9 @@
     } \
 } while(0)
 
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
 PyObject* call_function_ceval_no_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);
 
 PyObject *
@@ -356,6 +359,13 @@ _PyObject_VectorcallFunction(PyObject *callable, PyObject *const *args,
 static PyObject *
 call_functionFunction(PyThreadState *tstate, PyObject ** restrict pp_stack, Py_ssize_t oparg)
 {
+    PyObject* f = pp_stack[-oparg - 1];
+    if (unlikely(!(f->ob_type == &PyFunction_Type))) {
+        SET_JIT_AOT_FUNC(call_function_ceval_no_kw);
+        PyObject* ret = call_function_ceval_no_kw(tstate, pp_stack, oparg);
+        return ret;
+    }
+
     PyObject *kwnames = NULL;
 
     PyObject **pfunc = (pp_stack) - oparg - 1;
