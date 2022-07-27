@@ -438,10 +438,11 @@ static void* __attribute__ ((const)) get_addr_of_aot_func(int opcode, int oparg,
 
 #ifdef PYSTON_LITE
     OPCODE_PROFILE(CALL_FUNCTION, call_function_ceval_no_kwProfile);
+    OPCODE_PROFILE(CALL_METHOD, call_function_ceval_no_kwProfile);
 #else
     OPCODE_PROFILE(CALL_FUNCTION, call_function_ceval_no_kw);
-#endif
     OPCODE_PROFILE(CALL_METHOD, call_function_ceval_no_kw);
+#endif
     OPCODE_PROFILE(CALL_FUNCTION_KW, call_function_ceval_kw);
 
     OPCODE_PROFILE(STORE_SUBSCR, PyObject_SetItem);
