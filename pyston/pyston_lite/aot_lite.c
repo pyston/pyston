@@ -5,29 +5,7 @@
 #include "internal/pycore_pystate.h"
 #include "internal/pycore_tupleobject.h"
 
-#if __aarch64__
-#define SET_JIT_AOT_FUNC(dst_addr) do { \
-    /* retrieve address of the instruction following the call instruction */\
-    unsigned int* ret_addr = (unsigned int*)__builtin_extract_return_addr(__builtin_return_address(0));\
-    /* this updates the destination of the relative call instruction 'bl' */\
-    ret_addr[-1] = 0x94000000 | (((long)dst_addr - (long)&ret_addr[-1])&((1<<29)-1))>>2;\
-    __builtin___clear_cache(&ret_addr[-1], &ret_addr[0]);\
-} while(0)
-#else
-#define SET_JIT_AOT_FUNC(dst_addr) do { \
-    /* retrieve address of the instruction following the call instruction */\
-    unsigned char* ret_addr = (unsigned char*)__builtin_extract_return_addr(__builtin_return_address(0));\
-    if (ret_addr[-2] == 0xff && ret_addr[-1] == 0xd0) { /* abs call: call rax */\
-        unsigned long* call_imm = (unsigned long*)&ret_addr[-2-8];\
-        *call_imm = (unsigned long)dst_addr;\
-    } else { /* relative call */ \
-        /* 5 byte call instruction - get address of relative immediate operand of call */\
-        unsigned int* call_imm = (unsigned int*)&ret_addr[-4];\
-        /* set operand to newly calculated relative offset */\
-        *call_imm = (unsigned int)(unsigned long)(dst_addr) - (unsigned int)(unsigned long)ret_addr;\
-    } \
-} while(0)
-#endif
+#include "aot_ceval_jit_helper.h"
 
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
