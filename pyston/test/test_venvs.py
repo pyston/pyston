@@ -19,7 +19,7 @@ def testEnv(dir):
     subprocess.check_call([exe, "-c", "import PIL; print(PIL.__version__)"])
 
     # gevent used to error on build, though it wasn't an environment issue
-    subprocess.check_call([pip, "install", "gevent==20.9.0"])
+    subprocess.check_call([pip, "install", "gevent==21.12.0"])
     subprocess.check_call([exe, "-c", "import gevent; print(gevent.__version__)"])
 
     # PYSTON_UNSAFE_ABI used to not work with 'pyston -m venv' since that would
