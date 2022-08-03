@@ -106,6 +106,7 @@
 #define NUM_MANUAL_STACK_SLOTS   2 /* used by STORE_SUBSCR */
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 #define DEFERRED_STACK_SLOT_START (NUM_MANUAL_STACK_SLOTS + 1)
+#define WHY_SLOT NUM_MANUAL_STACK_SLOTS
 #else
 #define DEFERRED_STACK_SLOT_START NUM_MANUAL_STACK_SLOTS
 #endif
@@ -2164,7 +2165,7 @@ static void emit_jump_if_true(Jit* Dst, int oparg, RefStatus ref_status) {
 
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 static void emit_set_why(Jit* Dst, enum why_code why) {
-    emit_load64_mem(Dst, tmp_idx, sp_reg_idx, NUM_MANUAL_STACK_SLOTS * 8);
+    emit_load64_mem(Dst, tmp_idx, sp_reg_idx, WHY_SLOT * 8);
     emit_store32_mem_imm(Dst, why, tmp_idx, 0 /*=offset*/);
 }
 #endif
@@ -4839,7 +4840,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 @X86| sub rsp, num_stack_slots*8
 
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
-    emit_store64_mem(Dst, arg4_idx /* =value */, sp_reg_idx, NUM_MANUAL_STACK_SLOTS * 8);
+    emit_store64_mem(Dst, arg4_idx /* =value */, sp_reg_idx, WHY_SLOT * 8);
 #endif
 
     // We store the address of _PyRuntime.ceval.tracing_possible and eval_breaker inside a register
