@@ -138,7 +138,7 @@ def get_ldflags():
 
 ext = Extension(
         "pyston_lite",
-        sources=["aot_ceval.c", "aot_ceval_jit.gen.c", "aot_ceval_jit_helper.c", "lib.c"],
+        sources=["aot_ceval.c", "aot_ceval_jit.gen.c", "aot_ceval_jit_helper.c", "lib.c", "aot_lite.c"],
         include_dirs=["../../pyston/LuaJIT", os.path.join(sysconfig.get_python_inc(), "internal")],
         define_macros=[("PYSTON_LITE", None), ("PYSTON_SPEEDUPS", "1"), ("Py_BUILD_CORE", None), ("ENABLE_AOT", None), ("NO_DKVERSION", None)],
         extra_compile_args=get_cflags(),

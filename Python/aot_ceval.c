@@ -5224,7 +5224,7 @@ exit_eval_frame:
 // Entry point when executing a python function.
 // We check if we can use a JIT compiled version or have to use the Interpreter
 #ifdef PYSTON_LITE
-static PyObject* _Py_HOT_FUNCTION
+PyObject* _Py_HOT_FUNCTION
 _PyEval_EvalFrame_AOT
 #else
 PyObject* _Py_HOT_FUNCTION
