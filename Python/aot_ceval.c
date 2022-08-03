@@ -240,7 +240,7 @@ cmp_outcome(PyThreadState *tstate, int op, PyObject *v, PyObject *w)
     return v;
 }
 
-#if PY_MINOR_VERSION != 7
+#if !(PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7)
 PyObject* _Py_HOT_FUNCTION
 PyErr_Occurred(void)
 {
@@ -251,7 +251,7 @@ PyErr_Occurred(void)
 
 #endif
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 #define GIL_REQUEST _Py_atomic_load_relaxed(&_PyRuntime.ceval.gil_drop_request)
 
 /* This can set eval_breaker to 0 even though gil_drop_request became
@@ -371,7 +371,7 @@ PyErr_Occurred(void)
 #endif
 #include "pythread.h"
 #ifdef PYSTON_LITE
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 #include "ceval_gil37.h"
 #define drop_gil(ceval, tstate) drop_gil(tstate)
 #define take_gil(ceval, tstate) take_gil(tstate)
@@ -432,7 +432,7 @@ _PyEval_FiniThreads(struct _ceval_runtime_state *ceval)
 static inline void
 exit_thread_if_finalizing(_PyRuntimeState *runtime, PyThreadState *tstate)
 {
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
     if (_Py_IsFinalizing() &&
         !_Py_CURRENTLY_FINALIZING(tstate)) {
 #else
@@ -649,7 +649,7 @@ _push_pending_call(struct _pending_calls *pending,
 }
 #endif
 
-#if PY_MINOR_VERSION >= 8
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 8
 /* Pop one item off the queue while holding the lock. */
 static void
 _pop_pending_call(struct _pending_calls *pending,
@@ -708,7 +708,7 @@ Py_AddPendingCall(int (*func)(void *), void *arg)
 }
 #endif
 
-#if PY_MINOR_VERSION >= 8
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 8
 static int
 handle_signals(_PyRuntimeState *runtime)
 {
@@ -951,14 +951,14 @@ int eval_breaker_jit_helper() {
     _PyRuntimeState * const runtime = &_PyRuntime;
     PyThreadState * tstate = NULL;
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
     tstate = PyThreadState_GET();
 #else
     tstate = _PyRuntimeState_GetThreadState(runtime);
     struct _ceval_runtime_state * const ceval = &runtime->ceval;
 #endif
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
     if (_Py_atomic_load_relaxed(&_PyRuntime.ceval.pending.calls_to_do)) {
         if (Py_MakePendingCalls() < 0)
             return -1;
@@ -976,7 +976,7 @@ int eval_breaker_jit_helper() {
     }
 #endif
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
     if (_Py_atomic_load_relaxed(&_PyRuntime.ceval.gil_drop_request)) {
 #else
     if (_Py_atomic_load_relaxed(&ceval->gil_drop_request)) {
@@ -1502,7 +1502,7 @@ setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObje
         // because _PyObject_GetMethod is only handling PyObject_GenericGetAttr (for non PyObject_GenericGetAttr would
         // return meth_found = 0 but this function would return 1.
         // TODO: we could investigate expanding _PyObject_GetMethod to support additional tp_getattros
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
         if (0) {
 #else
         if (is_load_method && tp_getattro == PyObject_GenericGetAttr &&
@@ -1723,7 +1723,7 @@ typedef struct {
     PyObject** stack_pointer;
 } JitRetVal;
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 typedef JitRetVal (*JitFunc)(PyFrameObject* frame, PyThreadState * const tstate, PyObject** sp, enum why_code* why);
 #else
 typedef JitRetVal (*JitFunc)(PyFrameObject* frame, PyThreadState * const tstate, PyObject** sp);
@@ -1813,7 +1813,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
     const _Py_CODEUNIT *next_instr;
     int opcode;        /* Current opcode */
     int oparg;         /* Current opcode argument, if any */
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
     enum why_code why; /* Reason for block stack unwind */
 #endif
     PyObject **fastlocals, **freevars;
@@ -1900,7 +1900,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 #if USE_COMPUTED_GOTOS
 /* Import the static jump table */
 #ifdef PYSTON_LITE
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 #include "opcode_targets37.h"
 #else
 #include "../../Python/opcode_targets.h"
@@ -2055,7 +2055,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
                           assert(STACK_LEVEL() <= co->co_stacksize); }
 #define POP()           ((void)(lltrace && prtrace(tstate, TOP(), "pop")), \
                          BASIC_POP())
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 #define STACKADJ(n)     { (void)(BASIC_STACKADJ(n), \
                           lltrace && prtrace(TOP(), "stackadj")); \
                           assert(STACK_LEVEL() <= co->co_stacksize); }
@@ -2080,7 +2080,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 #define POP()                  BASIC_POP()
 #define STACK_GROW(n)          BASIC_STACKADJ(n)
 #define STACK_SHRINK(n)        BASIC_STACKADJ(-n)
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 #define STACKADJ(n)            BASIC_STACKADJ(n)
 #endif
 #define EXT_POP(STACK_POINTER) (*--(STACK_POINTER))
@@ -2333,7 +2333,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
     lltrace = _PyDict_GetItemId(f->f_globals, &PyId___ltrace__) != NULL;
 #endif
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
     why = WHY_NOT;
 #endif
 
@@ -2385,7 +2385,7 @@ main_loop:
                 */
                 goto fast_next_opcode;
             }
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             if (_Py_atomic_load_relaxed(&_PyRuntime.ceval.pending.calls_to_do))
             {
                 if (Py_MakePendingCalls() < 0)
@@ -2404,7 +2404,7 @@ main_loop:
             }
 #endif
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             if (_Py_atomic_load_relaxed(&_PyRuntime.ceval.gil_drop_request)) {
 #else
             if (_Py_atomic_load_relaxed(&ceval->gil_drop_request)) {
@@ -2555,7 +2555,7 @@ main_loop:
             FAST_DISPATCH();
         }
 
-#if PY_MINOR_VERSION >= 8
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 8
         case TARGET(ROT_FOUR): {
             PyObject *top = TOP();
             PyObject *second = SECOND();
@@ -3106,7 +3106,7 @@ main_loop:
                 /* fall through */
             case 0:
                 if (do_raise(tstate, exc, cause)) {
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
                     why = WHY_EXCEPTION;
                     goto fast_block_end;
 #else
@@ -3124,7 +3124,7 @@ main_loop:
 
         case TARGET(RETURN_VALUE): {
             retval = POP();
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             why = WHY_RETURN;
             goto fast_block_end;
 #else
@@ -3292,13 +3292,13 @@ main_loop:
             }
             /* receiver remains on stack, retval is value to be yielded */
             f->f_stacktop = stack_pointer;
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             why = WHY_YIELD;
 #endif
             /* and repeat... */
             assert(f->f_lasti >= (int)sizeof(_Py_CODEUNIT));
             f->f_lasti -= sizeof(_Py_CODEUNIT);
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             goto fast_yield;
 #else
             goto exit_yielding;
@@ -3319,7 +3319,7 @@ main_loop:
             }
 
             f->f_stacktop = stack_pointer;
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             why = WHY_YIELD;
             goto fast_yield;
 #else
@@ -3328,7 +3328,7 @@ main_loop:
         }
 
         case TARGET(POP_EXCEPT): {
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             PyTryBlock *b = PyFrame_BlockPop(f);
             if (b->b_type != EXCEPT_HANDLER) {
                 PyErr_SetString(PyExc_SystemError,
@@ -3364,7 +3364,7 @@ main_loop:
 
         case TARGET(POP_BLOCK): {
             PREDICTED(POP_BLOCK);
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             PyTryBlock *b = PyFrame_BlockPop(f);
             UNWIND_BLOCK(b);
 #else
@@ -3373,7 +3373,7 @@ main_loop:
             DISPATCH();
         }
 
-#if PY_MINOR_VERSION >= 8
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 8
         case TARGET(POP_FINALLY): {
             /* If oparg is 0 at the top of the stack are 1 or 6 values:
                Either:
@@ -3446,7 +3446,7 @@ main_loop:
 
         case TARGET(END_FINALLY): {
             PREDICTED(END_FINALLY);
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             PyObject *status = POP();
             if (PyLong_Check(status)) {
                 why = (enum why_code) PyLong_AS_LONG(status);
@@ -3515,7 +3515,7 @@ main_loop:
 #endif
         }
 
-#if PY_MINOR_VERSION >= 8
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 8
         case TARGET(END_ASYNC_FOR): {
             PyObject *exc = POP();
             assert(PyExceptionClass_Check(exc));
@@ -4312,7 +4312,7 @@ sa_common:
         }
 
         case TARGET(MAP_ADD): {
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             PyObject *key = TOP();
             PyObject *value = SECOND();
 #else
@@ -4626,7 +4626,7 @@ la_common:
             DISPATCH();
         }
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
         case TARGET(SETUP_LOOP):
         case TARGET(SETUP_EXCEPT):
 #endif
@@ -4705,7 +4705,7 @@ la_common:
         }
 
         case TARGET(WITH_CLEANUP_START): {
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             /* At the top of the stack are 1-6 values indicating
                how/why we entered the finally clause:
                - TOP = None
@@ -4870,7 +4870,7 @@ la_common:
 
         case TARGET(WITH_CLEANUP_FINISH): {
             PREDICTED(WITH_CLEANUP_FINISH);
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             PyObject *res = POP();
             PyObject *exc = POP();
             int err;
@@ -5246,7 +5246,7 @@ lm_before_dispatch:
             goto dispatch_opcode;
         }
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
         case TARGET(BREAK_LOOP): {
             why = WHY_BREAK;
             goto fast_block_end;
@@ -5279,7 +5279,7 @@ lm_before_dispatch:
         Py_UNREACHABLE();
 
 error:
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
         assert(why == WHY_NOT);
         why = WHY_EXCEPTION;
 #endif
@@ -5301,7 +5301,7 @@ error:
             call_exc_trace(tstate->c_tracefunc, tstate->c_traceobj,
                            tstate, f);
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 fast_block_end:
         assert(why != WHY_NOT);
 
@@ -5477,7 +5477,7 @@ exit_returning:
     }
 #endif
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 fast_yield:
 
     if (tstate->use_tracing) {
@@ -5542,13 +5542,13 @@ _PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObje
 {
     PyObject* retval = NULL;
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
     enum why_code why = WHY_NOT;
 #endif
 
 continue_jit:
     {
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
         JitRetVal ret = jit_code(f, tstate, stack_pointer, &why);
 #else
         JitRetVal ret = jit_code(f, tstate, stack_pointer);
@@ -5558,7 +5558,7 @@ continue_jit:
         if (lower_bits == 0) {
             retval = (PyObject*)ret.ret_val;
             if (retval) {
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
                 goto fast_block_end;
 #else
                 goto exit_returning;
@@ -5566,7 +5566,7 @@ continue_jit:
             }
             goto error;
         } else if (lower_bits == 1) {
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             retval = (PyObject*)(ret.ret_val & ~3);
             goto fast_block_end;
 #else
@@ -5574,7 +5574,7 @@ continue_jit:
 #endif
         } else if (lower_bits == 2) {
             retval = (PyObject*)(ret.ret_val & ~3);
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             goto fast_yield;
 #else
             goto exit_yielding;
@@ -5595,7 +5595,7 @@ continue_jit:
     }
 
 error:
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
     assert(why == WHY_NOT);
     why = WHY_EXCEPTION;
 #endif
@@ -5617,7 +5617,7 @@ error:
         call_exc_trace(tstate->c_tracefunc, tstate->c_traceobj,
                         tstate, f);
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 fast_block_end:
     while (1) {
         assert(why != WHY_NOT);
@@ -5801,7 +5801,7 @@ exit_returning:
     }
 #endif
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 fast_yield:
 
     if (tstate->use_tracing) {
@@ -5872,7 +5872,7 @@ _PyEval_EvalFrameDefault
 (PyFrameObject *f, int throwflag)
 {
     PyObject* retval = NULL;
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
     PyThreadState *tstate = PyThreadState_GET();
 #else
     _PyRuntimeState * const runtime = &_PyRuntime;
@@ -7079,7 +7079,7 @@ if (tstate->use_tracing && tstate->c_profilefunc) { \
     x = call; \
     }
 
-#if PY_MINOR_VERSION >= 8
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 8
 #ifndef PYSTON_LITE
 static
 #endif
@@ -7132,7 +7132,7 @@ call_function_ceval_fast(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t
     Py_ssize_t nargs = oparg - nkwargs;
     PyObject **stack = stack_top - nargs - nkwargs;
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
     if (PyCFunction_Check(func)) {
         PyThreadState *tstate = PyThreadState_GET();
         C_TRACE(x, _PyCFunction_FastCallKeywords(func, stack, nargs, kwnames));
@@ -7230,7 +7230,7 @@ call_function_ceval_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg
 
 /*static*/ PyObject *
 do_call_core(PyThreadState *tstate, PyObject *func, PyObject *callargs, PyObject *kwdict)
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 {
     if (PyCFunction_Check(func)) {
         PyObject *result;
@@ -7483,7 +7483,7 @@ import_from(PyThreadState *tstate, PyObject *v, PyObject *name)
         PyErr_SetImportError(errmsg, pkgname, NULL);
     }
     else {
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
         errmsg = PyUnicode_FromFormat(
             "cannot import name %R from %R (%S)",
             name, pkgname_or_unknown, pkgpath
@@ -7540,7 +7540,7 @@ import_all_from(PyThreadState *tstate, PyObject *locals, PyObject *v)
     }
 
     for (pos = 0, err = 0; ; pos++) {
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
         name = PySequence_GetItem(all, pos);
         if (name == NULL) {
             if (!PyErr_ExceptionMatches(PyExc_IndexError))

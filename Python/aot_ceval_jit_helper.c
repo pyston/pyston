@@ -372,7 +372,7 @@ JIT_HELPER1(YIELD_FROM, v) {
 }
 
 JIT_HELPER(POP_EXCEPT) {
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
     PyTryBlock *b = PyFrame_BlockPop(f);
     if (b->b_type != EXCEPT_HANDLER) {
         PyErr_SetString(PyExc_SystemError,
@@ -406,7 +406,7 @@ JIT_HELPER(POP_EXCEPT) {
 #endif
 }
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 #define UNWIND_BLOCK(b) \
     while (STACK_LEVEL() > (b)->b_level) { \
         PyObject *v = POP(); \
@@ -490,7 +490,7 @@ JIT_HELPER1(END_ASYNC_FOR, exc) {
     }
 }
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 PyObject* JIT_HELPER_END_FINALLY37(enum why_code* why) {
     PyObject* retval = NULL;
 
@@ -1447,7 +1447,7 @@ JIT_HELPER_WITH_OPARG(SETUP_WITH) {
 }
 
 JIT_HELPER(WITH_CLEANUP_START) {
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
     /* At the top of the stack are 1-6 values indicating
         how/why we entered the finally clause:
         - TOP = None
@@ -1614,7 +1614,7 @@ JIT_HELPER(WITH_CLEANUP_START) {
 
 JIT_HELPER2(WITH_CLEANUP_FINISH, res, exc) {
     PREDICTED(WITH_CLEANUP_FINISH);
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
     //PyObject *res = POP();
     //PyObject *exc = POP();
     int err;

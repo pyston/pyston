@@ -254,7 +254,7 @@ function_code_fastcall(PyCodeObject *co, PyObject *const *args, Py_ssize_t nargs
     return result;
 }
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 static PyObject *
 __PyFunction_FastCallKeywords(PyObject *func, PyObject *const *stack,
                              Py_ssize_t nargs, PyObject *kwnames)
@@ -421,7 +421,7 @@ call_functionFunction(PyThreadState *tstate, PyObject ** restrict pp_stack, Py_s
     Py_ssize_t nargs = oparg - nkwargs;
     PyObject **stack = (pp_stack) - nargs - nkwargs;
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
     x = __PyFunction_FastCallKeywords(func, stack, nargs, kwnames);
 #else
     if (tstate->use_tracing) {

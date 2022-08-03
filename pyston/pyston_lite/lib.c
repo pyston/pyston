@@ -1,6 +1,6 @@
 #include "Python.h"
 
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 #include "internal/pystate.h"
 #else
 #include "pycore_object.h"
@@ -171,7 +171,7 @@ PyObject* module_getattro_not_found(PyObject *_m, PyObject *name)
         _Py_IDENTIFIER(__name__);
         mod_name = _PyDict_GetItemId(m->md_dict, &PyId___name__);
         if (mod_name && PyUnicode_Check(mod_name)) {
-#if PY_MINOR_VERSION == 7
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             PyErr_Format(PyExc_AttributeError,
                         "module '%U' has no attribute '%U'", mod_name, name);
 #else
@@ -537,7 +537,7 @@ _process_method(PyObject* self, PyObject* res, int* unbound) {
         return NULL;
     }
 
-#if PY_MINOR_VERSION >= 8
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 8
     if (PyType_HasFeature(Py_TYPE(res), Py_TPFLAGS_METHOD_DESCRIPTOR)) {
         /* Avoid temporary PyMethodObject */
         *unbound = 1;

@@ -9,7 +9,7 @@ extern "C" {
 #define PY_LOCAL_AGGRESSIVE
 #include "Python.h"
 
-#if defined(PYSTON_LITE) && PY_MINOR_VERSION == 7
+#if defined(PYSTON_LITE) && PY_MAJOR_VERSION == 3 &&  PY_MINOR_VERSION == 7
 #include "internal/pystate.h"
 // make sure this points to the Pyston version of this file:
 #include "../../Include/internal/pycore_code.h"
