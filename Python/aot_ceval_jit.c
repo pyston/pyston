@@ -1386,6 +1386,19 @@ static void emit_call_ext_func(Jit* Dst, void* addr) {
 @X86_END
 }
 
+// on arm we can generate slightly better code if we know the return value is ignored (e.g. calling void function)
+static void emit_indirect_call(Jit* Dst, int r_idx, int offset, int ignore_ret_value) {
+@ARM_START
+    | ldr tmp, [Rx(r_idx), #offset]
+    | blr tmp
+    if (!ignore_ret_value) {
+        | mov res, real_res
+    }
+@ARM_END
+
+@X86| call qword [Rq(r_idx)+offset]
+}
+
 // r_idx contains the PyObject to decref
 // Note: this macro clobbers all registers except 'res' if preserve_res is set
 // Can't use label 9 here because it will end up being the target
@@ -1425,11 +1438,7 @@ static void emit_decref(Jit* Dst, int r_idx, int preserve_res) {
     //  call_ext_func _Py_Dealloc
     emit_load64_mem(Dst, res_idx, arg1_idx, offsetof(PyObject, ob_type));
 
-@ARM| ldr tmp, [res, #offsetof(PyTypeObject, tp_dealloc)]
-@ARM| blr tmp
-@ARM// mov res, real_res // we don't need this here because the function returns void
-
-@X86| call qword [res + offsetof(PyTypeObject, tp_dealloc)]
+    emit_indirect_call(Dst, res_idx, offsetof(PyTypeObject, tp_dealloc), 1 /*ignore ret value*/);
 
     if (preserve_res) {
         | mov res, tmp_preserved_reg
@@ -2323,14 +2332,19 @@ static void emit_inline_cache_loadattr_entry(Jit* Dst, int opcode, int oparg, _P
 
             PyObject* descr = la->u.descr_cache.descr;
             emit_mov_imm(Dst, arg5_idx, (uint64_t)descr);
-            emit_load64_mem(Dst, arg2_idx, arg5_idx, offsetof(PyObject, ob_type));
-            | type_version_check, arg2_idx, la->u.descr_cache.descr_type_ver, >1
+            emit_load64_mem(Dst, arg4_idx, arg5_idx, offsetof(PyObject, ob_type));
+            | type_version_check, arg4_idx, la->u.descr_cache.descr_type_ver, >1
 
             // res = descr->ob_type->tp_descr_get(descr, owner, (PyObject *)owner->ob_type);
             | mov arg1, arg5
             | mov arg2, tmp_preserved_reg
             emit_load64_mem(Dst, arg3_idx, tmp_preserved_reg_idx, offsetof(PyObject, ob_type));
-            emit_call_ext_func(Dst, descr->ob_type->tp_descr_get);
+            // we can't emit a direct call to descr->ob_type->tp_descr_get here
+            // because we don't know if descr is still valid here during code generation.
+            // we could work around it by caching tp_descr_get too but unfortunately we don't
+            // have enough space available so just fetch it everytime and do a indirect call.
+            emit_indirect_call(Dst, arg4_idx, offsetof(PyTypeObject, tp_descr_get), 0 /*don't ignore ret value*/);
+
             | mov arg1, tmp_preserved_reg // restore the obj so that the decref code works
             // attr can be NULL
             emit_cmp64_imm(Dst, res_idx, 0);
@@ -3888,11 +3902,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
         case FOR_ITER:
             deferred_vs_peek_top_and_apply(Dst, arg1_idx);
             emit_load64_mem(Dst, tmp_idx, arg1_idx, offsetof(PyObject, ob_type));
-@ARM        | ldr tmp, [tmp, #offsetof(PyTypeObject, tp_iternext)]
-@ARM        | blr tmp
-@ARM        | mov res, real_res
-
-@X86        | call qword [tmp + offsetof(PyTypeObject, tp_iternext)]
+            emit_indirect_call(Dst, tmp_idx, offsetof(PyTypeObject, tp_iternext), 0 /*don't ignore ret value*/);
 
             emit_cmp64_imm(Dst, res_idx, 0);
             | branch_eq >1
