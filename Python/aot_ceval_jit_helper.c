@@ -13,32 +13,7 @@
 //   - 2 means jump to exception_unwind
 // - opcodes using JUMPTO and JUMPBY need special handling in the JIT
 
-#define PY_LOCAL_AGGRESSIVE
-
-#include "Python.h"
-#include "pycore_ceval.h"
-#ifdef PYSTON_LITE
-// make sure this points to the Pyston version of this file:
-#include "../../Include/internal/pycore_code.h"
-#else
-#include "pycore_code.h"
-#endif
-#include "pycore_object.h"
-#include "pycore_pyerrors.h"
-#include "pycore_pylifecycle.h"
-#include "pycore_pystate.h"
-#include "pycore_tupleobject.h"
-
-#include "code.h"
-#include "dictobject.h"
-#include "frameobject.h"
-#include "opcode.h"
-#ifdef PYSTON_LITE
-#undef WITH_DTRACE
-#endif
-#include "pydtrace.h"
-#include "setobject.h"
-#include "structmember.h"
+#include "../../Python/aot_ceval_includes.h"
 
 #include <ctype.h>
 
@@ -105,6 +80,7 @@ int unpack_iterable(PyThreadState *, PyObject *, int, int, PyObject **);
 
 #define goto_error return (PyObject*)0
 #define goto_exception_unwind return (PyObject*)2
+#define goto_fast_block_end(retval) return (PyObject*)((unsigned long)retval | 2)
 
 #define STACK_LEVEL()     ((int)(stack_pointer - f->f_valuestack))
 #define EMPTY()           (STACK_LEVEL() == 0)
@@ -126,6 +102,7 @@ int unpack_iterable(PyThreadState *, PyObject *, int, int, PyObject **);
 #define POP()                  BASIC_POP()
 #define STACK_GROW(n)          BASIC_STACKADJ(n)
 #define STACK_SHRINK(n)        BASIC_STACKADJ(-n)
+#define STACKADJ(n)            BASIC_STACKADJ(n)
 #define EXT_POP(STACK_POINTER) (*--(STACK_POINTER))
 
 #define UNWIND_EXCEPT_HANDLER(b) \
@@ -395,6 +372,16 @@ JIT_HELPER1(YIELD_FROM, v) {
 }
 
 JIT_HELPER(POP_EXCEPT) {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
+    PyTryBlock *b = PyFrame_BlockPop(f);
+    if (b->b_type != EXCEPT_HANDLER) {
+        PyErr_SetString(PyExc_SystemError,
+                        "popped block is not an except handler");
+        goto_error;
+    }
+    UNWIND_EXCEPT_HANDLER(b);
+    DISPATCH();
+#else
     PyObject *type, *value, *traceback;
     _PyErr_StackItem *exc_info;
     PyTryBlock *b = PyFrame_BlockPop(f);
@@ -416,7 +403,21 @@ JIT_HELPER(POP_EXCEPT) {
     Py_XDECREF(value);
     Py_XDECREF(traceback);
     DISPATCH();
+#endif
 }
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
+#define UNWIND_BLOCK(b) \
+    while (STACK_LEVEL() > (b)->b_level) { \
+        PyObject *v = POP(); \
+        Py_XDECREF(v); \
+    }
+void JIT_HELPER_POP_BLOCK37(void) {
+    PyTryBlock *b = PyFrame_BlockPop(f);
+    UNWIND_BLOCK(b);
+}
+#endif
+
 
 JIT_HELPER_WITH_OPARG(POP_FINALLY) {
     /* If oparg is 0 at the top of the stack are 1 or 6 values:
@@ -488,6 +489,52 @@ JIT_HELPER1(END_ASYNC_FOR, exc) {
         goto_exception_unwind;
     }
 }
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
+PyObject* JIT_HELPER_END_FINALLY37(enum why_code* why) {
+    PyObject* retval = NULL;
+
+    PyObject *status = POP();
+    if (PyLong_Check(status)) {
+        *why = (enum why_code) PyLong_AS_LONG(status);
+        assert(why != WHY_YIELD && why != WHY_EXCEPTION);
+        if (*why == WHY_RETURN ||
+            *why == WHY_CONTINUE)
+            retval = POP();
+        if (*why == WHY_SILENCED) {
+            /* An exception was silenced by 'with', we must
+            manually unwind the EXCEPT_HANDLER block which was
+            created when the exception was caught, otherwise
+            the stack will be in an inconsistent state. */
+            PyTryBlock *b = PyFrame_BlockPop(f);
+            assert(b->b_type == EXCEPT_HANDLER);
+            UNWIND_EXCEPT_HANDLER(b);
+            *why = WHY_NOT;
+            Py_DECREF(status);
+            DISPATCH();
+        }
+        Py_DECREF(status);
+        //goto fast_block_end;
+        goto_fast_block_end(retval);
+    }
+    else if (PyExceptionClass_Check(status)) {
+        PyObject *exc = POP();
+        PyObject *tb = POP();
+        PyErr_Restore(status, exc, tb);
+        *why = WHY_EXCEPTION;
+        //goto fast_block_end;
+        goto_fast_block_end(retval);
+    }
+    else if (status != Py_None) {
+        PyErr_SetString(PyExc_SystemError,
+            "'finally' pops bad exception");
+        Py_DECREF(status);
+        goto_error;
+    }
+    Py_DECREF(status);
+    DISPATCH();
+}
+#endif
 
 JIT_HELPER(LOAD_BUILD_CLASS) {
     _Py_IDENTIFIER(__build_class__);
@@ -1400,6 +1447,97 @@ JIT_HELPER_WITH_OPARG(SETUP_WITH) {
 }
 
 JIT_HELPER(WITH_CLEANUP_START) {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
+    /* At the top of the stack are 1-6 values indicating
+        how/why we entered the finally clause:
+        - TOP = None
+        - (TOP, SECOND) = (WHY_{RETURN,CONTINUE}), retval
+        - TOP = WHY_*; no retval below it
+        - (TOP, SECOND, THIRD) = exc_info()
+            (FOURTH, FITH, SIXTH) = previous exception for EXCEPT_HANDLER
+        Below them is EXIT, the context.__exit__ bound method.
+        In the last case, we must call
+            EXIT(TOP, SECOND, THIRD)
+        otherwise we must call
+            EXIT(None, None, None)
+
+        In the first three cases, we remove EXIT from the
+        stack, leaving the rest in the same order.  In the
+        fourth case, we shift the bottom 3 values of the
+        stack down, and replace the empty spot with NULL.
+
+        In addition, if the stack represents an exception,
+        *and* the function call returns a 'true' value, we
+        push WHY_SILENCED onto the stack.  END_FINALLY will
+        then not re-raise the exception.  (But non-local
+        gotos should still be resumed.)
+    */
+
+    PyObject* stack[3];
+    PyObject *exit_func;
+    PyObject *exc, *val, *tb, *res;
+
+    val = tb = Py_None;
+    exc = TOP();
+    if (exc == Py_None) {
+        (void)POP();
+        exit_func = TOP();
+        SET_TOP(exc);
+    }
+    else if (PyLong_Check(exc)) {
+        STACKADJ(-1);
+        switch (PyLong_AsLong(exc)) {
+        case WHY_RETURN:
+        case WHY_CONTINUE:
+            /* Retval in TOP. */
+            exit_func = SECOND();
+            SET_SECOND(TOP());
+            SET_TOP(exc);
+            break;
+        default:
+            exit_func = TOP();
+            SET_TOP(exc);
+            break;
+        }
+        exc = Py_None;
+    }
+    else {
+        PyObject *tp2, *exc2, *tb2;
+        PyTryBlock *block;
+        val = SECOND();
+        tb = THIRD();
+        tp2 = FOURTH();
+        exc2 = PEEK(5);
+        tb2 = PEEK(6);
+        exit_func = PEEK(7);
+        SET_VALUE(7, tb2);
+        SET_VALUE(6, exc2);
+        SET_VALUE(5, tp2);
+        /* UNWIND_EXCEPT_HANDLER will pop this off. */
+        SET_FOURTH(NULL);
+        /* We just shifted the stack down, so we have
+            to tell the except handler block that the
+            values are lower than it expects. */
+        block = &f->f_blockstack[f->f_iblock - 1];
+        assert(block->b_type == EXCEPT_HANDLER);
+        block->b_level--;
+    }
+
+    stack[0] = exc;
+    stack[1] = val;
+    stack[2] = tb;
+    res = _PyObject_FastCall(exit_func, stack, 3);
+    Py_DECREF(exit_func);
+    if (res == NULL)
+        goto_error;
+
+    Py_INCREF(exc); /* Duplicating the exception on the stack */
+    PUSH(exc);
+    //PUSH(res);
+    //PREDICT(WITH_CLEANUP_FINISH);
+    //DISPATCH();
+    return res;
+#else
     /* At the top of the stack are 1 or 6 values indicating
         how/why we entered the finally clause:
         - TOP = NULL
@@ -1471,10 +1609,33 @@ JIT_HELPER(WITH_CLEANUP_START) {
     //PREDICT(WITH_CLEANUP_FINISH);
     //DISPATCH();
     return res;
+#endif
 }
 
 JIT_HELPER2(WITH_CLEANUP_FINISH, res, exc) {
     PREDICTED(WITH_CLEANUP_FINISH);
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
+    //PyObject *res = POP();
+    //PyObject *exc = POP();
+    int err;
+
+    if (exc != Py_None)
+        err = PyObject_IsTrue(res);
+    else
+        err = 0;
+
+    Py_DECREF(res);
+    Py_DECREF(exc);
+
+    if (err < 0)
+        goto_error;
+    else if (err > 0) {
+        /* There was an exception and a True return */
+        PUSH(PyLong_FromLong((long) WHY_SILENCED));
+    }
+    PREDICT(END_FINALLY);
+    DISPATCH();
+#else
     /* TOP = the result of calling the context.__exit__ bound method
         SECOND = either None or exception type
 
@@ -1508,6 +1669,7 @@ JIT_HELPER2(WITH_CLEANUP_FINISH, res, exc) {
     }
     PREDICT(END_FINALLY);
     DISPATCH();
+#endif
 }
 
 JIT_HELPER_WITH_NAME_OPCACHE_AOT(LOAD_METHOD) {
