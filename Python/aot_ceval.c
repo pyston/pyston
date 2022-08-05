@@ -105,7 +105,11 @@ static PyObject * unicode_concatenate(PyThreadState *, PyObject *, PyObject *,
 /*static*/ PyObject * special_lookup(PyThreadState *, PyObject *, _Py_Identifier *);
 /*static*/ int check_args_iterable(PyThreadState *, PyObject *func, PyObject *vararg);
 /*static*/ void format_kwargs_error(PyThreadState *, PyObject *func, PyObject *kwargs);
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
 /*static*/ void format_awaitable_error(PyThreadState *, PyTypeObject *, int);
+#else
+void format_awaitable_error(PyThreadState *, PyTypeObject *, int, int);
+#endif
 
 #define NAME_ERROR_MSG \
     "name '%.200s' is not defined"
@@ -158,6 +162,7 @@ long loadglobal_hits = 0, loadglobal_misses = 0, loadglobal_uncached = 0, loadgl
 #endif
 
 #ifdef PYSTON_LITE
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
 // In pyston-full we rely on LTO to inline cmp_outcome into the interpreter loop.
 // In pyston-lite we have to make the implementation available
 __attribute__((visibility("hidden"))) inline PyObject* cmp_outcome(PyThreadState *tstate, int, PyObject *v, PyObject *w);
@@ -186,60 +191,6 @@ PyObject* cmp_outcomePyCmp_NOT_IN(PyObject *v, PyObject *w) {
   return cmp_outcome(NULL, PyCmp_NOT_IN, v, w);
 }
 
-#define CANNOT_CATCH_MSG "catching classes that do not inherit from "\
-                         "BaseException is not allowed"
-PyObject *
-cmp_outcome(PyThreadState *tstate, int op, PyObject *v, PyObject *w)
-{
-    int res = 0;
-    switch (op) {
-    case PyCmp_IS:
-        res = (v == w);
-        break;
-    case PyCmp_IS_NOT:
-        res = (v != w);
-        break;
-    case PyCmp_IN:
-        res = PySequence_Contains(w, v);
-        if (res < 0)
-            return NULL;
-        break;
-    case PyCmp_NOT_IN:
-        res = PySequence_Contains(w, v);
-        if (res < 0)
-            return NULL;
-        res = !res;
-        break;
-    case PyCmp_EXC_MATCH:
-        if (PyTuple_Check(w)) {
-            Py_ssize_t i, length;
-            length = PyTuple_Size(w);
-            for (i = 0; i < length; i += 1) {
-                PyObject *exc = PyTuple_GET_ITEM(w, i);
-                if (!PyExceptionClass_Check(exc)) {
-                    _PyErr_SetString(tstate, PyExc_TypeError,
-                                     CANNOT_CATCH_MSG);
-                    return NULL;
-                }
-            }
-        }
-        else {
-            if (!PyExceptionClass_Check(w)) {
-                _PyErr_SetString(tstate, PyExc_TypeError,
-                                 CANNOT_CATCH_MSG);
-                return NULL;
-            }
-        }
-        res = PyErr_GivenExceptionMatches(v, w);
-        break;
-    default:
-        return PyObject_RichCompare(v, w, op);
-    }
-    v = res ? Py_True : Py_False;
-    Py_INCREF(v);
-    return v;
-}
-
 #if !(PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7)
 PyObject* _Py_HOT_FUNCTION
 PyErr_Occurred(void)
@@ -248,8 +199,8 @@ PyErr_Occurred(void)
     return _PyErr_Occurred(tstate);
 }
 #endif
-
 #endif
+#endif // PYSTON_LITE
 
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 #define GIL_REQUEST _Py_atomic_load_relaxed(&_PyRuntime.ceval.gil_drop_request)
@@ -300,6 +251,109 @@ PyErr_Occurred(void)
         _PyRuntime.ceval.pending.async_exc = 0; \
         COMPUTE_EVAL_BREAKER(); \
     } while (0)
+
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+
+/* This can set eval_breaker to 0 even though gil_drop_request became
+   1.  We believe this is all right because the eval loop will release
+   the GIL eventually anyway. */
+static inline void
+COMPUTE_EVAL_BREAKER(PyInterpreterState *interp,
+                     struct _ceval_runtime_state *ceval,
+                     struct _ceval_state *ceval2)
+{
+    _Py_atomic_store_relaxed(&ceval2->eval_breaker,
+        _Py_atomic_load_relaxed(&ceval2->gil_drop_request)
+        | (_Py_atomic_load_relaxed(&ceval->signals_pending)
+           && _Py_ThreadCanHandleSignals(interp))
+        | (_Py_atomic_load_relaxed(&ceval2->pending.calls_to_do)
+           && _Py_ThreadCanHandlePendingCalls())
+        | ceval2->pending.async_exc);
+}
+
+
+static inline void
+SET_GIL_DROP_REQUEST(PyInterpreterState *interp)
+{
+    struct _ceval_state *ceval2 = &interp->ceval;
+    _Py_atomic_store_relaxed(&ceval2->gil_drop_request, 1);
+    _Py_atomic_store_relaxed(&ceval2->eval_breaker, 1);
+}
+
+
+static inline void
+RESET_GIL_DROP_REQUEST(PyInterpreterState *interp)
+{
+    struct _ceval_runtime_state *ceval = &interp->runtime->ceval;
+    struct _ceval_state *ceval2 = &interp->ceval;
+    _Py_atomic_store_relaxed(&ceval2->gil_drop_request, 0);
+    COMPUTE_EVAL_BREAKER(interp, ceval, ceval2);
+}
+
+
+static inline void
+SIGNAL_PENDING_CALLS(PyInterpreterState *interp)
+{
+    struct _ceval_runtime_state *ceval = &interp->runtime->ceval;
+    struct _ceval_state *ceval2 = &interp->ceval;
+    _Py_atomic_store_relaxed(&ceval2->pending.calls_to_do, 1);
+    COMPUTE_EVAL_BREAKER(interp, ceval, ceval2);
+}
+
+
+static inline void
+UNSIGNAL_PENDING_CALLS(PyInterpreterState *interp)
+{
+    struct _ceval_runtime_state *ceval = &interp->runtime->ceval;
+    struct _ceval_state *ceval2 = &interp->ceval;
+    _Py_atomic_store_relaxed(&ceval2->pending.calls_to_do, 0);
+    COMPUTE_EVAL_BREAKER(interp, ceval, ceval2);
+}
+
+
+static inline void
+SIGNAL_PENDING_SIGNALS(PyInterpreterState *interp, int force)
+{
+    struct _ceval_runtime_state *ceval = &interp->runtime->ceval;
+    struct _ceval_state *ceval2 = &interp->ceval;
+    _Py_atomic_store_relaxed(&ceval->signals_pending, 1);
+    if (force) {
+        _Py_atomic_store_relaxed(&ceval2->eval_breaker, 1);
+    }
+    else {
+        /* eval_breaker is not set to 1 if thread_can_handle_signals() is false */
+        COMPUTE_EVAL_BREAKER(interp, ceval, ceval2);
+    }
+}
+
+
+static inline void
+UNSIGNAL_PENDING_SIGNALS(PyInterpreterState *interp)
+{
+    struct _ceval_runtime_state *ceval = &interp->runtime->ceval;
+    struct _ceval_state *ceval2 = &interp->ceval;
+    _Py_atomic_store_relaxed(&ceval->signals_pending, 0);
+    COMPUTE_EVAL_BREAKER(interp, ceval, ceval2);
+}
+
+
+static inline void
+SIGNAL_ASYNC_EXC(PyInterpreterState *interp)
+{
+    struct _ceval_state *ceval2 = &interp->ceval;
+    ceval2->pending.async_exc = 1;
+    _Py_atomic_store_relaxed(&ceval2->eval_breaker, 1);
+}
+
+
+static inline void
+UNSIGNAL_ASYNC_EXC(PyInterpreterState *interp)
+{
+    struct _ceval_runtime_state *ceval = &interp->runtime->ceval;
+    struct _ceval_state *ceval2 = &interp->ceval;
+    ceval2->pending.async_exc = 0;
+    COMPUTE_EVAL_BREAKER(interp, ceval, ceval2);
+}
 
 #else
 
@@ -375,6 +429,8 @@ PyErr_Occurred(void)
 #include "ceval_gil37.h"
 #define drop_gil(ceval, tstate) drop_gil(tstate)
 #define take_gil(ceval, tstate) take_gil(tstate)
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 9
+#include "ceval_gil39.h"
 #else
 #include "../../Python/ceval_gil.h"
 #endif
@@ -429,6 +485,7 @@ _PyEval_FiniThreads(struct _ceval_runtime_state *ceval)
     }
 }
 #endif
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
 static inline void
 exit_thread_if_finalizing(_PyRuntimeState *runtime, PyThreadState *tstate)
 {
@@ -443,6 +500,7 @@ exit_thread_if_finalizing(_PyRuntimeState *runtime, PyThreadState *tstate)
         PyThread_exit_thread();
     }
 }
+#endif
 #if 0
 void
 _PyEval_Fini(void)
@@ -708,7 +766,7 @@ Py_AddPendingCall(int (*func)(void *), void *arg)
 }
 #endif
 
-#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 8
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 8
 static int
 handle_signals(_PyRuntimeState *runtime)
 {
@@ -786,6 +844,98 @@ error:
     SIGNAL_PENDING_CALLS(ceval);
     return res;
 }
+
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+
+static int
+handle_signals(PyThreadState *tstate)
+{
+    assert(is_tstate_valid(tstate));
+    if (!_Py_ThreadCanHandleSignals(tstate->interp)) {
+        return 0;
+    }
+
+    UNSIGNAL_PENDING_SIGNALS(tstate->interp);
+    if (_PyErr_CheckSignalsTstate(tstate) < 0) {
+        /* On failure, re-schedule a call to handle_signals(). */
+        SIGNAL_PENDING_SIGNALS(tstate->interp, 0);
+        return -1;
+    }
+    return 0;
+}
+
+static int
+make_pending_calls(PyThreadState *tstate)
+{
+    assert(is_tstate_valid(tstate));
+
+    /* only execute pending calls on main thread */
+    if (!_Py_ThreadCanHandlePendingCalls()) {
+        return 0;
+    }
+
+    /* don't perform recursive pending calls */
+    static int busy = 0;
+    if (busy) {
+        return 0;
+    }
+    busy = 1;
+
+    /* unsignal before starting to call callbacks, so that any callback
+       added in-between re-signals */
+    UNSIGNAL_PENDING_CALLS(tstate->interp);
+    int res = 0;
+
+    /* perform a bounded number of calls, in case of recursion */
+    struct _pending_calls *pending = &tstate->interp->ceval.pending;
+    for (int i=0; i<NPENDINGCALLS; i++) {
+        int (*func)(void *) = NULL;
+        void *arg = NULL;
+
+        /* pop one item off the queue while holding the lock */
+        PyThread_acquire_lock(pending->lock, WAIT_LOCK);
+        _pop_pending_call(pending, &func, &arg);
+        PyThread_release_lock(pending->lock);
+
+        /* having released the lock, perform the callback */
+        if (func == NULL) {
+            break;
+        }
+        res = func(arg);
+        if (res) {
+            goto error;
+        }
+    }
+
+    busy = 0;
+    return res;
+
+error:
+    busy = 0;
+    SIGNAL_PENDING_CALLS(tstate->interp);
+    return res;
+}
+
+void
+_Py_FinishPendingCalls(PyThreadState *tstate)
+{
+    assert(PyGILState_Check());
+
+    struct _pending_calls *pending = &tstate->interp->ceval.pending;
+
+    if (!_Py_atomic_load_relaxed(&(pending->calls_to_do))) {
+        return;
+    }
+
+    if (make_pending_calls(tstate) < 0) {
+        PyObject *exc, *val, *tb;
+        _PyErr_Fetch(tstate, &exc, &val, &tb);
+        PyErr_BadInternalCall();
+        _PyErr_ChainExceptions(exc, val, tb);
+        _PyErr_Print(tstate);
+    }
+}
+
 #endif
 #if 0
 void
@@ -945,6 +1095,72 @@ PyEval_EvalFrameEx(PyFrameObject *f, int throwflag)
 }
 #endif
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+/* Handle signals, pending calls, GIL drop request
+   and asynchronous exception */
+static int
+eval_frame_handle_pending(PyThreadState *tstate)
+{
+    _PyRuntimeState * const runtime = &_PyRuntime;
+    struct _ceval_runtime_state *ceval = &runtime->ceval;
+
+    /* Pending signals */
+    if (_Py_atomic_load_relaxed(&ceval->signals_pending)) {
+        if (handle_signals(tstate) != 0) {
+            return -1;
+        }
+    }
+
+    /* Pending calls */
+    struct _ceval_state *ceval2 = &tstate->interp->ceval;
+    if (_Py_atomic_load_relaxed(&ceval2->pending.calls_to_do)) {
+        if (make_pending_calls(tstate) != 0) {
+            return -1;
+        }
+    }
+
+    /* GIL drop request */
+    if (_Py_atomic_load_relaxed(&ceval2->gil_drop_request)) {
+        /* Give another thread a chance */
+        if (_PyThreadState_Swap(&runtime->gilstate, NULL) != tstate) {
+            Py_FatalError("tstate mix-up");
+        }
+        drop_gil(ceval, ceval2, tstate);
+
+        /* Other threads may run now */
+
+        take_gil(tstate);
+
+        if (_PyThreadState_Swap(&runtime->gilstate, tstate) != NULL) {
+            Py_FatalError("orphan tstate");
+        }
+    }
+
+    /* Check for asynchronous exception. */
+    if (tstate->async_exc != NULL) {
+        PyObject *exc = tstate->async_exc;
+        tstate->async_exc = NULL;
+        UNSIGNAL_ASYNC_EXC(tstate->interp);
+        _PyErr_SetNone(tstate, exc);
+        Py_DECREF(exc);
+        return -1;
+    }
+
+#ifdef MS_WINDOWS
+    // bpo-42296: On Windows, _PyEval_SignalReceived() can be called in a
+    // different thread than the Python thread, in which case
+    // _Py_ThreadCanHandleSignals() is wrong. Recompute eval_breaker in the
+    // current Python thread with the correct _Py_ThreadCanHandleSignals()
+    // value. It prevents to interrupt the eval loop at every instruction if
+    // the current Python thread cannot handle signals (if
+    // _Py_ThreadCanHandleSignals() is false).
+    COMPUTE_EVAL_BREAKER(tstate->interp, ceval, ceval2);
+#endif
+
+    return 0;
+}
+#endif
+
 // this function is used by the JIT but I moved it here because it uses a bunch of internal stuff
 // which we would need to copy or make public if we want to use it in another translation unit
 int eval_breaker_jit_helper() {
@@ -958,6 +1174,12 @@ int eval_breaker_jit_helper() {
     struct _ceval_runtime_state * const ceval = &runtime->ceval;
 #endif
 
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+    if (eval_frame_handle_pending(tstate) != 0) {
+        return -1;
+    }
+#else
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
     if (_Py_atomic_load_relaxed(&_PyRuntime.ceval.pending.calls_to_do)) {
         if (Py_MakePendingCalls() < 0)
@@ -1007,6 +1229,7 @@ int eval_breaker_jit_helper() {
         Py_DECREF(exc);
         return -1;
     }
+#endif
     return 0;
 }
 
@@ -1818,9 +2041,17 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 #endif
     PyObject **fastlocals, **freevars;
     PyObject *retval = NULL;            /* Return value */
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+    // 3.9 is using ceval2 here everywhere.
+    // But to avoid duplciating code we keep ceval and ceval2.
+    struct _ceval_state * const ceval = &tstate->interp->ceval;
+    struct _ceval_state * const ceval2 = &tstate->interp->ceval;
+    _Py_atomic_int * const eval_breaker = &ceval2->eval_breaker;
+#else
     _PyRuntimeState * const runtime = &_PyRuntime;
     struct _ceval_runtime_state * const ceval = &runtime->ceval;
     _Py_atomic_int * const eval_breaker = &ceval->eval_breaker;
+#endif
     PyCodeObject *co;
 
     /* when tracing we set things up so that
@@ -1902,6 +2133,8 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 #ifdef PYSTON_LITE
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 #include "opcode_targets37.h"
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 9
+#include "opcode_targets39.h"
 #else
 #include "../../Python/opcode_targets.h"
 #endif
@@ -2385,6 +2618,12 @@ main_loop:
                 */
                 goto fast_next_opcode;
             }
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+            if (eval_frame_handle_pending(tstate) != 0) {
+                goto error;
+            }
+#else
+
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             if (_Py_atomic_load_relaxed(&_PyRuntime.ceval.pending.calls_to_do))
             {
@@ -2435,6 +2674,7 @@ main_loop:
                 Py_DECREF(exc);
                 goto error;
             }
+#endif
         }
 
     fast_next_opcode:
@@ -3087,7 +3327,11 @@ main_loop:
                 Py_DECREF(value);
                 goto error;
             }
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
             res = PyObject_CallFunctionObjArgs(hook, value, NULL);
+#else
+            res = PyObject_CallOneArg(hook, value);
+#endif
             Py_DECREF(value);
             if (res == NULL)
                 goto error;
@@ -3127,9 +3371,12 @@ main_loop:
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             why = WHY_RETURN;
             goto fast_block_end;
-#else
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 8
             assert(f->f_iblock == 0);
             goto exit_returning;
+#else
+            assert(EMPTY());
+            goto exiting;
 #endif
         }
 
@@ -3234,8 +3481,18 @@ main_loop:
             PyObject *iter = _PyCoro_GetAwaitableIter(iterable);
 
             if (iter == NULL) {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
                 format_awaitable_error(tstate, Py_TYPE(iterable),
                                        _Py_OPCODE(next_instr[-2]));
+#else
+                int opcode_at_minus_3 = 0;
+                if ((next_instr - first_instr) > 2) {
+                    opcode_at_minus_3 = _Py_OPCODE(next_instr[-3]);
+                }
+                format_awaitable_error(tstate, Py_TYPE(iterable),
+                                       opcode_at_minus_3,
+                                       _Py_OPCODE(next_instr[-2]));
+#endif
             }
 
             Py_DECREF(iterable);
@@ -3275,7 +3532,11 @@ main_loop:
                 if (v == Py_None)
                     retval = Py_TYPE(receiver)->tp_iternext(receiver);
                 else
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
                     retval = _PyObject_CallMethodIdObjArgs(receiver, &PyId_send, v, NULL);
+#else
+                    retval = _PyObject_CallMethodIdOneArg(receiver, &PyId_send, v);
+#endif
             }
             Py_DECREF(v);
             if (retval == NULL) {
@@ -3300,8 +3561,10 @@ main_loop:
             f->f_lasti -= sizeof(_Py_CODEUNIT);
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             goto fast_yield;
-#else
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 8
             goto exit_yielding;
+#else
+            goto exiting;
 #endif
         }
 
@@ -3322,8 +3585,10 @@ main_loop:
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             why = WHY_YIELD;
             goto fast_yield;
-#else
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 8
             goto exit_yielding;
+#else
+            goto exiting;
 #endif
         }
 
@@ -3373,7 +3638,7 @@ main_loop:
             DISPATCH();
         }
 
-#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 8
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 8
         case TARGET(POP_FINALLY): {
             /* If oparg is 0 at the top of the stack are 1 or 6 values:
                Either:
@@ -3444,6 +3709,7 @@ main_loop:
         }
 #endif
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
         case TARGET(END_FINALLY): {
             PREDICTED(END_FINALLY);
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
@@ -3514,6 +3780,18 @@ main_loop:
             }
 #endif
         }
+#endif
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+        case TARGET(RERAISE): {
+            PyObject *exc = POP();
+            PyObject *val = POP();
+            PyObject *tb = POP();
+            assert(PyExceptionClass_Check(exc));
+            _PyErr_Restore(tstate, exc, val, tb);
+            goto exception_unwind;
+        }
+#endif
 
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 8
         case TARGET(END_ASYNC_FOR): {
@@ -3534,6 +3812,15 @@ main_loop:
                 _PyErr_Restore(tstate, exc, val, tb);
                 goto exception_unwind;
             }
+        }
+#endif
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+        case TARGET(LOAD_ASSERTION_ERROR): {
+            PyObject *value = PyExc_AssertionError;
+            Py_INCREF(value);
+            PUSH(value);
+            FAST_DISPATCH();
         }
 #endif
 
@@ -4066,6 +4353,7 @@ sa_common:
             DISPATCH();
         }
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
         case TARGET(BUILD_TUPLE_UNPACK_WITH_CALL):
         case TARGET(BUILD_TUPLE_UNPACK):
         case TARGET(BUILD_LIST_UNPACK): {
@@ -4108,6 +4396,52 @@ sa_common:
             PUSH(return_value);
             DISPATCH();
         }
+#endif
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+        case TARGET(LIST_TO_TUPLE): {
+            PyObject *list = POP();
+            PyObject *tuple = PyList_AsTuple(list);
+            Py_DECREF(list);
+            if (tuple == NULL) {
+                goto error;
+            }
+            PUSH(tuple);
+            DISPATCH();
+        }
+
+        case TARGET(LIST_EXTEND): {
+            PyObject *iterable = POP();
+            PyObject *list = PEEK(oparg);
+            PyObject *none_val = _PyList_Extend((PyListObject *)list, iterable);
+            if (none_val == NULL) {
+                if (_PyErr_ExceptionMatches(tstate, PyExc_TypeError) &&
+                   (Py_TYPE(iterable)->tp_iter == NULL && !PySequence_Check(iterable)))
+                {
+                    _PyErr_Clear(tstate);
+                    _PyErr_Format(tstate, PyExc_TypeError,
+                          "Value after * must be an iterable, not %.200s",
+                          Py_TYPE(iterable)->tp_name);
+                }
+                Py_DECREF(iterable);
+                goto error;
+            }
+            Py_DECREF(none_val);
+            Py_DECREF(iterable);
+            DISPATCH();
+        }
+
+        case TARGET(SET_UPDATE): {
+            PyObject *iterable = POP();
+            PyObject *set = PEEK(oparg);
+            int err = _PySet_Update(set, iterable);
+            Py_DECREF(iterable);
+            if (err < 0) {
+                goto error;
+            }
+            DISPATCH();
+        }
+#endif
 
         case TARGET(BUILD_SET): {
             PyObject *set = PySet_New(NULL);
@@ -4130,6 +4464,7 @@ sa_common:
             DISPATCH();
         }
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
         case TARGET(BUILD_SET_UNPACK): {
             Py_ssize_t i;
             PyObject *sum = PySet_New(NULL);
@@ -4148,6 +4483,7 @@ sa_common:
             PUSH(sum);
             DISPATCH();
         }
+#endif
 
         case TARGET(BUILD_MAP): {
             Py_ssize_t i;
@@ -4265,6 +4601,7 @@ sa_common:
             DISPATCH();
         }
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
         case TARGET(BUILD_MAP_UNPACK): {
             Py_ssize_t i;
             PyObject *sum = PyDict_New();
@@ -4310,6 +4647,39 @@ sa_common:
             PUSH(sum);
             DISPATCH();
         }
+#endif
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+        case TARGET(DICT_UPDATE): {
+            PyObject *update = POP();
+            PyObject *dict = PEEK(oparg);
+            if (PyDict_Update(dict, update) < 0) {
+                if (_PyErr_ExceptionMatches(tstate, PyExc_AttributeError)) {
+                    _PyErr_Format(tstate, PyExc_TypeError,
+                                    "'%.200s' object is not a mapping",
+                                    Py_TYPE(update)->tp_name);
+                }
+                Py_DECREF(update);
+                goto error;
+            }
+            Py_DECREF(update);
+            DISPATCH();
+        }
+
+        case TARGET(DICT_MERGE): {
+            PyObject *update = POP();
+            PyObject *dict = PEEK(oparg);
+
+            if (_PyDict_MergeEx(dict, update, 2) < 0) {
+                format_kwargs_error(tstate, PEEK(2 + oparg), update);
+                Py_DECREF(update);
+                goto error;
+            }
+            Py_DECREF(update);
+            //PREDICT(CALL_FUNCTION_EX);
+            DISPATCH();
+        }
+#endif
 
         case TARGET(MAP_ADD): {
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
@@ -4374,7 +4744,11 @@ la_common:
         case TARGET(COMPARE_OP): {
             PyObject *right = POP();
             PyObject *left = TOP();
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
             PyObject *res = cmp_outcome(tstate, oparg, left, right);
+#else
+            PyObject *res = PyObject_RichCompare(left, right, oparg);
+#endif
             Py_DECREF(left);
             Py_DECREF(right);
             SET_TOP(res);
@@ -4384,6 +4758,83 @@ la_common:
             PREDICT(POP_JUMP_IF_TRUE);
             DISPATCH();
         }
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+        case TARGET(IS_OP): {
+            PyObject *right = POP();
+            PyObject *left = TOP();
+            int res = (left == right)^oparg;
+            PyObject *b = res ? Py_True : Py_False;
+            Py_INCREF(b);
+            SET_TOP(b);
+            Py_DECREF(left);
+            Py_DECREF(right);
+            PREDICT(POP_JUMP_IF_FALSE);
+            PREDICT(POP_JUMP_IF_TRUE);
+            FAST_DISPATCH();
+        }
+
+        case TARGET(CONTAINS_OP): {
+            PyObject *right = POP();
+            PyObject *left = POP();
+            int res = PySequence_Contains(right, left);
+            Py_DECREF(left);
+            Py_DECREF(right);
+            if (res < 0) {
+                goto error;
+            }
+            PyObject *b = (res^oparg) ? Py_True : Py_False;
+            Py_INCREF(b);
+            PUSH(b);
+            PREDICT(POP_JUMP_IF_FALSE);
+            PREDICT(POP_JUMP_IF_TRUE);
+            FAST_DISPATCH();
+        }
+
+#define CANNOT_CATCH_MSG "catching classes that do not inherit from "\
+                         "BaseException is not allowed"
+
+        case TARGET(JUMP_IF_NOT_EXC_MATCH): {
+            PyObject *right = POP();
+            PyObject *left = POP();
+            if (PyTuple_Check(right)) {
+                Py_ssize_t i, length;
+                length = PyTuple_GET_SIZE(right);
+                for (i = 0; i < length; i++) {
+                    PyObject *exc = PyTuple_GET_ITEM(right, i);
+                    if (!PyExceptionClass_Check(exc)) {
+                        _PyErr_SetString(tstate, PyExc_TypeError,
+                                        CANNOT_CATCH_MSG);
+                        Py_DECREF(left);
+                        Py_DECREF(right);
+                        goto error;
+                    }
+                }
+            }
+            else {
+                if (!PyExceptionClass_Check(right)) {
+                    _PyErr_SetString(tstate, PyExc_TypeError,
+                                    CANNOT_CATCH_MSG);
+                    Py_DECREF(left);
+                    Py_DECREF(right);
+                    goto error;
+                }
+            }
+            int res = PyErr_GivenExceptionMatches(left, right);
+            Py_DECREF(left);
+            Py_DECREF(right);
+            if (res > 0) {
+                /* Exception matches -- Do nothing */;
+            }
+            else if (res == 0) {
+                JUMPTO(oparg);
+            }
+            else {
+                goto error;
+            }
+            DISPATCH();
+        }
+#endif
 
         case TARGET(IMPORT_NAME): {
             PyObject *name = GETITEM(names, oparg);
@@ -4642,6 +5093,7 @@ la_common:
         }
 
         case TARGET(BEFORE_ASYNC_WITH): {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
             _Py_IDENTIFIER(__aexit__);
             _Py_IDENTIFIER(__aenter__);
 
@@ -4656,6 +5108,23 @@ la_common:
             Py_DECREF(mgr);
             if (enter == NULL)
                 goto error;
+#else
+            _Py_IDENTIFIER(__aenter__);
+            _Py_IDENTIFIER(__aexit__);
+            PyObject *mgr = TOP();
+            PyObject *enter = special_lookup(tstate, mgr, &PyId___aenter__);
+            PyObject *res;
+            if (enter == NULL) {
+                goto error;
+            }
+            PyObject *exit = special_lookup(tstate, mgr, &PyId___aexit__);
+            if (exit == NULL) {
+                Py_DECREF(enter);
+                goto error;
+            }
+            SET_TOP(exit);
+            Py_DECREF(mgr);
+#endif
             res = _PyObject_CallNoArg(enter);
             Py_DECREF(enter);
             if (res == NULL)
@@ -4704,6 +5173,7 @@ la_common:
             DISPATCH();
         }
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
         case TARGET(WITH_CLEANUP_START): {
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
             /* At the top of the stack are 1-6 values indicating
@@ -4927,6 +5397,38 @@ la_common:
             DISPATCH();
 #endif
         }
+#endif
+
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+        case TARGET(WITH_EXCEPT_START): {
+            /* At the top of the stack are 7 values:
+               - (TOP, SECOND, THIRD) = exc_info()
+               - (FOURTH, FIFTH, SIXTH) = previous exception for EXCEPT_HANDLER
+               - SEVENTH: the context.__exit__ bound method
+               We call SEVENTH(TOP, SECOND, THIRD).
+               Then we push again the TOP exception and the __exit__
+               return value.
+            */
+            PyObject *exit_func;
+            PyObject *exc, *val, *tb, *res;
+
+            exc = TOP();
+            val = SECOND();
+            tb = THIRD();
+            assert(exc != Py_None);
+            assert(!PyLong_Check(exc));
+            exit_func = PEEK(7);
+            PyObject *stack[4] = {NULL, exc, val, tb};
+            res = PyObject_Vectorcall(exit_func, stack + 1,
+                    3 | PY_VECTORCALL_ARGUMENTS_OFFSET, NULL);
+            if (res == NULL)
+                goto error;
+
+            PUSH(res);
+            DISPATCH();
+        }
+#endif
 
         case TARGET(LOAD_METHOD): {
             /* Designed to work in tandem with CALL_METHOD. */
@@ -5456,6 +5958,20 @@ exception_unwind:
                 PUSH(exc);
 
                 JUMPTO(handler);
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+                if (_Py_TracingPossible(ceval2)) {
+                    int needs_new_execution_window = (f->f_lasti < instr_lb || f->f_lasti >= instr_ub);
+                    int needs_line_update = (f->f_lasti == instr_lb || f->f_lasti < instr_prev);
+                    /* Make sure that we trace line after exception if we are in a new execution
+                        * window or we don't need a line update and we are not in the first instruction
+                        * of the line. */
+                    if (needs_new_execution_window || (!needs_line_update && instr_lb > 0)) {
+                        instr_prev = INT_MAX;
+                    }
+                }
+#endif
+
                 /* Resume normal execution */
                 goto main_loop;
             }
@@ -5468,7 +5984,9 @@ exception_unwind:
     assert(retval == NULL);
     assert(_PyErr_Occurred(tstate));
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
 exit_returning:
+#endif
 
     /* Pop remaining stack entries. */
     while (!EMPTY()) {
@@ -5511,7 +6029,11 @@ fast_yield:
         }
     }
 #else
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
 exit_yielding:
+#else
+exiting:
+#endif
     if (tstate->use_tracing) {
         if (tstate->c_tracefunc) {
             if (call_trace_protected(tstate->c_tracefunc, tstate->c_traceobj,
@@ -5534,7 +6056,11 @@ exit_yielding:
     f->f_executing = 0;
     tstate->frame = f->f_back;
 
+#ifndef PYSTON_LITE
     return _Py_CheckFunctionResult(NULL, retval, "PyEval_EvalFrameEx");
+#else
+    return retval;
+#endif
 }
 
 static PyObject* _Py_HOT_FUNCTION
@@ -5782,6 +6308,7 @@ exception_unwind:
             PUSH(exc);
 
             f->f_lasti = handler - 2;
+
             /* Resume normal execution */
             goto continue_jit;
         }
@@ -5857,7 +6384,11 @@ exit_yielding:
     f->f_executing = 0;
     tstate->frame = f->f_back;
 
+#ifndef PYSTON_LITE
     return _Py_CheckFunctionResult(NULL, retval, "PyEval_EvalFrameEx");
+#else
+    return retval;
+#endif
 }
 
 // Entry point when executing a python function.
@@ -5869,12 +6400,16 @@ _PyEval_EvalFrame_AOT
 PyObject* _Py_HOT_FUNCTION
 _PyEval_EvalFrameDefault
 #endif
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+(PyThreadState *tstate, PyFrameObject *f, int throwflag)
+#else
 (PyFrameObject *f, int throwflag)
+#endif
 {
     PyObject* retval = NULL;
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
     PyThreadState *tstate = PyThreadState_GET();
-#else
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 8
     _PyRuntimeState * const runtime = &_PyRuntime;
     PyThreadState * const tstate = _PyRuntimeState_GetThreadState(runtime);
 #endif
@@ -5977,7 +6512,11 @@ exit_eval_frame:
     f->f_executing = 0;
     tstate->frame = f->f_back;
 
+#ifndef PYSTON_LITE
     return _Py_CheckFunctionResult(NULL, retval, "PyEval_EvalFrameEx");
+#else
+    return retval;
+#endif
 }
 
 #if 0
@@ -7090,7 +7629,11 @@ trace_call_function(PyThreadState *tstate,
                     PyObject *kwnames)
 {
     PyObject *x;
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 8
     if (PyCFunction_Check(func)) {
+#else
+    if (PyCFunction_CheckExact(func) || PyCMethod_CheckExact(func)) {
+#endif
         C_TRACE(x, _PyObject_Vectorcall(func, args, nargs, kwnames));
         return x;
     }
@@ -7246,10 +7789,18 @@ do_call_core(PyThreadState *tstate, PyObject *func, PyObject *callargs, PyObject
 {
     PyObject *result;
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 8
     if (PyCFunction_Check(func)) {
         C_TRACE(result, PyCFunction_Call(func, callargs, kwdict));
         return result;
     }
+#else
+    if (PyCFunction_CheckExact(func) || PyCMethod_CheckExact(func)) {
+        C_TRACE(result, PyObject_Call(func, callargs, kwdict));
+        return result;
+    }
+#endif
+
     else if (Py_TYPE(func) == &PyMethodDescr_Type) {
         Py_ssize_t nargs = PyTuple_GET_SIZE(callargs);
         if (nargs > 0 && tstate->use_tracing) {
@@ -7328,11 +7879,10 @@ _PyEval_SliceIndexNotNone(PyObject *v, Py_ssize_t *pi)
 }
 #endif
 
+#if defined(PYSTON_LITE) && PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
 #define CANNOT_CATCH_MSG "catching classes that do not inherit from "\
                          "BaseException is not allowed"
-// already non statically defined inside ceval.c
-#if 0
-static PyObject *
+/*static*/ PyObject *
 cmp_outcome(PyThreadState *tstate, int op, PyObject *v, PyObject *w)
 {
     int res = 0;
@@ -7639,12 +8189,26 @@ import_all_from(PyThreadState *tstate, PyObject *locals, PyObject *v)
 check_args_iterable(PyThreadState *tstate, PyObject *func, PyObject *args)
 {
     if (args->ob_type->tp_iter == NULL && !PySequence_Check(args)) {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
         _PyErr_Format(tstate, PyExc_TypeError,
                       "%.200s%.200s argument after * "
                       "must be an iterable, not %.200s",
                       PyEval_GetFuncName(func),
                       PyEval_GetFuncDesc(func),
                       args->ob_type->tp_name);
+#else
+        /* check_args_iterable() may be called with a live exception:
+         * clear it to prevent calling _PyObject_FunctionStr() with an
+         * exception set. */
+        _PyErr_Clear(tstate);
+        PyObject *funcstr = _PyObject_FunctionStr(func);
+        if (funcstr != NULL) {
+            _PyErr_Format(tstate, PyExc_TypeError,
+                          "%U argument after * must be an iterable, not %.200s",
+                          funcstr, Py_TYPE(args)->tp_name);
+            Py_DECREF(funcstr);
+        }
+#endif
         return -1;
     }
     return 0;
@@ -7660,17 +8224,30 @@ format_kwargs_error(PyThreadState *tstate, PyObject *func, PyObject *kwargs)
      * is not a mapping.
      */
     if (_PyErr_ExceptionMatches(tstate, PyExc_AttributeError)) {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
         _PyErr_Format(tstate, PyExc_TypeError,
                       "%.200s%.200s argument after ** "
                       "must be a mapping, not %.200s",
                       PyEval_GetFuncName(func),
                       PyEval_GetFuncDesc(func),
                       kwargs->ob_type->tp_name);
+#else
+        _PyErr_Clear(tstate);
+        PyObject *funcstr = _PyObject_FunctionStr(func);
+        if (funcstr != NULL) {
+            _PyErr_Format(
+                tstate, PyExc_TypeError,
+                "%U argument after ** must be a mapping, not %.200s",
+                funcstr, Py_TYPE(kwargs)->tp_name);
+            Py_DECREF(funcstr);
+        }
+#endif
     }
     else if (_PyErr_ExceptionMatches(tstate, PyExc_KeyError)) {
         PyObject *exc, *val, *tb;
         _PyErr_Fetch(tstate, &exc, &val, &tb);
         if (val && PyTuple_Check(val) && PyTuple_GET_SIZE(val) == 1) {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
             PyObject *key = PyTuple_GET_ITEM(val, 0);
             if (!PyUnicode_Check(key)) {
                 _PyErr_Format(tstate, PyExc_TypeError,
@@ -7686,6 +8263,18 @@ format_kwargs_error(PyThreadState *tstate, PyObject *func, PyObject *kwargs)
                               PyEval_GetFuncDesc(func),
                               key);
             }
+#else
+            _PyErr_Clear(tstate);
+            PyObject *funcstr = _PyObject_FunctionStr(func);
+            if (funcstr != NULL) {
+                PyObject *key = PyTuple_GET_ITEM(val, 0);
+                _PyErr_Format(
+                    tstate, PyExc_TypeError,
+                    "%U got multiple values for keyword argument '%S'",
+                    funcstr, key);
+                Py_DECREF(funcstr);
+            }
+#endif
             Py_XDECREF(exc);
             Py_XDECREF(val);
             Py_XDECREF(tb);
@@ -7734,6 +8323,7 @@ format_exc_unbound(PyThreadState *tstate, PyCodeObject *co, int oparg)
     }
 }
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
 /*static*/ void
 format_awaitable_error(PyThreadState *tstate, PyTypeObject *type, int prevopcode)
 {
@@ -7752,6 +8342,26 @@ format_awaitable_error(PyThreadState *tstate, PyTypeObject *type, int prevopcode
         }
     }
 }
+#else
+void
+format_awaitable_error(PyThreadState *tstate, PyTypeObject *type, int prevprevopcode, int prevopcode)
+{
+    if (type->tp_as_async == NULL || type->tp_as_async->am_await == NULL) {
+        if (prevopcode == BEFORE_ASYNC_WITH) {
+            _PyErr_Format(tstate, PyExc_TypeError,
+                          "'async with' received an object from __aenter__ "
+                          "that does not implement __await__: %.100s",
+                          type->tp_name);
+        }
+        else if (prevopcode == WITH_EXCEPT_START || (prevopcode == CALL_FUNCTION && prevprevopcode == DUP_TOP)) {
+            _PyErr_Format(tstate, PyExc_TypeError,
+                          "'async with' received an object from __aexit__ "
+                          "that does not implement __await__: %.100s",
+                          type->tp_name);
+        }
+    }
+}
+#endif
 
 static PyObject *
 unicode_concatenate(PyThreadState *tstate, PyObject *v, PyObject *w,

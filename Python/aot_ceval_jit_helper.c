@@ -67,7 +67,11 @@ PyObject * unicode_concatenate(PyThreadState *, PyObject *, PyObject *,
 PyObject * special_lookup(PyThreadState *, PyObject *, _Py_Identifier *);
 int check_args_iterable(PyThreadState *, PyObject *func, PyObject *vararg);
 void format_kwargs_error(PyThreadState *, PyObject *func, PyObject *kwargs);
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
 void format_awaitable_error(PyThreadState *, PyTypeObject *, int);
+#else
+void format_awaitable_error(PyThreadState *, PyTypeObject *, int, int);
+#endif
 
 int do_raise(PyThreadState *tstate, PyObject *exc, PyObject *cause);
 int unpack_iterable(PyThreadState *, PyObject *, int, int, PyObject **);
@@ -159,10 +163,12 @@ register PyThreadState* tstate asm("r15");
     "free variable '%.200s' referenced before assignment" \
     " in enclosing scope"
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
 // this one is special it needs to access tstate thats why it's defined here
 PyObject* cmp_outcomePyCmp_EXC_MATCH(PyObject *v, PyObject *w) {
   return cmp_outcome(tstate, PyCmp_EXC_MATCH, v, w);
 }
+#endif
 
 int storeAttrCache(PyObject* owner, PyObject* name, PyObject* v, _PyOpcache *co_opcache, int* err);
 int setupStoreAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache);
@@ -182,7 +188,11 @@ JIT_HELPER1(PRINT_EXPR, value) {
         Py_DECREF(value);
         goto_error;
     }
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
     res = PyObject_CallFunctionObjArgs(hook, value, NULL);
+#else
+    res = PyObject_CallOneArg(hook, value);
+#endif
     Py_DECREF(value);
     if (res == NULL)
         goto_error;
@@ -312,8 +322,18 @@ JIT_HELPER1(GET_AWAITABLE, iterable) {
     if (iter == NULL) {
         const _Py_CODEUNIT *first_instr = (_Py_CODEUNIT *)PyBytes_AS_STRING(co->co_code);
         const _Py_CODEUNIT *next_instr = &first_instr[INSTR_OFFSET()/2];
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
         format_awaitable_error(tstate, Py_TYPE(iterable),
                                 _Py_OPCODE(next_instr[-2]));
+#else
+        int opcode_at_minus_3 = 0;
+        if ((next_instr - first_instr) > 2) {
+            opcode_at_minus_3 = _Py_OPCODE(next_instr[-3]);
+        }
+        format_awaitable_error(tstate, Py_TYPE(iterable),
+                                opcode_at_minus_3,
+                                _Py_OPCODE(next_instr[-2]));
+#endif
     }
 
     Py_DECREF(iterable);
@@ -347,7 +367,11 @@ JIT_HELPER1(YIELD_FROM, v) {
         if (v == Py_None)
             retval = Py_TYPE(receiver)->tp_iternext(receiver);
         else
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
             retval = _PyObject_CallMethodIdObjArgs(receiver, &PyId_send, v, NULL);
+#else
+            retval = _PyObject_CallMethodIdOneArg(receiver, &PyId_send, v);
+#endif
     }
     Py_DECREF(v);
     if (retval == NULL) {
@@ -942,6 +966,7 @@ JIT_HELPER_WITH_OPARG(BUILD_STRING) {
     return str;
 }
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
 JIT_HELPER_WITH_OPARG(BUILD_TUPLE_UNPACK_WITH_CALL) {
     int opcode = BUILD_TUPLE_UNPACK_WITH_CALL;
     int convert_to_tuple = opcode != BUILD_LIST_UNPACK;
@@ -1070,6 +1095,7 @@ JIT_HELPER_WITH_OPARG(BUILD_LIST_UNPACK) {
     //DISPATCH();
     return return_value;
 }
+#endif
 
 JIT_HELPER_WITH_OPARG(BUILD_SET) {
     PyObject *set = PySet_New(NULL);
@@ -1093,6 +1119,7 @@ JIT_HELPER_WITH_OPARG(BUILD_SET) {
     return set;
 }
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
 JIT_HELPER_WITH_OPARG(BUILD_SET_UNPACK) {
     Py_ssize_t i;
     PyObject *sum = PySet_New(NULL);
@@ -1112,6 +1139,7 @@ JIT_HELPER_WITH_OPARG(BUILD_SET_UNPACK) {
     //DISPATCH();
     return sum;
 }
+#endif
 
 JIT_HELPER_WITH_OPARG(BUILD_MAP) {
     Py_ssize_t i;
@@ -1391,7 +1419,90 @@ JIT_HELPER(FOR_ITER_SECOND_PART) {
     DISPATCH();
 }
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+JIT_HELPER1(DICT_UPDATE_ERROR, update) {
+    if (_PyErr_ExceptionMatches(tstate, PyExc_AttributeError)) {
+        _PyErr_Format(tstate, PyExc_TypeError,
+                        "'%.200s' object is not a mapping",
+                        Py_TYPE(update)->tp_name);
+    }
+    Py_DECREF(update);
+    goto_error;
+}
+JIT_HELPER2(DICT_MERGE_ERROR, update, func) {
+    format_kwargs_error(tstate, func, update);
+    Py_DECREF(update);
+    goto_error;
+}
+JIT_HELPER1(LIST_EXTEND_ERROR, iterable) {
+    if (_PyErr_ExceptionMatches(tstate, PyExc_TypeError) &&
+        (Py_TYPE(iterable)->tp_iter == NULL && !PySequence_Check(iterable)))
+    {
+        _PyErr_Clear(tstate);
+        _PyErr_Format(tstate, PyExc_TypeError,
+                "Value after * must be an iterable, not %.200s",
+                Py_TYPE(iterable)->tp_name);
+    }
+    Py_DECREF(iterable);
+    goto_error;
+}
+JIT_HELPER(WITH_EXCEPT_START) {
+    /* At the top of the stack are 7 values:
+        - (TOP, SECOND, THIRD) = exc_info()
+        - (FOURTH, FIFTH, SIXTH) = previous exception for EXCEPT_HANDLER
+        - SEVENTH: the context.__exit__ bound method
+        We call SEVENTH(TOP, SECOND, THIRD).
+        Then we push again the TOP exception and the __exit__
+        return value.
+    */
+    PyObject *exit_func;
+    PyObject *exc, *val, *tb, *res;
+
+    exc = TOP();
+    val = SECOND();
+    tb = THIRD();
+    assert(exc != Py_None);
+    assert(!PyLong_Check(exc));
+    exit_func = PEEK(7);
+    PyObject *stack[4] = {NULL, exc, val, tb};
+    res = PyObject_Vectorcall(exit_func, stack + 1,
+            3 | PY_VECTORCALL_ARGUMENTS_OFFSET, NULL);
+    if (res == NULL)
+        goto_error;
+    return res;
+}
+#define CANNOT_CATCH_MSG "catching classes that do not inherit from "\
+                         "BaseException is not allowed"
+int JIT_HELPER_EXC_MATCH(PyObject *left, PyObject *right) {
+    if (PyTuple_Check(right)) {
+        Py_ssize_t i, length;
+        length = PyTuple_GET_SIZE(right);
+        for (i = 0; i < length; i++) {
+            PyObject *exc = PyTuple_GET_ITEM(right, i);
+            if (!PyExceptionClass_Check(exc)) {
+                _PyErr_SetString(tstate, PyExc_TypeError,
+                                CANNOT_CATCH_MSG);
+                //Py_DECREF(left);
+                //Py_DECREF(right);
+                return -1;
+            }
+        }
+    }
+    else {
+        if (!PyExceptionClass_Check(right)) {
+            _PyErr_SetString(tstate, PyExc_TypeError,
+                            CANNOT_CATCH_MSG);
+            //Py_DECREF(left);
+            //Py_DECREF(right);
+            return -1;
+        }
+    }
+    return PyErr_GivenExceptionMatches(left, right);
+}
+#endif
+
 JIT_HELPER(BEFORE_ASYNC_WITH) {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
     _Py_IDENTIFIER(__aexit__);
     _Py_IDENTIFIER(__aenter__);
 
@@ -1406,6 +1517,23 @@ JIT_HELPER(BEFORE_ASYNC_WITH) {
     Py_DECREF(mgr);
     if (enter == NULL)
         goto_error;
+#else
+    _Py_IDENTIFIER(__aenter__);
+    _Py_IDENTIFIER(__aexit__);
+    PyObject *mgr = TOP();
+    PyObject *enter = special_lookup(tstate, mgr, &PyId___aenter__);
+    PyObject *res;
+    if (enter == NULL) {
+        goto_error;
+    }
+    PyObject *exit = special_lookup(tstate, mgr, &PyId___aexit__);
+    if (exit == NULL) {
+        Py_DECREF(enter);
+        goto_error;
+    }
+    SET_TOP(exit);
+    Py_DECREF(mgr);
+#endif
     res = _PyObject_CallNoArg(enter);
     Py_DECREF(enter);
     //if (res == NULL)

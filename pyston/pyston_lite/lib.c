@@ -8,6 +8,10 @@
 #include "pycore_pystate.h"
 #endif
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+#include "internal/pycore_call.h"
+#endif
+
 // Use the cpython version of this file:
 #include "dict-common.h"
 #include "frameobject.h"
@@ -21,15 +25,20 @@ _Py_Dealloc(PyObject *op)
     destructor dealloc = Py_TYPE(op)->tp_dealloc;
 #ifdef Py_TRACE_REFS
     _Py_ForgetReference(op);
-#else
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
     _Py_INC_TPFREES(op);
 #endif
     (*dealloc)(op);
 }
-
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
 PyObject* _Py_CheckFunctionResult(PyObject *callable, PyObject *result, const char *where) {
     return result;
 }
+#else
+PyObject* _Py_CheckFunctionResult(PyThreadState *tstate, PyObject *callable, PyObject *result, const char *where) {
+    return result;
+}
+#endif
 
 PyObject * _Py_HOT_FUNCTION
 call_function_ceval_no_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);
@@ -392,7 +401,9 @@ free_keys_object(PyDictKeysObject *keys)
 static inline void
 dictkeys_incref(PyDictKeysObject *dk)
 {
+#ifdef Py_REF_DEBUG
     _Py_INC_REFTOTAL;
+#endif
     dk->dk_refcnt++;
 }
 
@@ -400,7 +411,9 @@ static inline void
 dictkeys_decref(PyDictKeysObject *dk)
 {
     assert(dk->dk_refcnt > 0);
+#ifdef Py_REF_DEBUG
     _Py_DEC_REFTOTAL;
+#endif
     if (--dk->dk_refcnt == 0) {
         free_keys_object(dk);
     }
@@ -523,12 +536,24 @@ static PyObject*
 call_unbound(int unbound, PyObject *func, PyObject *self,
              PyObject **args, Py_ssize_t nargs)
 {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
     if (unbound) {
         return _PyObject_FastCall_Prepend(func, self, args, nargs);
     }
     else {
         return _PyObject_FastCall(func, args, nargs);
     }
+#else
+    PyThreadState *tstate = _PyThreadState_GET();
+    size_t nargsf = nargs;
+    if (!unbound) {
+        /* Skip self argument, freeing up args[0] to use for
+         * PY_VECTORCALL_ARGUMENTS_OFFSET */
+        args++;
+        nargsf = nargsf - 1 + PY_VECTORCALL_ARGUMENTS_OFFSET;
+    }
+    return _PyObject_VectorcallTstate(tstate, func, args, nargsf, NULL);
+#endif
 }
 
 static PyObject*
@@ -651,3 +676,184 @@ slot_tp_getattr_hook_complex(PyObject *self, PyObject *name)
     Py_DECREF(getattr);
     return res;
 }
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+// this function are marked hidden starting from 3.9
+PyObject *
+_PyGen_yf(PyGenObject *gen)
+{
+    PyObject *yf = NULL;
+    PyFrameObject *f = gen->gi_frame;
+
+    if (f && f->f_stacktop) {
+        PyObject *bytecode = f->f_code->co_code;
+        unsigned char *code = (unsigned char *)PyBytes_AS_STRING(bytecode);
+
+        if (f->f_lasti < 0) {
+            /* Return immediately if the frame didn't start yet. YIELD_FROM
+               always come after LOAD_CONST: a code object should not start
+               with YIELD_FROM */
+            assert(code[0] != YIELD_FROM);
+            return NULL;
+        }
+
+        if (code[f->f_lasti + sizeof(_Py_CODEUNIT)] != YIELD_FROM)
+            return NULL;
+        yf = f->f_stacktop[-1];
+        Py_INCREF(yf);
+    }
+
+    return yf;
+}
+PyObject *
+_PyDict_LoadGlobal(PyDictObject *globals, PyDictObject *builtins, PyObject *key)
+{
+    Py_ssize_t ix;
+    Py_hash_t hash;
+    PyObject *value;
+
+    if (!PyUnicode_CheckExact(key) ||
+        (hash = ((PyASCIIObject *) key)->hash) == -1)
+    {
+        hash = PyObject_Hash(key);
+        if (hash == -1)
+            return NULL;
+    }
+
+    /* namespace 1: globals */
+    ix = globals->ma_keys->dk_lookup(globals, key, hash, &value);
+    if (ix == DKIX_ERROR)
+        return NULL;
+    if (ix != DKIX_EMPTY && value != NULL)
+        return value;
+
+    /* namespace 2: builtins */
+    ix = builtins->ma_keys->dk_lookup(builtins, key, hash, &value);
+    if (ix < 0)
+        return NULL;
+    return value;
+}
+static int
+gen_is_coroutine(PyObject *o)
+{
+    if (PyGen_CheckExact(o)) {
+        PyCodeObject *code = (PyCodeObject *)((PyGenObject*)o)->gi_code;
+        if (code->co_flags & CO_ITERABLE_COROUTINE) {
+            return 1;
+        }
+    }
+    return 0;
+}
+PyObject *
+_PyCoro_GetAwaitableIter(PyObject *o)
+{
+    unaryfunc getter = NULL;
+    PyTypeObject *ot;
+
+    if (PyCoro_CheckExact(o) || gen_is_coroutine(o)) {
+        /* 'o' is a coroutine. */
+        Py_INCREF(o);
+        return o;
+    }
+
+    ot = Py_TYPE(o);
+    if (ot->tp_as_async != NULL) {
+        getter = ot->tp_as_async->am_await;
+    }
+    if (getter != NULL) {
+        PyObject *res = (*getter)(o);
+        if (res != NULL) {
+            if (PyCoro_CheckExact(res) || gen_is_coroutine(res)) {
+                /* __await__ must return an *iterator*, not
+                   a coroutine or another awaitable (see PEP 492) */
+                PyErr_SetString(PyExc_TypeError,
+                                "__await__() returned a coroutine");
+                Py_CLEAR(res);
+            } else if (!PyIter_Check(res)) {
+                PyErr_Format(PyExc_TypeError,
+                             "__await__() returned non-iterator "
+                             "of type '%.100s'",
+                             Py_TYPE(res)->tp_name);
+                Py_CLEAR(res);
+            }
+        }
+        return res;
+    }
+
+    PyErr_Format(PyExc_TypeError,
+                 "object %.100s can't be used in 'await' expression",
+                 ot->tp_name);
+    return NULL;
+}
+typedef struct {
+    PyObject_HEAD
+    PyObject *agw_val;
+} _PyAsyncGenWrappedValue;
+PyObject *
+_PyAsyncGenValueWrapperNew(PyObject *val)
+{
+    _PyAsyncGenWrappedValue *o;
+    assert(val);
+
+// Pyston change: can't access the freelist
+#if 0
+    if (ag_value_freelist_free) {
+        ag_value_freelist_free--;
+        o = ag_value_freelist[ag_value_freelist_free];
+        assert(_PyAsyncGenWrappedValue_CheckExact(o));
+        _Py_NewReference((PyObject*)o);
+    } else
+#endif
+    {
+        o = PyObject_GC_New(_PyAsyncGenWrappedValue,
+                            &_PyAsyncGenWrappedValue_Type);
+        if (o == NULL) {
+            return NULL;
+        }
+    }
+    o->agw_val = val;
+    Py_INCREF(val);
+    _PyObject_GC_TRACK((PyObject*)o);
+    return (PyObject*)o;
+}
+
+#if defined(CONDATTR_MONOTONIC) || defined(HAVE_SEM_CLOCKWAIT)
+static void
+monotonic_abs_timeout(long long us, struct timespec *abs)
+{
+    clock_gettime(CLOCK_MONOTONIC, abs);
+    abs->tv_sec  += us / 1000000;
+    abs->tv_nsec += (us % 1000000) * 1000;
+    abs->tv_sec  += abs->tv_nsec / 1000000000;
+    abs->tv_nsec %= 1000000000;
+}
+#else
+#error "this should be defined"
+#endif
+void _PyThread_cond_after(long long us, struct timespec *abs) {
+    monotonic_abs_timeout(us, abs);
+}
+PyObject *
+_PyTuple_FromArray(PyObject *const *src, Py_ssize_t n)
+{
+    if (n == 0) {
+        return PyTuple_New(0);
+    }
+
+    //Pyston change: can't access tuple_alloc use PyTuple_New
+    //PyTupleObject *tuple = tuple_alloc(n);
+    PyTupleObject *tuple = (PyTupleObject*)PyTuple_New(n);
+    if (tuple == NULL) {
+        return NULL;
+    }
+    PyObject **dst = tuple->ob_item;
+    for (Py_ssize_t i = 0; i < n; i++) {
+        PyObject *item = src[i];
+        Py_INCREF(item);
+        dst[i] = item;
+    }
+    //Pyston change: PyTuple_New already calls it
+    //tuple_gc_track(tuple);
+    return (PyObject *)tuple;
+}
+#endif

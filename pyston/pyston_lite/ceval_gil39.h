@@ -102,6 +102,8 @@ static int gil_created(struct _gil_runtime_state *gil)
     return (_Py_atomic_load_explicit(&gil->locked, _Py_memory_order_acquire) >= 0);
 }
 
+// Pyston change:
+#if 0
 static void create_gil(struct _gil_runtime_state *gil)
 {
     MUTEX_INIT(gil->mutex);
@@ -139,6 +141,7 @@ static void recreate_gil(struct _gil_runtime_state *gil)
     /* XXX should we destroy the old OS resources here? */
     create_gil(gil);
 }
+#endif
 
 static void
 drop_gil(struct _ceval_runtime_state *ceval, struct _ceval_state *ceval2,
