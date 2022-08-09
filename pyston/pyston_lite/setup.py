@@ -122,6 +122,8 @@ class pyston_build_ext(build_ext):
 
 def get_cflags():
     flags = ["-std=gnu99", "-fno-semantic-interposition", "-specs=../tools/no-pie-compile.specs", "-Wno-unused-function"]
+    # make sure we catch undeclared functions
+    flags.append("-Werror=implicit-function-declaration")
     if not NOLTO:
         flags += ["-flto", "-fuse-linker-plugin", "-ffat-lto-objects", "-flto-partition=none"]
     if not NOBOLT or BOLTFLAGS:
