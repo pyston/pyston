@@ -37,7 +37,7 @@ def bolt_wheel(wheel):
         # ext_name = self.get_ext_fullpath(ext.name)
         # os.rename(ext_name, ext_name + ".prebolt")
         install_extname = os.path.join(site_packages, os.path.basename(so))
-        check_call(["../../build/bolt/bin/llvm-bolt", so + ".prebolt", "-instrument", "-instrumentation-file-append-pid", "-instrumentation-file=" + install_extname, "-o", install_extname, "-skip-funcs=_PyEval_EvalFrameDefault,_PyEval_EvalFrame_AOT_Interpreter.*"])
+        check_call(["../../build/bolt/bin/llvm-bolt", so + ".prebolt", "-instrument", "-instrumentation-file-append-pid", "-instrumentation-file=" + os.path.abspath(install_extname), "-o", install_extname, "-skip-funcs=_PyEval_EvalFrameDefault,_PyEval_EvalFrame_AOT_Interpreter.*"])
 
 
         PGO_TESTS_TO_SKIP = "test_posix test_asyncio test_cmd_line_script test_compiler test_concurrent_futures test_ctypes test_dbm test_dbm_dumb test_dbm_ndbm test_distutils test_ensurepip test_ftplib test_gdb test_httplib test_imaplib test_ioctl test_linuxaudiodev test_multiprocessing test_nntplib test_ossaudiodev test_poplib test_pydoc test_signal test_socket test_socketserver test_ssl test_subprocess test_sundry test_thread test_threaded_import test_threadedtempfile test_threading test_threading_local test_threadsignals test_venv test_zipimport_support test_code test_capi test_multiprocessing_forkserver test_multiprocessing_spawn test_multiprocessing_fork".split()

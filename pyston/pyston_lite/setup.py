@@ -102,7 +102,7 @@ class pyston_build_ext(build_ext):
                 ext_name = self.get_ext_fullpath(ext.name)
                 os.rename(ext_name, ext_name + ".prebolt")
                 install_extname = os.path.join(site_packages, os.path.basename(ext_name))
-                check_call([bolt_bin("llvm-bolt"), ext_name + ".prebolt", "-instrument", "-instrumentation-file-append-pid", "-instrumentation-file=" + install_extname, "-o", install_extname, "-skip-funcs=_PyEval_EvalFrameDefault,_PyEval_EvalFrame_AOT_Interpreter.*"])
+                check_call([bolt_bin("llvm-bolt"), ext_name + ".prebolt", "-instrument", "-instrumentation-file-append-pid", "-instrumentation-file=" + os.path.abspath(install_extname), "-o", install_extname, "-skip-funcs=_PyEval_EvalFrameDefault,_PyEval_EvalFrame_AOT_Interpreter.*"])
 
 
                 subprocess.call([env_python, os.path.join(os.path.dirname(__file__), "../../Lib/test/regrtest.py"), "-j0", "-unone,decimal", "-x"] + PGO_TESTS_TO_SKIP)
