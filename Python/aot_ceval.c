@@ -246,7 +246,7 @@ PyErr_Occurred(void)
         _Py_atomic_store_relaxed(&_PyRuntime.ceval.eval_breaker, 1); \
     } while (0)
 
-#define UNSIGNAL_ASYNC_EXC(_) \
+#define UNSIGNAL_ASYNC_EXC() \
     do { \
         _PyRuntime.ceval.pending.async_exc = 0; \
         COMPUTE_EVAL_BREAKER(); \
@@ -427,8 +427,6 @@ UNSIGNAL_ASYNC_EXC(PyInterpreterState *interp)
 #ifdef PYSTON_LITE
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 #include "ceval_gil37.h"
-#define drop_gil(ceval, tstate) drop_gil(tstate)
-#define take_gil(ceval, tstate) take_gil(tstate)
 #elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 9
 #include "ceval_gil39.h"
 #else
@@ -496,7 +494,11 @@ exit_thread_if_finalizing(_PyRuntimeState *runtime, PyThreadState *tstate)
     /* _Py_Finalizing is protected by the GIL */
     if (runtime->finalizing != NULL && !_Py_CURRENTLY_FINALIZING(runtime, tstate)) {
 #endif
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
+        drop_gil(tstate);
+#else
         drop_gil(&runtime->ceval, tstate);
+#endif
         PyThread_exit_thread();
     }
 }
@@ -1095,12 +1097,95 @@ PyEval_EvalFrameEx(PyFrameObject *f, int throwflag)
 }
 #endif
 
-#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
 /* Handle signals, pending calls, GIL drop request
    and asynchronous exception */
 static int
 eval_frame_handle_pending(PyThreadState *tstate)
 {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
+    if (_Py_atomic_load_relaxed(
+                &_PyRuntime.ceval.pending.calls_to_do))
+    {
+        if (Py_MakePendingCalls() < 0)
+            return -1;
+    }
+    if (_Py_atomic_load_relaxed(
+                &_PyRuntime.ceval.gil_drop_request))
+    {
+        /* Give another thread a chance */
+        if (PyThreadState_Swap(NULL) != tstate)
+            Py_FatalError("ceval: tstate mix-up");
+        drop_gil(tstate);
+
+        /* Other threads may run now */
+
+        take_gil(tstate);
+
+        /* Check if we should make a quick exit. */
+        if (_Py_IsFinalizing() &&
+            !_Py_CURRENTLY_FINALIZING(tstate))
+        {
+            drop_gil(tstate);
+            PyThread_exit_thread();
+        }
+
+        if (PyThreadState_Swap(tstate) != NULL)
+            Py_FatalError("ceval: orphan tstate");
+    }
+
+    /* Check for asynchronous exception. */
+    if (tstate->async_exc != NULL) {
+        PyObject *exc = tstate->async_exc;
+        tstate->async_exc = NULL;
+        UNSIGNAL_ASYNC_EXC();
+        _PyErr_SetNone(tstate, exc);
+        Py_DECREF(exc);
+        return -1;
+    }
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 8
+    _PyRuntimeState * const runtime = &_PyRuntime;
+    struct _ceval_runtime_state *ceval = &runtime->ceval;
+
+    if (_Py_atomic_load_relaxed(&ceval->signals_pending)) {
+        if (handle_signals(runtime) != 0) {
+            return -1;
+        }
+    }
+    if (_Py_atomic_load_relaxed(&ceval->pending.calls_to_do)) {
+        if (make_pending_calls(runtime) != 0) {
+            return -1;
+        }
+    }
+
+    if (_Py_atomic_load_relaxed(&ceval->gil_drop_request)) {
+        /* Give another thread a chance */
+        if (_PyThreadState_Swap(&runtime->gilstate, NULL) != tstate) {
+            Py_FatalError("ceval: tstate mix-up");
+        }
+        drop_gil(ceval, tstate);
+
+        /* Other threads may run now */
+
+        take_gil(ceval, tstate);
+
+        /* Check if we should make a quick exit. */
+        exit_thread_if_finalizing(runtime, tstate);
+
+        if (_PyThreadState_Swap(&runtime->gilstate, tstate) != NULL) {
+            Py_FatalError("ceval: orphan tstate");
+        }
+    }
+
+    /* Check for asynchronous exception. */
+    if (tstate->async_exc != NULL) {
+        PyObject *exc = tstate->async_exc;
+        tstate->async_exc = NULL;
+        UNSIGNAL_ASYNC_EXC(ceval);
+        _PyErr_SetNone(tstate, exc);
+        Py_DECREF(exc);
+        return -1;
+    }
+#else
     _PyRuntimeState * const runtime = &_PyRuntime;
     struct _ceval_runtime_state *ceval = &runtime->ceval;
 
@@ -1156,80 +1241,17 @@ eval_frame_handle_pending(PyThreadState *tstate)
     // _Py_ThreadCanHandleSignals() is false).
     COMPUTE_EVAL_BREAKER(tstate->interp, ceval, ceval2);
 #endif
+#endif
 
     return 0;
 }
-#endif
 
 // this function is used by the JIT but I moved it here because it uses a bunch of internal stuff
 // which we would need to copy or make public if we want to use it in another translation unit
-int eval_breaker_jit_helper() {
-    _PyRuntimeState * const runtime = &_PyRuntime;
-    PyThreadState * tstate = NULL;
-
-#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
-    tstate = PyThreadState_GET();
-#else
-    tstate = _PyRuntimeState_GetThreadState(runtime);
-    struct _ceval_runtime_state * const ceval = &runtime->ceval;
-#endif
-
-
-#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+int eval_breaker_jit_helper(PyThreadState* tstate) {
     if (eval_frame_handle_pending(tstate) != 0) {
         return -1;
     }
-#else
-#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
-    if (_Py_atomic_load_relaxed(&_PyRuntime.ceval.pending.calls_to_do)) {
-        if (Py_MakePendingCalls() < 0)
-            return -1;
-    }
-#else
-    if (_Py_atomic_load_relaxed(&ceval->signals_pending)) {
-        if (handle_signals(runtime) != 0) {
-            return -1;
-        }
-    }
-    if (_Py_atomic_load_relaxed(&ceval->pending.calls_to_do)) {
-        if (make_pending_calls(runtime) != 0) {
-            return -1;
-        }
-    }
-#endif
-
-#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
-    if (_Py_atomic_load_relaxed(&_PyRuntime.ceval.gil_drop_request)) {
-#else
-    if (_Py_atomic_load_relaxed(&ceval->gil_drop_request)) {
-#endif
-        /* Give another thread a chance */
-        if (_PyThreadState_Swap(&runtime->gilstate, NULL) != tstate) {
-            Py_FatalError("ceval: tstate mix-up");
-        }
-        drop_gil(ceval, tstate);
-
-        /* Other threads may run now */
-
-        take_gil(ceval, tstate);
-
-        /* Check if we should make a quick exit. */
-        exit_thread_if_finalizing(runtime, tstate);
-
-        if (_PyThreadState_Swap(&runtime->gilstate, tstate) != NULL) {
-            Py_FatalError("ceval: orphan tstate");
-        }
-    }
-    /* Check for asynchronous exceptions. */
-    if (tstate->async_exc != NULL) {
-        PyObject *exc = tstate->async_exc;
-        tstate->async_exc = NULL;
-        UNSIGNAL_ASYNC_EXC(ceval);
-        _PyErr_SetNone(tstate, exc);
-        Py_DECREF(exc);
-        return -1;
-    }
-#endif
     return 0;
 }
 
@@ -2618,63 +2640,10 @@ main_loop:
                 */
                 goto fast_next_opcode;
             }
-#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+
             if (eval_frame_handle_pending(tstate) != 0) {
                 goto error;
             }
-#else
-
-#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
-            if (_Py_atomic_load_relaxed(&_PyRuntime.ceval.pending.calls_to_do))
-            {
-                if (Py_MakePendingCalls() < 0)
-                    goto error;
-            }
-#else
-            if (_Py_atomic_load_relaxed(&ceval->signals_pending)) {
-                if (handle_signals(runtime) != 0) {
-                    goto error;
-                }
-            }
-            if (_Py_atomic_load_relaxed(&ceval->pending.calls_to_do)) {
-                if (make_pending_calls(runtime) != 0) {
-                    goto error;
-                }
-            }
-#endif
-
-#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
-            if (_Py_atomic_load_relaxed(&_PyRuntime.ceval.gil_drop_request)) {
-#else
-            if (_Py_atomic_load_relaxed(&ceval->gil_drop_request)) {
-#endif
-                /* Give another thread a chance */
-                if (_PyThreadState_Swap(&runtime->gilstate, NULL) != tstate) {
-                    Py_FatalError("ceval: tstate mix-up");
-                }
-                drop_gil(ceval, tstate);
-
-                /* Other threads may run now */
-
-                take_gil(ceval, tstate);
-
-                /* Check if we should make a quick exit. */
-                exit_thread_if_finalizing(runtime, tstate);
-
-                if (_PyThreadState_Swap(&runtime->gilstate, tstate) != NULL) {
-                    Py_FatalError("ceval: orphan tstate");
-                }
-            }
-            /* Check for asynchronous exceptions. */
-            if (tstate->async_exc != NULL) {
-                PyObject *exc = tstate->async_exc;
-                tstate->async_exc = NULL;
-                UNSIGNAL_ASYNC_EXC(ceval);
-                _PyErr_SetNone(tstate, exc);
-                Py_DECREF(exc);
-                goto error;
-            }
-#endif
         }
 
     fast_next_opcode:

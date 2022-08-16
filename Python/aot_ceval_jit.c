@@ -4972,6 +4972,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     |->handle_signal_res_in_use:
     // we have to preserve res because it's used by our deferred stack optimizations
     | mov tmp_preserved_reg, res
+    | mov arg1, tstate
     emit_call_ext_func(Dst, eval_breaker_jit_helper);
     emit_cmp32_imm(Dst, res_idx, 0);
     // on error we have to decref 'res' (which is now in 'tmp_preserved_reg')
@@ -4981,6 +4982,7 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     | branch ->handle_signal_jump_to_inst
 
     |->handle_signal_res_not_in_use:
+    | mov arg1, tstate
     emit_call_ext_func(Dst, eval_breaker_jit_helper);
     emit_if_res_32b_not_0_error(Dst);
     // fall through
