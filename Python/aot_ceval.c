@@ -6055,8 +6055,13 @@ continue_jit:
             if (retval) {
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
                 goto fast_block_end;
-#else
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 8
                 goto exit_returning;
+#else
+                // starting from 3.9 the bytecode will always pop all values from the value stack
+                // before exiting from a return.
+                assert(EMPTY());
+                goto exiting;
 #endif
             }
             goto error;
@@ -6332,6 +6337,9 @@ fast_yield:
     }
 #else
 exit_yielding:
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+exiting:
+#endif
     if (tstate->use_tracing) {
         if (tstate->c_tracefunc) {
             if (call_trace_protected(tstate->c_tracefunc, tstate->c_traceobj,
