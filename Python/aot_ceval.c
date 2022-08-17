@@ -12,6 +12,11 @@
 #include <sys/mman.h>
 
 #ifdef PYSTON_LITE
+
+#ifdef EXPERIMENTAL_ISOLATED_SUBINTERPRETERS
+#error Did not implement this feature
+#endif
+
 #include "dict-common.h"
 
 #define likely(x) __builtin_expect(!!(x), 1)
@@ -67,17 +72,27 @@ typedef PyObject *(*callproc)(PyObject *, PyObject *, PyObject *);
 #endif
 
 /* Forward declarations */
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 PyObject * CALL_FUNCTION_CEVAL(
     PyThreadState *tstate, PyObject ***pp_stack,
     Py_ssize_t oparg, PyObject *kwnames);
 /*static*/ PyObject * do_call_core(
     PyThreadState *tstate, PyObject *func,
     PyObject *callargs, PyObject *kwdict);
+#else
+PyObject * CALL_FUNCTION_CEVAL(
+    PyThreadState *tstate, PyTraceInfo *, PyObject ***pp_stack,
+    Py_ssize_t oparg, PyObject *kwnames);
+/*static*/ PyObject * do_call_core(
+    PyThreadState *tstate, PyTraceInfo *, PyObject *func,
+    PyObject *callargs, PyObject *kwdict);
+#endif
 
 #ifdef LLTRACE
 static int lltrace;
 static int prtrace(PyThreadState *, PyObject *, const char *);
 #endif
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 static int call_trace(Py_tracefunc, PyObject *,
                       PyThreadState *, PyFrameObject *,
                       int, PyObject *);
@@ -90,6 +105,26 @@ static int maybe_call_line_trace(Py_tracefunc, PyObject *,
                                  PyThreadState *, PyFrameObject *,
                                  int *, int *, int *, int *jit_first_trace_for_line);
 static void maybe_dtrace_line(PyFrameObject *, int *, int *, int *);
+#else
+static int call_trace(Py_tracefunc, PyObject *,
+                      PyThreadState *, PyFrameObject *,
+                      PyTraceInfo *,
+                      int, PyObject *);
+static int call_trace_protected(Py_tracefunc, PyObject *,
+                                PyThreadState *, PyFrameObject *,
+                                PyTraceInfo *,
+                                int, PyObject *);
+/*static*/ void call_exc_trace(Py_tracefunc, PyObject *,
+                           PyThreadState *, PyFrameObject *,
+                           PyTraceInfo *);
+static int maybe_call_line_trace(Py_tracefunc, PyObject *,
+                                 PyThreadState *, PyFrameObject *,
+                                 PyTraceInfo *,
+                                 int,
+                                 // Pyston change: add this arg
+                                 int *jit_first_trace_for_line);
+static void maybe_dtrace_line(PyFrameObject *, PyTraceInfo *, int);
+#endif
 static void dtrace_function_entry(PyFrameObject *);
 static void dtrace_function_return(PyFrameObject *);
 
@@ -429,6 +464,8 @@ UNSIGNAL_ASYNC_EXC(PyInterpreterState *interp)
 #include "ceval_gil37.h"
 #elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 9
 #include "ceval_gil39.h"
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 10
+#include "ceval_gil310.h"
 #else
 #include "../../Python/ceval_gil.h"
 #endif
@@ -847,7 +884,7 @@ error:
     return res;
 }
 
-#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 9
 
 static int
 handle_signals(PyThreadState *tstate)
@@ -930,6 +967,96 @@ _Py_FinishPendingCalls(PyThreadState *tstate)
     }
 
     if (make_pending_calls(tstate) < 0) {
+        PyObject *exc, *val, *tb;
+        _PyErr_Fetch(tstate, &exc, &val, &tb);
+        PyErr_BadInternalCall();
+        _PyErr_ChainExceptions(exc, val, tb);
+        _PyErr_Print(tstate);
+    }
+}
+
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+
+static int
+handle_signals(PyThreadState *tstate)
+{
+    assert(is_tstate_valid(tstate));
+    if (!_Py_ThreadCanHandleSignals(tstate->interp)) {
+        return 0;
+    }
+
+    UNSIGNAL_PENDING_SIGNALS(tstate->interp);
+    if (_PyErr_CheckSignalsTstate(tstate) < 0) {
+        /* On failure, re-schedule a call to handle_signals(). */
+        SIGNAL_PENDING_SIGNALS(tstate->interp, 0);
+        return -1;
+    }
+    return 0;
+}
+
+static int
+make_pending_calls(PyInterpreterState *interp)
+{
+    /* only execute pending calls on main thread */
+    if (!_Py_ThreadCanHandlePendingCalls()) {
+        return 0;
+    }
+
+    /* don't perform recursive pending calls */
+    static int busy = 0;
+    if (busy) {
+        return 0;
+    }
+    busy = 1;
+
+    /* unsignal before starting to call callbacks, so that any callback
+       added in-between re-signals */
+    UNSIGNAL_PENDING_CALLS(interp);
+    int res = 0;
+
+    /* perform a bounded number of calls, in case of recursion */
+    struct _pending_calls *pending = &interp->ceval.pending;
+    for (int i=0; i<NPENDINGCALLS; i++) {
+        int (*func)(void *) = NULL;
+        void *arg = NULL;
+
+        /* pop one item off the queue while holding the lock */
+        PyThread_acquire_lock(pending->lock, WAIT_LOCK);
+        _pop_pending_call(pending, &func, &arg);
+        PyThread_release_lock(pending->lock);
+
+        /* having released the lock, perform the callback */
+        if (func == NULL) {
+            break;
+        }
+        res = func(arg);
+        if (res) {
+            goto error;
+        }
+    }
+
+    busy = 0;
+    return res;
+
+error:
+    busy = 0;
+    SIGNAL_PENDING_CALLS(interp);
+    return res;
+}
+
+void
+_Py_FinishPendingCalls(PyThreadState *tstate)
+{
+    assert(PyGILState_Check());
+    assert(is_tstate_valid(tstate));
+
+    struct _pending_calls *pending = &tstate->interp->ceval.pending;
+
+    if (!_Py_atomic_load_relaxed(&(pending->calls_to_do))) {
+        return;
+    }
+
+    if (make_pending_calls(tstate->interp) < 0) {
         PyObject *exc, *val, *tb;
         _PyErr_Fetch(tstate, &exc, &val, &tb);
         PyErr_BadInternalCall();
@@ -1061,10 +1188,230 @@ _Py_CheckRecursiveCall(const char *where)
     return 0;
 }
 #endif
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+// PEP 634: Structural Pattern Matching
+
+
+// Return a tuple of values corresponding to keys, with error checks for
+// duplicate/missing keys.
+/*static*/ PyObject*
+match_keys(PyThreadState *tstate, PyObject *map, PyObject *keys)
+{
+    assert(PyTuple_CheckExact(keys));
+    Py_ssize_t nkeys = PyTuple_GET_SIZE(keys);
+    if (!nkeys) {
+        // No keys means no items.
+        return PyTuple_New(0);
+    }
+    PyObject *seen = NULL;
+    PyObject *dummy = NULL;
+    PyObject *values = NULL;
+    // We use the two argument form of map.get(key, default) for two reasons:
+    // - Atomically check for a key and get its value without error handling.
+    // - Don't cause key creation or resizing in dict subclasses like
+    //   collections.defaultdict that define __missing__ (or similar).
+    _Py_IDENTIFIER(get);
+    PyObject *get = _PyObject_GetAttrId(map, &PyId_get);
+    if (get == NULL) {
+        goto fail;
+    }
+    seen = PySet_New(NULL);
+    if (seen == NULL) {
+        goto fail;
+    }
+    // dummy = object()
+    dummy = _PyObject_CallNoArg((PyObject *)&PyBaseObject_Type);
+    if (dummy == NULL) {
+        goto fail;
+    }
+    values = PyList_New(0);
+    if (values == NULL) {
+        goto fail;
+    }
+    for (Py_ssize_t i = 0; i < nkeys; i++) {
+        PyObject *key = PyTuple_GET_ITEM(keys, i);
+        if (PySet_Contains(seen, key) || PySet_Add(seen, key)) {
+            if (!_PyErr_Occurred(tstate)) {
+                // Seen it before!
+                _PyErr_Format(tstate, PyExc_ValueError,
+                              "mapping pattern checks duplicate key (%R)", key);
+            }
+            goto fail;
+        }
+        PyObject *value = PyObject_CallFunctionObjArgs(get, key, dummy, NULL);
+        if (value == NULL) {
+            goto fail;
+        }
+        if (value == dummy) {
+            // key not in map!
+            Py_DECREF(value);
+            Py_DECREF(values);
+            // Return None:
+            Py_INCREF(Py_None);
+            values = Py_None;
+            goto done;
+        }
+        PyList_Append(values, value);
+        Py_DECREF(value);
+    }
+    Py_SETREF(values, PyList_AsTuple(values));
+    // Success:
+done:
+    Py_DECREF(get);
+    Py_DECREF(seen);
+    Py_DECREF(dummy);
+    return values;
+fail:
+    Py_XDECREF(get);
+    Py_XDECREF(seen);
+    Py_XDECREF(dummy);
+    Py_XDECREF(values);
+    return NULL;
+}
+
+// Extract a named attribute from the subject, with additional bookkeeping to
+// raise TypeErrors for repeated lookups. On failure, return NULL (with no
+// error set). Use _PyErr_Occurred(tstate) to disambiguate.
+static PyObject*
+match_class_attr(PyThreadState *tstate, PyObject *subject, PyObject *type,
+                 PyObject *name, PyObject *seen)
+{
+    assert(PyUnicode_CheckExact(name));
+    assert(PySet_CheckExact(seen));
+    if (PySet_Contains(seen, name) || PySet_Add(seen, name)) {
+        if (!_PyErr_Occurred(tstate)) {
+            // Seen it before!
+            _PyErr_Format(tstate, PyExc_TypeError,
+                          "%s() got multiple sub-patterns for attribute %R",
+                          ((PyTypeObject*)type)->tp_name, name);
+        }
+        return NULL;
+    }
+    PyObject *attr = PyObject_GetAttr(subject, name);
+    if (attr == NULL && _PyErr_ExceptionMatches(tstate, PyExc_AttributeError)) {
+        _PyErr_Clear(tstate);
+    }
+    return attr;
+}
+
+// On success (match), return a tuple of extracted attributes. On failure (no
+// match), return NULL. Use _PyErr_Occurred(tstate) to disambiguate.
+/*static*/ PyObject*
+match_class(PyThreadState *tstate, PyObject *subject, PyObject *type,
+            Py_ssize_t nargs, PyObject *kwargs)
+{
+    if (!PyType_Check(type)) {
+        const char *e = "called match pattern must be a type";
+        _PyErr_Format(tstate, PyExc_TypeError, e);
+        return NULL;
+    }
+    assert(PyTuple_CheckExact(kwargs));
+    // First, an isinstance check:
+    if (PyObject_IsInstance(subject, type) <= 0) {
+        return NULL;
+    }
+    // So far so good:
+    PyObject *seen = PySet_New(NULL);
+    if (seen == NULL) {
+        return NULL;
+    }
+    PyObject *attrs = PyList_New(0);
+    if (attrs == NULL) {
+        Py_DECREF(seen);
+        return NULL;
+    }
+    // NOTE: From this point on, goto fail on failure:
+    PyObject *match_args = NULL;
+    // First, the positional subpatterns:
+    if (nargs) {
+        int match_self = 0;
+        match_args = PyObject_GetAttrString(type, "__match_args__");
+        if (match_args) {
+            if (!PyTuple_CheckExact(match_args)) {
+                const char *e = "%s.__match_args__ must be a tuple (got %s)";
+                _PyErr_Format(tstate, PyExc_TypeError, e,
+                              ((PyTypeObject *)type)->tp_name,
+                              Py_TYPE(match_args)->tp_name);
+                goto fail;
+            }
+        }
+        else if (_PyErr_ExceptionMatches(tstate, PyExc_AttributeError)) {
+            _PyErr_Clear(tstate);
+            // _Py_TPFLAGS_MATCH_SELF is only acknowledged if the type does not
+            // define __match_args__. This is natural behavior for subclasses:
+            // it's as if __match_args__ is some "magic" value that is lost as
+            // soon as they redefine it.
+            match_args = PyTuple_New(0);
+            match_self = PyType_HasFeature((PyTypeObject*)type,
+                                            _Py_TPFLAGS_MATCH_SELF);
+        }
+        else {
+            goto fail;
+        }
+        assert(PyTuple_CheckExact(match_args));
+        Py_ssize_t allowed = match_self ? 1 : PyTuple_GET_SIZE(match_args);
+        if (allowed < nargs) {
+            const char *plural = (allowed == 1) ? "" : "s";
+            _PyErr_Format(tstate, PyExc_TypeError,
+                          "%s() accepts %d positional sub-pattern%s (%d given)",
+                          ((PyTypeObject*)type)->tp_name,
+                          allowed, plural, nargs);
+            goto fail;
+        }
+        if (match_self) {
+            // Easy. Copy the subject itself, and move on to kwargs.
+            PyList_Append(attrs, subject);
+        }
+        else {
+            for (Py_ssize_t i = 0; i < nargs; i++) {
+                PyObject *name = PyTuple_GET_ITEM(match_args, i);
+                if (!PyUnicode_CheckExact(name)) {
+                    _PyErr_Format(tstate, PyExc_TypeError,
+                                  "__match_args__ elements must be strings "
+                                  "(got %s)", Py_TYPE(name)->tp_name);
+                    goto fail;
+                }
+                PyObject *attr = match_class_attr(tstate, subject, type, name,
+                                                  seen);
+                if (attr == NULL) {
+                    goto fail;
+                }
+                PyList_Append(attrs, attr);
+                Py_DECREF(attr);
+            }
+        }
+        Py_CLEAR(match_args);
+    }
+    // Finally, the keyword subpatterns:
+    for (Py_ssize_t i = 0; i < PyTuple_GET_SIZE(kwargs); i++) {
+        PyObject *name = PyTuple_GET_ITEM(kwargs, i);
+        PyObject *attr = match_class_attr(tstate, subject, type, name, seen);
+        if (attr == NULL) {
+            goto fail;
+        }
+        PyList_Append(attrs, attr);
+        Py_DECREF(attr);
+    }
+    Py_SETREF(attrs, PyList_AsTuple(attrs));
+    Py_DECREF(seen);
+    return attrs;
+fail:
+    // We really don't care whether an error was raised or not... that's our
+    // caller's problem. All we know is that the match failed.
+    Py_XDECREF(match_args);
+    Py_DECREF(seen);
+    Py_DECREF(attrs);
+    return NULL;
+}
+#endif
+
 /*static*/ int do_raise(PyThreadState *tstate, PyObject *exc, PyObject *cause);
 /*static*/ int unpack_iterable(PyThreadState *, PyObject *, int, int, PyObject **);
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 #define _Py_TracingPossible(ceval) ((ceval)->tracing_possible)
+#endif
 
 #if 0
 PyObject *
@@ -1099,7 +1446,7 @@ PyEval_EvalFrameEx(PyFrameObject *f, int throwflag)
 
 /* Handle signals, pending calls, GIL drop request
    and asynchronous exception */
-static int
+/*static*/ int
 eval_frame_handle_pending(PyThreadState *tstate)
 {
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
@@ -1199,7 +1546,11 @@ eval_frame_handle_pending(PyThreadState *tstate)
     /* Pending calls */
     struct _ceval_state *ceval2 = &tstate->interp->ceval;
     if (_Py_atomic_load_relaxed(&ceval2->pending.calls_to_do)) {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 9
         if (make_pending_calls(tstate) != 0) {
+#else
+        if (make_pending_calls(tstate->interp) != 0) {
+#endif
             return -1;
         }
     }
@@ -1970,8 +2321,10 @@ typedef struct {
 
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 typedef JitRetVal (*JitFunc)(PyFrameObject* frame, PyThreadState * const tstate, PyObject** sp, enum why_code* why);
-#else
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 typedef JitRetVal (*JitFunc)(PyFrameObject* frame, PyThreadState * const tstate, PyObject** sp);
+#else
+typedef JitRetVal (*JitFunc)(PyFrameObject* frame, PyThreadState * const tstate, PyObject** sp, PyTraceInfo* trace_info);
 #endif
 
 #ifdef PYSTON_LITE
@@ -2041,16 +2394,24 @@ static inline void setJitCode(PyCodeObject* code, void* jit_code) {
 }
 #endif
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 static PyObject* _Py_HOT_FUNCTION
 _PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObject** stack_pointer, JitFunc jit_code);
-__attribute__((noinline)) static PyObject* _Py_HOT_FUNCTION
-_PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState * const tstate, PyObject** stack_pointer, int can_use_jit, int jit_first_trace_for_line);
+#else
+static PyObject* _Py_HOT_FUNCTION
+_PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObject** stack_pointer, JitFunc jit_code, PyTraceInfo* trace_info);
+#endif
 
 #ifdef PYSTON_LITE
 static
 #endif
+__attribute__((noinline))
 PyObject* _Py_HOT_FUNCTION
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState * const tstate, PyObject** stack_pointer, int can_use_jit, int jit_first_trace_for_line)
+#else
+_PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState * const tstate, PyObject** stack_pointer, int can_use_jit, int jit_first_trace_for_line, PyTraceInfo* trace_info)
+#endif
 {
 #ifdef DXPAIRS
     int lastopcode = 0;
@@ -2063,11 +2424,14 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 #endif
     PyObject **fastlocals, **freevars;
     PyObject *retval = NULL;            /* Return value */
-#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 9
     // Pyston change:
     // 3.9 is using ceval2 here everywhere.
     // But to avoid duplciating code we keep ceval and ceval2.
     struct _ceval_state * const ceval = &tstate->interp->ceval;
+    struct _ceval_state * const ceval2 = &tstate->interp->ceval;
+    _Py_atomic_int * const eval_breaker = &ceval2->eval_breaker;
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
     struct _ceval_state * const ceval2 = &tstate->interp->ceval;
     _Py_atomic_int * const eval_breaker = &ceval2->eval_breaker;
 #else
@@ -2077,6 +2441,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 #endif
     PyCodeObject *co;
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     /* when tracing we set things up so that
 
            not (instr_lb <= current_bytecode_offset < instr_ub)
@@ -2085,6 +2450,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
        initial values are such as to make this false the first
        time it is tested. */
     int instr_ub = -1, instr_lb = 0, instr_prev = -1;
+#endif
 
     const _Py_CODEUNIT *first_instr;
     PyObject *names;
@@ -2158,6 +2524,8 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 #include "opcode_targets37.h"
 #elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 9
 #include "opcode_targets39.h"
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 10
+#include "opcode_targets310.h"
 #else
 #include "../../Python/opcode_targets.h"
 #endif
@@ -2167,6 +2535,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 #define INIT_OPCACHE(code, opcache) _PyCode_InitOpcache(code)
 #endif
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 #define TARGET(op) \
     op: \
     TARGET_##op
@@ -2201,10 +2570,51 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
         continue; \
     }
 
-#else
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 9
+
 #define TARGET(op) op
 #define FAST_DISPATCH() goto fast_next_opcode
 #define DISPATCH() continue
+
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+
+/* Use macros rather than inline functions, to make it as clear as possible
+ * to the C compiler that the tracing check is a simple test then branch.
+ * We want to be sure that the compiler knows this before it generates
+ * the CFG.
+ */
+#ifdef LLTRACE
+#define OR_LLTRACE || lltrace
+#else
+#define OR_LLTRACE
+#endif
+
+#ifdef WITH_DTRACE
+#define OR_DTRACE_LINE || PyDTrace_LINE_ENABLED()
+#else
+#define OR_DTRACE_LINE
+#endif
+
+#define TARGET(op) op: TARGET_##op
+#define DISPATCH() \
+    { \
+        if (trace_info->cframe.use_tracing OR_DTRACE_LINE OR_LLTRACE) { \
+            goto tracing_dispatch; \
+        } \
+        f->f_lasti = INSTR_OFFSET(); \
+        NEXTOPARG(); \
+        goto *opcode_targets[opcode]; \
+    }
+// Pyston change: in 3.10 FAST_DISPATCH got renamed to DISPATCH
+// and explicit checks for CHECK_EVAL_BREAKER got added in the opcode imiplementations.
+// Define FAST_DISPATCH as DISPATCH so that we don't have to add a huge number of ifdefs
+#define FAST_DISPATCH DISPATCH
+
+#define CHECK_EVAL_BREAKER() \
+    if (_Py_atomic_load_relaxed(eval_breaker)) { \
+        continue; \
+    }
+#endif
 #endif
 
 
@@ -2219,6 +2629,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 /* Code access macros */
 
 /* The integer overflow is checked by an assertion below. */
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 #define INSTR_OFFSET()  \
     (sizeof(_Py_CODEUNIT) * (int)(next_instr - first_instr))
 #define NEXTOPARG()  do { \
@@ -2230,6 +2641,19 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 
 #define JUMPTO(x)       (next_instr = first_instr + (x) / sizeof(_Py_CODEUNIT))
 #define JUMPBY(x)       (next_instr += (x) / sizeof(_Py_CODEUNIT))
+
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+
+#define INSTR_OFFSET() ((int)(next_instr - first_instr))
+#define NEXTOPARG()  do { \
+        _Py_CODEUNIT word = *next_instr; \
+        opcode = _Py_OPCODE(word); \
+        oparg = _Py_OPARG(word); \
+        next_instr++; \
+    } while (0)
+#define JUMPTO(x)       (next_instr = first_instr + (x))
+#define JUMPBY(x)       (next_instr += (x))
+#endif
 
 // JUMPTO which is counting backward jumps in order to todo OSR
 #define JUMPTO_WITH_OSR(x)  \
@@ -2482,6 +2906,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 
 
 // increments the number of times this loop got ececuted and if the threshold is hit JIT func and do OSR.
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 #define HANDLE_JUMP_BACKWARD_OSR() \
     do {  \
         ++opcache->oc_opcache_flag;  \
@@ -2498,7 +2923,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
                     (it still points to the JUMP_ABSOLUTE - not the destination of the jump)  \
                      update f->f_lasti manually like DISPATCH() would do because  \
                      we can only enter the machine code at jump targets. */ \
-                    f->f_lasti = INSTR_OFFSET() - 2; /* -2 because our JIT entry is always adding two */ \
+                    f->f_lasti = INSTR_OFFSET() - INST_IDX_TO_LASTI_FACTOR; /* -2 because our JIT entry is always adding a instruction */ \
                     return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)code); \
                 } else { \
                     /* never try again to JIT compile this python function */ \
@@ -2508,7 +2933,34 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
             } \
         } \
     } while (0)
-
+#else
+#define HANDLE_JUMP_BACKWARD_OSR() \
+    do {  \
+        ++opcache->oc_opcache_flag;  \
+        OPCACHE_INIT_IF_HIT_THRESHOLD();  \
+        /* check if we should switch over to the JIT (OSR) */  \
+        if (opcache->oc_opcache_flag > jit_min_runs && can_use_jit \
+            && !trace_info->cframe.use_tracing) { /* don't OSR if tracing is enabled because we seem to skip a line */ \
+            void* code = getJitCode(co); \
+            if (code == NULL) { \
+                code = jit_func(co, tstate);  \
+                if (code) {  \
+                    setJitCode(co, code); \
+                    /* JUMPTO() did not update f->f_lasti  \
+                    (it still points to the JUMP_ABSOLUTE - not the destination of the jump)  \
+                     update f->f_lasti manually like DISPATCH() would do because  \
+                     we can only enter the machine code at jump targets. */ \
+                    f->f_lasti = INSTR_OFFSET() - INST_IDX_TO_LASTI_FACTOR; /* -1 because our JIT entry is always adding a instruction */ \
+                    return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)code, trace_info); \
+                } else { \
+                    /* never try again to JIT compile this python function */ \
+                    setJitCode(co, JIT_FUNC_FAILED); \
+                    can_use_jit = 0; \
+                } \
+            } \
+        } \
+    } while (0)
+#endif
 
 /* Start of code */
 #if PROFILE_OPCODES
@@ -2541,7 +2993,12 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 #endif
             if (code) {
                 setJitCode(co, code);
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
                 return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)code);
+#else
+                return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)code, trace_info);
+#endif
+
             } else {
                 // never try again to JIT compile this python function
                 setJitCode(co, JIT_FUNC_FAILED);
@@ -2579,7 +3036,11 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
     next_instr = first_instr;
     if (f->f_lasti >= 0) { // generator resume
         assert(f->f_lasti % sizeof(_Py_CODEUNIT) == 0);
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
         next_instr += f->f_lasti / sizeof(_Py_CODEUNIT) + 1;
+#else
+        next_instr += f->f_lasti + 1;
+#endif
     } else { // function entry
         opcache->oc_opcache_flag += OPCACHE_INC_FUNC_ENTRY;
         OPCACHE_INIT_IF_HIT_THRESHOLD();
@@ -2619,6 +3080,7 @@ main_loop:
 
         if (_Py_atomic_load_relaxed(eval_breaker)) {
             opcode = _Py_OPCODE(*next_instr);
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
             if (opcode == SETUP_FINALLY ||
                 opcode == SETUP_WITH ||
                 opcode == BEFORE_ASYNC_WITH ||
@@ -2645,8 +3107,35 @@ main_loop:
             if (eval_frame_handle_pending(tstate) != 0) {
                 goto error;
             }
+#else
+            if (opcode != SETUP_FINALLY &&
+                opcode != SETUP_WITH &&
+                opcode != BEFORE_ASYNC_WITH &&
+                opcode != YIELD_FROM) {
+                /* Few cases where we skip running signal handlers and other
+                   pending calls:
+                   - If we're about to enter the 'with:'. It will prevent
+                     emitting a resource warning in the common idiom
+                     'with open(path) as file:'.
+                   - If we're about to enter the 'async with:'.
+                   - If we're about to enter the 'try:' of a try/finally (not
+                     *very* useful, but might help in some cases and it's
+                     traditional)
+                   - If we're resuming a chain of nested 'yield from' or
+                     'await' calls, then each frame is parked with YIELD_FROM
+                     as its next opcode. If the user hit control-C we want to
+                     wait until we've reached the innermost frame before
+                     running the signal handler and raising KeyboardInterrupt
+                     (see bpo-30039).
+                */
+                if (eval_frame_handle_pending(tstate) != 0) {
+                    goto error;
+                }
+             }
+#endif
         }
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     fast_next_opcode:
         f->f_lasti = INSTR_OFFSET();
 
@@ -2689,6 +3178,44 @@ main_loop:
         dxp[opcode]++;
 #endif
 
+#else
+    tracing_dispatch:
+    {
+        int instr_prev = f->f_lasti;
+        f->f_lasti = INSTR_OFFSET();
+        NEXTOPARG();
+
+        if (PyDTrace_LINE_ENABLED())
+            maybe_dtrace_line(f, trace_info, instr_prev);
+
+        /* line-by-line tracing support */
+
+        if (trace_info->cframe.use_tracing &&
+            tstate->c_tracefunc != NULL && !tstate->tracing) {
+            int err;
+            /* see maybe_call_line_trace()
+               for expository comments */
+            f->f_stackdepth = (int)(stack_pointer - f->f_valuestack);
+
+            err = maybe_call_line_trace(tstate->c_tracefunc,
+                                        tstate->c_traceobj,
+                                        tstate, f,
+                                        trace_info, instr_prev,
+                                        // Pyston change: add this arg
+                                        &jit_first_trace_for_line);
+            /* Reload possibly changed frame fields */
+            JUMPTO(f->f_lasti);
+            stack_pointer = f->f_valuestack+f->f_stackdepth;
+            f->f_stackdepth = -1;
+            if (err) {
+                /* trace function raised an exception */
+                goto error;
+            }
+            NEXTOPARG();
+        }
+    }
+#endif
+
 #ifdef LLTRACE
         /* Instruction tracing */
 
@@ -2703,6 +3230,28 @@ main_loop:
             }
         }
 #endif
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+#if USE_COMPUTED_GOTOS == 0
+    goto dispatch_opcode;
+
+    predispatch:
+        if (trace_info->cframe.use_tracing OR_DTRACE_LINE OR_LLTRACE) {
+            goto tracing_dispatch;
+        }
+        f->f_lasti = INSTR_OFFSET();
+        NEXTOPARG();
+#endif
+    dispatch_opcode:
+#ifdef DYNAMIC_EXECUTION_PROFILE
+#ifdef DXPAIRS
+        dxpairs[lastopcode][opcode]++;
+        lastopcode = opcode;
+#endif
+        dxp[opcode]++;
+#endif
+#endif
+
         switch (opcode) {
 
         /* BEWARE!
@@ -3346,6 +3895,10 @@ main_loop:
             goto exit_returning;
 #else
             assert(EMPTY());
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+            f->f_state = FRAME_RETURNED;
+            f->f_stackdepth = 0;
+#endif
             goto exiting;
 #endif
         }
@@ -3491,6 +4044,7 @@ main_loop:
             DISPATCH();
         }
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
         case TARGET(YIELD_FROM): {
             PyObject *v = POP();
             PyObject *receiver = TOP();
@@ -3537,6 +4091,60 @@ main_loop:
             goto exiting;
 #endif
         }
+#else
+        case TARGET(YIELD_FROM): {
+            PyObject *v = POP();
+            PyObject *receiver = TOP();
+            PySendResult gen_status;
+            if (tstate->c_tracefunc == NULL) {
+                gen_status = PyIter_Send(receiver, v, &retval);
+            } else {
+                _Py_IDENTIFIER(send);
+                if (Py_IsNone(v) && PyIter_Check(receiver)) {
+                    retval = Py_TYPE(receiver)->tp_iternext(receiver);
+                }
+                else {
+                    retval = _PyObject_CallMethodIdOneArg(receiver, &PyId_send, v);
+                }
+                if (retval == NULL) {
+                    if (tstate->c_tracefunc != NULL
+                            && _PyErr_ExceptionMatches(tstate, PyExc_StopIteration))
+                        call_exc_trace(tstate->c_tracefunc, tstate->c_traceobj, tstate, f, trace_info);
+                    if (_PyGen_FetchStopIterationValue(&retval) == 0) {
+                        gen_status = PYGEN_RETURN;
+                    }
+                    else {
+                        gen_status = PYGEN_ERROR;
+                    }
+                }
+                else {
+                    gen_status = PYGEN_NEXT;
+                }
+            }
+            Py_DECREF(v);
+            if (gen_status == PYGEN_ERROR) {
+                assert (retval == NULL);
+                goto error;
+            }
+            if (gen_status == PYGEN_RETURN) {
+                assert (retval != NULL);
+
+                Py_DECREF(receiver);
+                SET_TOP(retval);
+                retval = NULL;
+                DISPATCH();
+            }
+            assert (gen_status == PYGEN_NEXT);
+            /* receiver remains on stack, retval is value to be yielded */
+            /* and repeat... */
+            assert(f->f_lasti > 0);
+            f->f_lasti -= 1;
+            f->f_state = FRAME_SUSPENDED;
+            f->f_stackdepth = (int)(stack_pointer - f->f_valuestack);
+            goto exiting;
+        }
+#endif
+
 
         case TARGET(YIELD_VALUE): {
             retval = POP();
@@ -3551,16 +4159,32 @@ main_loop:
                 retval = w;
             }
 
-            f->f_stacktop = stack_pointer;
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
+            f->f_stacktop = stack_pointer;
             why = WHY_YIELD;
             goto fast_yield;
 #elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 8
+            f->f_stacktop = stack_pointer;
             goto exit_yielding;
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 9
+            f->f_stacktop = stack_pointer;
+            goto exiting;
 #else
+            f->f_state = FRAME_SUSPENDED;
+            f->f_stackdepth = (int)(stack_pointer - f->f_valuestack);
             goto exiting;
 #endif
         }
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+        case TARGET(GEN_START): {
+            PyObject *none = POP();
+            assert(none == Py_None);
+            assert(oparg < 3);
+            Py_DECREF(none);
+            DISPATCH();
+        }
+#endif
 
         case TARGET(POP_EXCEPT): {
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
@@ -3754,6 +4378,12 @@ main_loop:
 
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
         case TARGET(RERAISE): {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+            assert(f->f_iblock > 0);
+            if (oparg) {
+                f->f_lasti = f->f_blockstack[f->f_iblock-1].b_handler;
+            }
+#endif
             PyObject *exc = POP();
             PyObject *val = POP();
             PyObject *tb = POP();
@@ -4109,7 +4739,11 @@ sa_common:
                                        (PyDictObject *)f->f_builtins,
                                        name, &wasglobal);
                 if (v == NULL) {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
                     if (!_PyErr_OCCURRED()) {
+#else
+                    if (!_PyErr_Occurred(tstate)) {
+#endif
                         /* _PyDict_LoadGlobal() returns NULL without raising
                          * an exception if the key doesn't exist */
                         format_exc_check_arg(tstate, PyExc_NameError,
@@ -4870,15 +5504,21 @@ la_common:
             if (cond == Py_False) {
                 Py_DECREF_IMMORTAL(cond);
                 JUMPTO_WITH_OSR(oparg);
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+                CHECK_EVAL_BREAKER();
+#endif
                 FAST_DISPATCH();
             }
             err = PyObject_IsTrue(cond);
             Py_DECREF(cond);
             if (err > 0)
                 ;
-            else if (err == 0)
+            else if (err == 0) {
                 JUMPTO_WITH_OSR(oparg);
-            else
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+                CHECK_EVAL_BREAKER();
+#endif
+            } else
                 goto error;
             DISPATCH();
         }
@@ -4894,12 +5534,18 @@ la_common:
             if (cond == Py_True) {
                 Py_DECREF_IMMORTAL(cond);
                 JUMPTO_WITH_OSR(oparg);
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+                CHECK_EVAL_BREAKER();
+#endif
                 FAST_DISPATCH();
             }
             err = PyObject_IsTrue(cond);
             Py_DECREF(cond);
             if (err > 0) {
                 JUMPTO_WITH_OSR(oparg);
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+                CHECK_EVAL_BREAKER();
+#endif
             }
             else if (err == 0)
                 ;
@@ -4961,6 +5607,9 @@ la_common:
             PREDICTED(JUMP_ABSOLUTE);
             JUMPTO(oparg);
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+            CHECK_EVAL_BREAKER();
+#endif
             HANDLE_JUMP_BACKWARD_OSR();
 
 #if FAST_LOOPS
@@ -4976,6 +5625,110 @@ la_common:
             DISPATCH();
 #endif
         }
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+        case TARGET(GET_LEN): {
+            // PUSH(len(TOS))
+            Py_ssize_t len_i = PyObject_Length(TOP());
+            if (len_i < 0) {
+                goto error;
+            }
+            PyObject *len_o = PyLong_FromSsize_t(len_i);
+            if (len_o == NULL) {
+                goto error;
+            }
+            PUSH(len_o);
+            DISPATCH();
+        }
+
+        case TARGET(MATCH_CLASS): {
+            // Pop TOS. On success, set TOS to True and TOS1 to a tuple of
+            // attributes. On failure, set TOS to False.
+            PyObject *names = POP();
+            PyObject *type = TOP();
+            PyObject *subject = SECOND();
+            assert(PyTuple_CheckExact(names));
+            PyObject *attrs = match_class(tstate, subject, type, oparg, names);
+            Py_DECREF(names);
+            if (attrs) {
+                // Success!
+                assert(PyTuple_CheckExact(attrs));
+                Py_DECREF(subject);
+                SET_SECOND(attrs);
+            }
+            else if (_PyErr_Occurred(tstate)) {
+                goto error;
+            }
+            Py_DECREF(type);
+            SET_TOP(PyBool_FromLong(!!attrs));
+            DISPATCH();
+        }
+
+        case TARGET(MATCH_MAPPING): {
+            PyObject *subject = TOP();
+            int match = Py_TYPE(subject)->tp_flags & Py_TPFLAGS_MAPPING;
+            PyObject *res = match ? Py_True : Py_False;
+            Py_INCREF(res);
+            PUSH(res);
+            DISPATCH();
+        }
+
+        case TARGET(MATCH_SEQUENCE): {
+            PyObject *subject = TOP();
+            int match = Py_TYPE(subject)->tp_flags & Py_TPFLAGS_SEQUENCE;
+            PyObject *res = match ? Py_True : Py_False;
+            Py_INCREF(res);
+            PUSH(res);
+            DISPATCH();
+        }
+
+        case TARGET(MATCH_KEYS): {
+            // On successful match for all keys, PUSH(values) and PUSH(True).
+            // Otherwise, PUSH(None) and PUSH(False).
+            PyObject *keys = TOP();
+            PyObject *subject = SECOND();
+            PyObject *values_or_none = match_keys(tstate, subject, keys);
+            if (values_or_none == NULL) {
+                goto error;
+            }
+            PUSH(values_or_none);
+            if (Py_IsNone(values_or_none)) {
+                Py_INCREF(Py_False);
+                PUSH(Py_False);
+                DISPATCH();
+            }
+            assert(PyTuple_CheckExact(values_or_none));
+            Py_INCREF(Py_True);
+            PUSH(Py_True);
+            DISPATCH();
+        }
+
+        case TARGET(COPY_DICT_WITHOUT_KEYS): {
+            // rest = dict(TOS1)
+            // for key in TOS:
+            //     del rest[key]
+            // SET_TOP(rest)
+            PyObject *keys = TOP();
+            PyObject *subject = SECOND();
+            PyObject *rest = PyDict_New();
+            if (rest == NULL || PyDict_Update(rest, subject)) {
+                Py_XDECREF(rest);
+                goto error;
+            }
+            // This may seem a bit inefficient, but keys is rarely big enough to
+            // actually impact runtime.
+            assert(PyTuple_CheckExact(keys));
+            for (Py_ssize_t i = 0; i < PyTuple_GET_SIZE(keys); i++) {
+                if (PyDict_DelItem(rest, PyTuple_GET_ITEM(keys, i))) {
+                    Py_DECREF(rest);
+                    goto error;
+                }
+            }
+            Py_DECREF(keys);
+            SET_TOP(rest);
+            DISPATCH();
+        }
+#endif
 
         case TARGET(GET_ITER): {
             /* before: [obj]; after [getiter(obj)] */
@@ -5035,7 +5788,11 @@ la_common:
                     goto error;
                 }
                 else if (tstate->c_tracefunc != NULL) {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
                     call_exc_trace(tstate->c_tracefunc, tstate->c_traceobj, tstate, f);
+#else
+                    call_exc_trace(tstate->c_tracefunc, tstate->c_traceobj, tstate, f, trace_info);
+#endif
                 }
                 _PyErr_Clear(tstate);
             }
@@ -5498,7 +6255,11 @@ lm_before_dispatch:
                    `callable` will be POPed by call_function.
                    NULL will will be POPed manually later.
                 */
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
                 res = CALL_FUNCTION_CEVAL(tstate, &sp, oparg, NULL);
+#else
+                res = CALL_FUNCTION_CEVAL(tstate, trace_info, &sp, oparg, NULL);
+#endif
                 stack_pointer = sp;
                 (void)POP(); /* POP the NULL. */
             }
@@ -5515,13 +6276,20 @@ lm_before_dispatch:
                   We'll be passing `oparg + 1` to call_function, to
                   make it accept the `self` as a first argument.
                 */
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
                 res = CALL_FUNCTION_CEVAL(tstate, &sp, oparg + 1, NULL);
+#else
+                res = CALL_FUNCTION_CEVAL(tstate, trace_info, &sp, oparg + 1, NULL);
+#endif
                 stack_pointer = sp;
             }
 
             PUSH(res);
             if (res == NULL)
                 goto error;
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+            CHECK_EVAL_BREAKER();
+#endif
             DISPATCH();
         }
 
@@ -5529,12 +6297,19 @@ lm_before_dispatch:
             PREDICTED(CALL_FUNCTION);
             PyObject **sp, *res;
             sp = stack_pointer;
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
             res = CALL_FUNCTION_CEVAL(tstate, &sp, oparg, NULL);
+#else
+            res = CALL_FUNCTION_CEVAL(tstate, trace_info, &sp, oparg, NULL);
+#endif
             stack_pointer = sp;
             PUSH(res);
             if (res == NULL) {
                 goto error;
             }
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+            CHECK_EVAL_BREAKER();
+#endif
             DISPATCH();
         }
 
@@ -5544,7 +6319,11 @@ lm_before_dispatch:
             names = POP();
             assert(PyTuple_CheckExact(names) && PyTuple_GET_SIZE(names) <= oparg);
             sp = stack_pointer;
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
             res = CALL_FUNCTION_CEVAL(tstate, &sp, oparg, names);
+#else
+            res = CALL_FUNCTION_CEVAL(tstate, trace_info, &sp, oparg, names);
+#endif
             stack_pointer = sp;
             PUSH(res);
             Py_DECREF(names);
@@ -5552,6 +6331,9 @@ lm_before_dispatch:
             if (res == NULL) {
                 goto error;
             }
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+            CHECK_EVAL_BREAKER();
+#endif
             DISPATCH();
         }
 
@@ -5588,7 +6370,11 @@ lm_before_dispatch:
             }
             assert(PyTuple_CheckExact(callargs));
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
             result = do_call_core(tstate, func, callargs, kwargs);
+#else
+            result = do_call_core(tstate, trace_info, func, callargs, kwargs);
+#endif
             Py_DECREF(func);
             Py_DECREF(callargs);
             Py_XDECREF(kwargs);
@@ -5597,6 +6383,9 @@ lm_before_dispatch:
             if (result == NULL) {
                 goto error;
             }
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+            CHECK_EVAL_BREAKER();
+#endif
             DISPATCH();
         }
 
@@ -5617,7 +6406,11 @@ lm_before_dispatch:
                 func ->func_closure = POP();
             }
             if (oparg & 0x04) {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION < 9
                 assert(PyDict_CheckExact(TOP()));
+#else
+                assert(PyTuple_CheckExact(TOP()));
+#endif
                 func->func_annotations = POP();
             }
             if (oparg & 0x02) {
@@ -5711,6 +6504,16 @@ lm_before_dispatch:
             DISPATCH();
         }
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+        case TARGET(ROT_N): {
+            PyObject *top = TOP();
+            memmove(&PEEK(oparg - 1), &PEEK(oparg),
+                    sizeof(PyObject*) * (oparg - 1));
+            PEEK(oparg) = top;
+            DISPATCH();
+        }
+#endif
+
         case TARGET(EXTENDED_ARG): {
             int oldoparg = oparg;
             NEXTOPARG();
@@ -5769,9 +6572,19 @@ error:
         /* Log traceback info. */
         PyTraceBack_Here(f);
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
         if (tstate->c_tracefunc != NULL)
             call_exc_trace(tstate->c_tracefunc, tstate->c_traceobj,
                            tstate, f);
+#else
+        if (tstate->c_tracefunc != NULL) {
+            /* Make sure state is set to FRAME_EXECUTING for tracing */
+            assert(f->f_state == FRAME_EXECUTING);
+            f->f_state = FRAME_UNWINDING;
+            call_exc_trace(tstate->c_tracefunc, tstate->c_traceobj,
+                           tstate, f, trace_info);
+        }
+#endif
 
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 fast_block_end:
@@ -5877,6 +6690,9 @@ fast_block_end:
 
 #else
 exception_unwind:
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+        f->f_state = FRAME_UNWINDING;
+#endif
         /* Unwind stacks if an exception occurred */
         while (f->f_iblock > 0) {
             /* Pop the current block. */
@@ -5892,7 +6708,11 @@ exception_unwind:
                 int handler = b->b_handler;
                 _PyErr_StackItem *exc_info = tstate->exc_info;
                 /* Beware, this invalidates all b->b_* fields */
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
                 PyFrame_BlockSetup(f, EXCEPT_HANDLER, -1, STACK_LEVEL());
+#else
+                PyFrame_BlockSetup(f, EXCEPT_HANDLER, f->f_lasti, STACK_LEVEL());
+#endif
                 PUSH(exc_info->exc_traceback);
                 PUSH(exc_info->exc_value);
                 if (exc_info->exc_type != NULL) {
@@ -5929,7 +6749,7 @@ exception_unwind:
 
                 JUMPTO(handler);
 
-#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 9
                 if (_Py_TracingPossible(ceval2)) {
                     int needs_new_execution_window = (f->f_lasti < instr_lb || f->f_lasti >= instr_ub);
                     int needs_line_update = (f->f_lasti == instr_lb || f->f_lasti < instr_prev);
@@ -5940,6 +6760,8 @@ exception_unwind:
                         instr_prev = INT_MAX;
                     }
                 }
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+                f->f_state = FRAME_EXECUTING;
 #endif
 
                 /* Resume normal execution */
@@ -5963,6 +6785,11 @@ exit_returning:
         PyObject *o = POP();
         Py_XDECREF(o);
     }
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+    f->f_stackdepth = 0;
+    f->f_state = FRAME_RAISED;
+#endif
 #endif
 
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
@@ -6004,6 +6831,7 @@ exit_yielding:
 #else
 exiting:
 #endif
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     if (tstate->use_tracing) {
         if (tstate->c_tracefunc) {
             if (call_trace_protected(tstate->c_tracefunc, tstate->c_traceobj,
@@ -6018,12 +6846,34 @@ exiting:
             }
         }
     }
+#else
+    if (trace_info->cframe.use_tracing) {
+        if (tstate->c_tracefunc) {
+            if (call_trace_protected(tstate->c_tracefunc, tstate->c_traceobj,
+                                     tstate, f, trace_info, PyTrace_RETURN, retval)) {
+                Py_CLEAR(retval);
+            }
+        }
+        if (tstate->c_profilefunc) {
+            if (call_trace_protected(tstate->c_profilefunc, tstate->c_profileobj,
+                                     tstate, f, trace_info, PyTrace_RETURN, retval)) {
+                Py_CLEAR(retval);
+            }
+        }
+    }
+
+    /* Restore previous cframe */
+    tstate->cframe = trace_info->cframe.previous;
+    tstate->cframe->use_tracing = trace_info->cframe.use_tracing;
+#endif
 #endif
 
     if (PyDTrace_FUNCTION_RETURN_ENABLED())
         dtrace_function_return(f);
     Py_LeaveRecursiveCall();
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     f->f_executing = 0;
+#endif
     tstate->frame = f->f_back;
 
 #ifndef PYSTON_LITE
@@ -6033,21 +6883,41 @@ exiting:
 #endif
 }
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 static PyObject* _Py_HOT_FUNCTION
 _PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObject** stack_pointer, JitFunc jit_code)
+#else
+static PyObject* _Py_HOT_FUNCTION
+_PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObject** stack_pointer, JitFunc jit_code, PyTraceInfo* trace_info)
+#endif
 {
     PyObject* retval = NULL;
 
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
     enum why_code why = WHY_NOT;
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+    // we have to check the eval breaker now explicitly because it's not checked at the
+    // beginning of every instruction but the interpreter does it for the first bytecode
+    // executed (which does not have to be the first instruction e.g. when continuing a generator) and afterwards on backedges and calls.
+    if (_Py_atomic_load_relaxed(&tstate->interp->ceval.eval_breaker)) {
+        _Py_CODEUNIT *opcodes = (_Py_CODEUNIT*)PyBytes_AS_STRING(f->f_code->co_code);
+        unsigned char opcode = _Py_OPCODE(opcodes[f->f_lasti >= 0 ? f->f_lasti + 1 : 0]);
+        if (OPCODE_SUPPORTS_EVAL_CHECK(opcode)) {
+            if (eval_frame_handle_pending(tstate) != 0) {
+                goto error;
+            }
+        }
+    }
 #endif
 
 continue_jit:
     {
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
         JitRetVal ret = jit_code(f, tstate, stack_pointer, &why);
-#else
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
         JitRetVal ret = jit_code(f, tstate, stack_pointer);
+#else
+        JitRetVal ret = jit_code(f, tstate, stack_pointer, trace_info);
 #endif
         stack_pointer = ret.stack_pointer;
         int lower_bits = ret.ret_val & 3;
@@ -6088,10 +6958,18 @@ continue_jit:
             if (f->f_lasti == 0)
                 f->f_lasti = -1; // special case: we deopted on the first opcode, set it to -1 which is the func entry
             else
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
                 f->f_lasti -= 2; // normal case: decrement one opcode
+#else
+                f->f_lasti -= 1; // normal case: decrement one opcode
+#endif
 
             int jit_first_trace_for_line = (PyObject*)(ret.ret_val & ~3) ? 1 : 0;
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
             return _PyEval_EvalFrame_AOT_Interpreter(f, 0 /* throwflag */, tstate, stack_pointer, 0 /*= can't use jit */, jit_first_trace_for_line);
+#else
+            return _PyEval_EvalFrame_AOT_Interpreter(f, 0 /* throwflag */, tstate, stack_pointer, 0 /*= can't use jit */, jit_first_trace_for_line, trace_info);
+#endif
         }
     }
 
@@ -6114,9 +6992,19 @@ error:
     /* Log traceback info. */
     PyTraceBack_Here(f);
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     if (tstate->c_tracefunc != NULL)
         call_exc_trace(tstate->c_tracefunc, tstate->c_traceobj,
                         tstate, f);
+#else
+    if (tstate->c_tracefunc != NULL) {
+        /* Make sure state is set to FRAME_EXECUTING for tracing */
+        assert(f->f_state == FRAME_EXECUTING);
+        f->f_state = FRAME_UNWINDING;
+        call_exc_trace(tstate->c_tracefunc, tstate->c_traceobj,
+                        tstate, f, trace_info);
+    }
+#endif
 
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 fast_block_end:
@@ -6132,7 +7020,7 @@ fast_block_end:
             if (b->b_type == SETUP_LOOP && why == WHY_CONTINUE) {
                 why = WHY_NOT;
                 //JUMPTO(PyLong_AS_LONG(retval));
-                f->f_lasti = PyLong_AS_LONG(retval) - 2;
+                f->f_lasti = PyLong_AS_LONG(retval) - INST_IDX_TO_LASTI_FACTOR;
                 Py_DECREF(retval);
                 break;
             }
@@ -6147,7 +7035,7 @@ fast_block_end:
             if (b->b_type == SETUP_LOOP && why == WHY_BREAK) {
                 why = WHY_NOT;
                 //JUMPTO(b->b_handler);
-                f->f_lasti = b->b_handler - 2;
+                f->f_lasti = b->b_handler - INST_IDX_TO_LASTI_FACTOR;
                 break;
             }
             if (why == WHY_EXCEPTION && (b->b_type == SETUP_EXCEPT
@@ -6190,7 +7078,7 @@ fast_block_end:
                 PUSH(exc);
                 why = WHY_NOT;
                 //JUMPTO(handler);
-                f->f_lasti = handler - 2;
+                f->f_lasti = handler - INST_IDX_TO_LASTI_FACTOR;
                 break;
             }
             if (b->b_type == SETUP_FINALLY) {
@@ -6199,7 +7087,7 @@ fast_block_end:
                 PUSH(PyLong_FromLong((long)why));
                 why = WHY_NOT;
                 //JUMPTO(b->b_handler);
-                f->f_lasti = b->b_handler - 2;
+                f->f_lasti = b->b_handler - INST_IDX_TO_LASTI_FACTOR;
                 break;
             }
         } /* unwind stack */
@@ -6247,7 +7135,11 @@ exception_unwind:
             int handler = b->b_handler;
             _PyErr_StackItem *exc_info = tstate->exc_info;
             /* Beware, this invalidates all b->b_* fields */
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
             PyFrame_BlockSetup(f, EXCEPT_HANDLER, -1, STACK_LEVEL());
+#else
+            PyFrame_BlockSetup(f, EXCEPT_HANDLER, f->f_lasti, STACK_LEVEL());
+#endif
             PUSH(exc_info->exc_traceback);
             PUSH(exc_info->exc_value);
             if (exc_info->exc_type != NULL) {
@@ -6282,7 +7174,7 @@ exception_unwind:
             PUSH(val);
             PUSH(exc);
 
-            f->f_lasti = handler - 2;
+            f->f_lasti = handler - INST_IDX_TO_LASTI_FACTOR;
 
             /* Resume normal execution */
             goto continue_jit;
@@ -6301,6 +7193,11 @@ exit_returning:
         PyObject *o = POP();
         Py_XDECREF(o);
     }
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+    f->f_stackdepth = 0;
+    f->f_state = FRAME_RAISED;
+#endif
 #endif
 
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
@@ -6341,6 +7238,7 @@ exit_yielding:
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
 exiting:
 #endif
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     if (tstate->use_tracing) {
         if (tstate->c_tracefunc) {
             if (call_trace_protected(tstate->c_tracefunc, tstate->c_traceobj,
@@ -6355,11 +7253,33 @@ exiting:
             }
         }
     }
+#else
+    if (trace_info->cframe.use_tracing) {
+        if (tstate->c_tracefunc) {
+            if (call_trace_protected(tstate->c_tracefunc, tstate->c_traceobj,
+                                     tstate, f, trace_info, PyTrace_RETURN, retval)) {
+                Py_CLEAR(retval);
+            }
+        }
+        if (tstate->c_profilefunc) {
+            if (call_trace_protected(tstate->c_profilefunc, tstate->c_profileobj,
+                                     tstate, f, trace_info, PyTrace_RETURN, retval)) {
+                Py_CLEAR(retval);
+            }
+        }
+    }
+
+    /* Restore previous cframe */
+    tstate->cframe = trace_info->cframe.previous;
+    tstate->cframe->use_tracing = trace_info->cframe.use_tracing;
+#endif
 #endif
     if (PyDTrace_FUNCTION_RETURN_ENABLED())
         dtrace_function_return(f);
     Py_LeaveRecursiveCall();
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     f->f_executing = 0;
+#endif
     tstate->frame = f->f_back;
 
 #ifndef PYSTON_LITE
@@ -6396,9 +7316,28 @@ _PyEval_EvalFrameDefault
     if (Py_EnterRecursiveCall(""))
         return NULL;
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+    PyTraceInfo trace_info;
+    /* Mark trace_info as uninitialized */
+    trace_info.code = NULL;
+
+    /* WARNING: Because the CFrame lives on the C stack,
+     * but can be accessed from a heap allocated object (tstate)
+     * strict stack discipline must be maintained.
+     */
+    CFrame *prev_cframe = tstate->cframe;
+    trace_info.cframe.use_tracing = prev_cframe->use_tracing;
+    trace_info.cframe.previous = prev_cframe;
+    tstate->cframe = &trace_info.cframe;
+#endif
+
     tstate->frame = f;
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     if (tstate->use_tracing) {
+#else
+    if (trace_info.cframe.use_tracing) {
+#endif
         if (tstate->c_tracefunc != NULL) {
             /* tstate->c_tracefunc, if defined, is a
                function that will be called on *every* entry
@@ -6415,7 +7354,11 @@ _PyEval_EvalFrameDefault
                whenever an exception is detected. */
             if (call_trace_protected(tstate->c_tracefunc,
                                      tstate->c_traceobj,
-                                     tstate, f, PyTrace_CALL, Py_None)) {
+                                     tstate, f,
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+                                     &trace_info,
+#endif
+                                     PyTrace_CALL, Py_None)) {
                 /* Trace function raised an error */
                 goto exit_eval_frame;
             }
@@ -6425,7 +7368,11 @@ _PyEval_EvalFrameDefault
                return itself and isn't called for "line" events */
             if (call_trace_protected(tstate->c_profilefunc,
                                      tstate->c_profileobj,
-                                     tstate, f, PyTrace_CALL, Py_None)) {
+                                     tstate, f,
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+                                     &trace_info,
+#endif
+                                     PyTrace_CALL, Py_None)) {
                 /* Profile function raised an error */
                 goto exit_eval_frame;
             }
@@ -6435,10 +7382,22 @@ _PyEval_EvalFrameDefault
     if (PyDTrace_FUNCTION_ENTRY_ENABLED())
         dtrace_function_entry(f);
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     PyObject **stack_pointer = f->f_stacktop;  /* Next free slot in value stack */
     assert(stack_pointer != NULL);
     f->f_stacktop = NULL;       /* remains NULL unless yield suspends frame */
     f->f_executing = 1;
+#else
+    PyObject **stack_pointer = f->f_valuestack + f->f_stackdepth;
+    /* Set f->f_stackdepth to -1.
+     * Update when returning or calling trace function.
+       Having f_stackdepth <= 0 ensures that invalid
+       values are not visible to the cycle GC.
+       We choose -1 rather than 0 to assist debugging.
+     */
+    f->f_stackdepth = -1;
+    f->f_state = FRAME_EXECUTING;
+#endif
 
 #ifdef PYSTON_LITE
     // We need the opcache struct on the first execution of the function so that we can start
@@ -6480,17 +7439,33 @@ _PyEval_EvalFrameDefault
     // Also don't enter the jit if the throwflag is set which skips the main code path and goes to error path.
     int can_use_jit = jit_code != JIT_FUNC_FAILED && PyDict_CheckExact(f->f_globals) && PyDict_CheckExact(f->f_builtins) && !throwflag;
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     if (jit_code != NULL && can_use_jit) {
         return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, jit_code);
     } else {
         return _PyEval_EvalFrame_AOT_Interpreter(f, throwflag, tstate, stack_pointer, can_use_jit, 0);
     }
+#else
+    if (jit_code != NULL && can_use_jit) {
+        return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, jit_code, &trace_info);
+    } else {
+        return _PyEval_EvalFrame_AOT_Interpreter(f, throwflag, tstate, stack_pointer, can_use_jit, 0, &trace_info);
+    }
+#endif
 
 exit_eval_frame:
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+    /* Restore previous cframe */
+    tstate->cframe = trace_info.cframe.previous;
+    tstate->cframe->use_tracing = trace_info.cframe.use_tracing;
+#endif
+
     if (PyDTrace_FUNCTION_RETURN_ENABLED())
         dtrace_function_return(f);
     Py_LeaveRecursiveCall();
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     f->f_executing = 0;
+#endif
     tstate->frame = f->f_back;
 
 #ifndef PYSTON_LITE
@@ -7028,7 +8003,11 @@ special_lookup(PyThreadState *tstate, PyObject *o, _Py_Identifier *id)
     PyObject *res;
     res = _PyObject_LookupSpecial(o, id);
     if (res == NULL && !_PyErr_Occurred(tstate)) {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
         _PyErr_SetObject(tstate, PyExc_AttributeError, id->object);
+#else
+        _PyErr_SetObject(tstate, PyExc_AttributeError, _PyUnicode_FromId(id));
+#endif
         return NULL;
     }
     return res;
@@ -7250,7 +8229,11 @@ prtrace(PyThreadState *tstate, PyObject *v, const char *str)
 
 /*static*/ void
 call_exc_trace(Py_tracefunc func, PyObject *self,
-               PyThreadState *tstate, PyFrameObject *f)
+               PyThreadState *tstate, PyFrameObject *f
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+               , PyTraceInfo *trace_info
+#endif
+               )
 {
     PyObject *type, *value, *traceback, *orig_traceback, *arg;
     int err;
@@ -7266,7 +8249,11 @@ call_exc_trace(Py_tracefunc func, PyObject *self,
         _PyErr_Restore(tstate, type, value, orig_traceback);
         return;
     }
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     err = call_trace(func, self, tstate, f, PyTrace_EXCEPTION, arg);
+#else
+    err = call_trace(func, self, tstate, f, trace_info, PyTrace_EXCEPTION, arg);
+#endif
     Py_DECREF(arg);
     if (err == 0) {
         _PyErr_Restore(tstate, type, value, orig_traceback);
@@ -7281,12 +8268,19 @@ call_exc_trace(Py_tracefunc func, PyObject *self,
 static int
 call_trace_protected(Py_tracefunc func, PyObject *obj,
                      PyThreadState *tstate, PyFrameObject *frame,
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+                     PyTraceInfo *trace_info,
+#endif
                      int what, PyObject *arg)
 {
     PyObject *type, *value, *traceback;
     int err;
     _PyErr_Fetch(tstate, &type, &value, &traceback);
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     err = call_trace(func, obj, tstate, frame, what, arg);
+#else
+    err = call_trace(func, obj, tstate, frame, trace_info, what, arg);
+#endif
     if (err == 0)
     {
         _PyErr_Restore(tstate, type, value, traceback);
@@ -7300,19 +8294,48 @@ call_trace_protected(Py_tracefunc func, PyObject *obj,
     }
 }
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+static void
+initialize_trace_info(PyTraceInfo *trace_info, PyFrameObject *frame)
+{
+    if (trace_info->code != frame->f_code) {
+        trace_info->code = frame->f_code;
+        _PyCode_InitAddressRange(frame->f_code, &trace_info->bounds);
+    }
+}
+#endif
+
 static int
 call_trace(Py_tracefunc func, PyObject *obj,
            PyThreadState *tstate, PyFrameObject *frame,
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+           PyTraceInfo *trace_info,
+#endif
            int what, PyObject *arg)
 {
     int result;
     if (tstate->tracing)
         return 0;
     tstate->tracing++;
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     tstate->use_tracing = 0;
     result = func(obj, frame, what, arg);
     tstate->use_tracing = ((tstate->c_tracefunc != NULL)
                            || (tstate->c_profilefunc != NULL));
+#else
+    tstate->cframe->use_tracing = 0;
+    if (frame->f_lasti < 0) {
+        frame->f_lineno = frame->f_code->co_firstlineno;
+    }
+    else {
+        initialize_trace_info(trace_info, frame);
+        frame->f_lineno = _PyCode_CheckLineNumber(frame->f_lasti*sizeof(_Py_CODEUNIT), &trace_info->bounds);
+    }
+    result = func(obj, frame, what, arg);
+    frame->f_lineno = 0;
+    tstate->cframe->use_tracing = ((tstate->c_tracefunc != NULL)
+                           || (tstate->c_profilefunc != NULL));
+#endif
     tstate->tracing--;
     return result;
 }
@@ -7334,6 +8357,8 @@ _PyEval_CallTracing(PyObject *func, PyObject *args)
     return result;
 }
 #endif
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 /* See Objects/lnotab_notes.txt for a description of how tracing works. */
 static int
 maybe_call_line_trace(Py_tracefunc func, PyObject *obj,
@@ -7371,6 +8396,43 @@ maybe_call_line_trace(Py_tracefunc func, PyObject *obj,
     *instr_prev = frame->f_lasti;
     return result;
 }
+#else
+/* See Objects/lnotab_notes.txt for a description of how tracing works. */
+static int
+maybe_call_line_trace(Py_tracefunc func, PyObject *obj,
+                      PyThreadState *tstate, PyFrameObject *frame,
+                      PyTraceInfo *trace_info, int instr_prev, int *jit_first_trace_for_line)
+{
+    int result = 0;
+
+    /* If the last instruction falls at the start of a line or if it
+       represents a jump backwards, update the frame's line number and
+       then call the trace function if we're tracing source lines.
+    */
+    initialize_trace_info(trace_info, frame);
+    int lastline = _PyCode_CheckLineNumber(instr_prev*sizeof(_Py_CODEUNIT), &trace_info->bounds);
+    int line = _PyCode_CheckLineNumber(frame->f_lasti*sizeof(_Py_CODEUNIT), &trace_info->bounds);
+    if (line != -1 && frame->f_trace_lines) {
+        /* Trace backward edges or if line number has changed */
+        // Pyston change:
+        /*
+        if (frame->f_lasti < instr_prev || line != lastline) {
+            result = call_trace(func, obj, tstate, frame, trace_info, PyTrace_LINE, Py_None);
+        }
+        */
+        if (*jit_first_trace_for_line || frame->f_lasti < instr_prev || line != lastline) {
+            *jit_first_trace_for_line = 0;
+            result = call_trace(func, obj, tstate, frame, trace_info, PyTrace_LINE, Py_None);
+        }
+    }
+    /* Always emit an opcode event if we're tracing all opcodes. */
+    if (frame->f_trace_opcodes) {
+        result = call_trace(func, obj, tstate, frame, trace_info, PyTrace_OPCODE, Py_None);
+    }
+    return result;
+}
+#endif
+
 #if 0
 void
 PyEval_SetProfile(Py_tracefunc func, PyObject *arg)
@@ -7568,6 +8630,7 @@ PyEval_GetFuncDesc(PyObject *func)
 }
 #endif
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 #define C_TRACE(x, call) \
 if (tstate->use_tracing && tstate->c_profilefunc) { \
     if (call_trace(tstate->c_profilefunc, tstate->c_profileobj, \
@@ -7598,6 +8661,38 @@ if (tstate->use_tracing && tstate->c_profilefunc) { \
 } else { \
     x = call; \
     }
+#else
+#define C_TRACE(x, call) \
+if (trace_info->cframe.use_tracing && tstate->c_profilefunc) { \
+    if (call_trace(tstate->c_profilefunc, tstate->c_profileobj, \
+        tstate, tstate->frame, trace_info, \
+        PyTrace_C_CALL, func)) { \
+        x = NULL; \
+    } \
+    else { \
+        x = call; \
+        if (tstate->c_profilefunc != NULL) { \
+            if (x == NULL) { \
+                call_trace_protected(tstate->c_profilefunc, \
+                    tstate->c_profileobj, \
+                    tstate, tstate->frame, trace_info, \
+                    PyTrace_C_EXCEPTION, func); \
+                /* XXX should pass (type, value, tb) */ \
+            } else { \
+                if (call_trace(tstate->c_profilefunc, \
+                    tstate->c_profileobj, \
+                    tstate, tstate->frame, trace_info, \
+                    PyTrace_C_RETURN, func)) { \
+                    Py_DECREF(x); \
+                    x = NULL; \
+                } \
+            } \
+        } \
+    } \
+} else { \
+    x = call; \
+    }
+#endif
 
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 8
 #ifndef PYSTON_LITE
@@ -7605,6 +8700,9 @@ static
 #endif
 PyObject *
 trace_call_function(PyThreadState *tstate,
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+                    PyTraceInfo* trace_info,
+#endif
                     PyObject *func,
                     PyObject **args, Py_ssize_t nargs,
                     PyObject *kwnames)
@@ -7646,7 +8744,11 @@ trace_call_function(PyThreadState *tstate,
 // already non statically defined inside ceval.c
 #ifdef PYSTON_LITE
 __attribute__((visibility("hidden"))) inline PyObject * _Py_HOT_FUNCTION
-call_function_ceval_fast(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg, PyObject *kwnames)
+call_function_ceval_fast(PyThreadState *tstate,
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+                        PyTraceInfo* trace_info,
+#endif
+                        PyObject ***pp_stack, Py_ssize_t oparg, PyObject *kwnames)
 {
     PyObject** stack_top = *pp_stack;
     PyObject **pfunc = stack_top - oparg - 1;
@@ -7714,12 +8816,19 @@ call_function_ceval_fast(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t
         }
         Py_DECREF(func);
     }
-#else
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     if (__builtin_expect(tstate->use_tracing, 0)) {
         x = trace_call_function(tstate, func, stack, nargs, kwnames);
     }
     else {
         x = _PyObject_Vectorcall(func, stack, nargs | PY_VECTORCALL_ARGUMENTS_OFFSET, kwnames);
+    }
+#else
+    if (__builtin_expect(trace_info->cframe.use_tracing, 0)) {
+        x = trace_call_function(tstate, trace_info, func, stack, nargs, kwnames);
+    }
+    else {
+        x = PyObject_Vectorcall(func, stack, nargs | PY_VECTORCALL_ARGUMENTS_OFFSET, kwnames);
     }
 #endif
 
@@ -7740,6 +8849,7 @@ call_function_ceval_fast(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t
 
     return x;
 }
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 PyObject * _Py_HOT_FUNCTION
 call_function_ceval_no_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg) {
     return call_function_ceval_fast(tstate, &stack, oparg, NULL /*kwnames*/);
@@ -7750,10 +8860,26 @@ call_function_ceval_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg
         __builtin_unreachable();
     return call_function_ceval_fast(tstate, &stack, oparg, kwnames);
 }
+#else
+PyObject * _Py_HOT_FUNCTION
+call_function_ceval_no_kw(PyThreadState *tstate, PyTraceInfo* trace_info, PyObject **stack, Py_ssize_t oparg) {
+    return call_function_ceval_fast(tstate, trace_info, &stack, oparg, NULL /*kwnames*/);
+}
+PyObject * _Py_HOT_FUNCTION
+call_function_ceval_kw(PyThreadState *tstate, PyTraceInfo* trace_info, PyObject **stack, Py_ssize_t oparg, PyObject *kwnames) {
+    if (kwnames == NULL)
+        __builtin_unreachable();
+    return call_function_ceval_fast(tstate, trace_info, &stack, oparg, kwnames);
+}
+#endif
 #endif
 
 /*static*/ PyObject *
-do_call_core(PyThreadState *tstate, PyObject *func, PyObject *callargs, PyObject *kwdict)
+do_call_core(PyThreadState *tstate,
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+             PyTraceInfo* trace_info,
+#endif
+             PyObject *func, PyObject *callargs, PyObject *kwdict)
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 {
     if (PyCFunction_Check(func)) {
@@ -7784,7 +8910,11 @@ do_call_core(PyThreadState *tstate, PyObject *func, PyObject *callargs, PyObject
 
     else if (Py_TYPE(func) == &PyMethodDescr_Type) {
         Py_ssize_t nargs = PyTuple_GET_SIZE(callargs);
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
         if (nargs > 0 && tstate->use_tracing) {
+#else
+        if (nargs > 0 && trace_info->cframe.use_tracing) {
+#endif
             /* We need to create a temporary bound method as argument
                for profiling.
 
@@ -8280,6 +9410,25 @@ format_exc_check_arg(PyThreadState *tstate, PyObject *exc,
         return;
 
     _PyErr_Format(tstate, exc, format_str, obj_str);
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+    if (exc == PyExc_NameError) {
+        // Include the name in the NameError exceptions to offer suggestions later.
+        _Py_IDENTIFIER(name);
+        PyObject *type, *value, *traceback;
+        PyErr_Fetch(&type, &value, &traceback);
+        PyErr_NormalizeException(&type, &value, &traceback);
+        if (PyErr_GivenExceptionMatches(value, PyExc_NameError)) {
+            PyNameErrorObject* exc = (PyNameErrorObject*) value;
+            if (exc->name == NULL) {
+                // We do not care if this fails because we are going to restore the
+                // NameError anyway.
+                (void)_PyObject_SetAttrId(value, &PyId_name, obj);
+            }
+        }
+        PyErr_Restore(type, value, traceback);
+    }
+#endif
 }
 
 /*static*/ void
@@ -8470,7 +9619,11 @@ dtrace_function_entry(PyFrameObject *f)
 
     filename = PyUnicode_AsUTF8(f->f_code->co_filename);
     funcname = PyUnicode_AsUTF8(f->f_code->co_name);
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     lineno = PyCode_Addr2Line(f->f_code, f->f_lasti);
+#else
+    lineno = PyFrame_GetLineNumber(f);
+#endif
 
     PyDTrace_FUNCTION_ENTRY(filename, funcname, lineno);
 }
@@ -8484,11 +9637,16 @@ dtrace_function_return(PyFrameObject *f)
 
     filename = PyUnicode_AsUTF8(f->f_code->co_filename);
     funcname = PyUnicode_AsUTF8(f->f_code->co_name);
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     lineno = PyCode_Addr2Line(f->f_code, f->f_lasti);
+#else
+    lineno = PyFrame_GetLineNumber(f);
+#endif
 
     PyDTrace_FUNCTION_RETURN(filename, funcname, lineno);
 }
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 /* DTrace equivalent of maybe_call_line_trace. */
 static void
 maybe_dtrace_line(PyFrameObject *frame,
@@ -8522,6 +9680,36 @@ maybe_dtrace_line(PyFrameObject *frame,
     }
     *instr_prev = frame->f_lasti;
 }
+#else
+/* DTrace equivalent of maybe_call_line_trace. */
+static void
+maybe_dtrace_line(PyFrameObject *frame,
+                  PyTraceInfo *trace_info, int instr_prev)
+{
+    const char *co_filename, *co_name;
+
+    /* If the last instruction executed isn't in the current
+       instruction window, reset the window.
+    */
+    initialize_trace_info(trace_info, frame);
+    int line = _PyCode_CheckLineNumber(frame->f_lasti*sizeof(_Py_CODEUNIT), &trace_info->bounds);
+    /* If the last instruction falls at the start of a line or if
+       it represents a jump backwards, update the frame's line
+       number and call the trace function. */
+    if (line != frame->f_lineno || frame->f_lasti < instr_prev) {
+        if (line != -1) {
+            frame->f_lineno = line;
+            co_filename = PyUnicode_AsUTF8(frame->f_code->co_filename);
+            if (!co_filename)
+                co_filename = "?";
+            co_name = PyUnicode_AsUTF8(frame->f_code->co_name);
+            if (!co_name)
+                co_name = "?";
+            PyDTrace_LINE(co_filename, co_name, line);
+        }
+    }
+}
+#endif
 
 
 static PyObject *
