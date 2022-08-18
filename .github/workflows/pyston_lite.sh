@@ -20,8 +20,14 @@ else
     sudo add-apt-repository -y ppa:deadsnakes/ppa
     sudo apt-get update
     # deadsnakes packages have slightly different name
-    sudo --preserve-env=DEBIAN_FRONTEND apt-get install -y python${PYTHON_VERSION}-full python${PYTHON_VERSION}-dev python${PYTHON_VERSION}-venv libpython${PYTHON_VERSION}-testsuite
+    sudo --preserve-env=DEBIAN_FRONTEND apt-get install -y python${PYTHON_VERSION}-full python${PYTHON_VERSION}-dev python${PYTHON_VERSION}-venv libpython${PYTHON_VERSION}-testsuite python3-lib2to3 python3-distutils
     sudo python${PYTHON_VERSION} -m ensurepip
+
+    if [ $PYTHON_VERSION == "3.9" ]
+    then
+        # 3.9 does not bundle all files required to run the tests
+        export ADDITIONAL_TESTS_TO_SKIP="test_lib2to3 test_peg_generator"
+    fi
 fi
 
 sudo python${PYTHON_VERSION} -m pip install virtualenv

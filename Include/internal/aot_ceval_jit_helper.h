@@ -125,6 +125,14 @@ PyObject* JIT_HELPER_END_FINALLY37(enum why_code* why);
 void JIT_HELPER_POP_BLOCK37(void);
 #endif
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+JIT_HELPER1(DICT_UPDATE_ERROR, update);
+JIT_HELPER2(DICT_MERGE_ERROR, update, func);
+JIT_HELPER1(LIST_EXTEND_ERROR, iterable);
+JIT_HELPER(WITH_EXCEPT_START);
+int JIT_HELPER_EXC_MATCH(PyObject *left, PyObject *right);
+#endif
+
 #endif
 
 #ifdef __cplusplus
