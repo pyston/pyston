@@ -2390,6 +2390,7 @@ static int emit_special_compare_op(Jit* Dst, int oparg, RefStatus ref_status[2])
     int is_cmp = oparg == PyCmp_IS;
 #else
     // for 3.9 we only call this function from IS_OP which means this but be a IS or IS_NOT comparison.
+    // oparg==0 -> "is", oparg != 0 -> "is not"
     int is_cmp = oparg == 0;
 #endif
     emit_mov_imm2(Dst, res_idx, Py_True, tmp_idx, Py_False);
@@ -4095,9 +4096,12 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
             if (opcode == LIST_TO_TUPLE) {
                 func = PyList_AsTuple;
-            } else
-#endif
+            } else {
+                func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
+            }
+#else
             func = get_aot_func_addr(Dst, opcode, oparg, 0 /*= no op cache */);
+#endif
             emit_call_decref_args1(Dst, func, arg1_idx, &ref_status);
             if (opcode == UNARY_NOT) {
                 emit_convert_res32_to_pybool(Dst, 1 /*= invert*/);
@@ -4541,7 +4545,8 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
                 deferred_vs_push(Dst, REGISTER, res_idx);
             } else if (opcode == CONTAINS_OP) {
                 emit_call_decref_args2(Dst, PySequence_Contains, arg1_idx, arg2_idx, ref_status);
-                emit_convert_res32_to_pybool(Dst, oparg ? 1 : 0 /*=invert*/);
+                int invert = oparg ? 1 : 0; // oparg == 0 -> "in", oparg != 0 -> "not in";
+                emit_convert_res32_to_pybool(Dst, invert /*=invert*/);
                 deferred_vs_push(Dst, REGISTER, res_idx);
             } else if (opcode == IS_OP) {
                 int ret = emit_special_compare_op(Dst, oparg, ref_status);

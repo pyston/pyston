@@ -14,7 +14,7 @@ NOLTO = "NOLTO" in os.environ or sys.platform == "darwin"
 NOPGO = "NOPGO" in os.environ
 BOLTFLAGS = "BOLTFLAGS" in os.environ
 
-if sys.version_info[:2] != (3, 7) and sys.version_info[:2] != (3, 8) and sys.version_info[:2] != (3, 9):
+if not (3, 7) <= sys.version_info[:2] <= (3, 9):
     raise Exception("pyston-lite currently only targets Python 3.7, 3.8 and 3.9")
 
 def check_call(args, **kw):

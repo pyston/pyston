@@ -2064,6 +2064,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
     PyObject **fastlocals, **freevars;
     PyObject *retval = NULL;            /* Return value */
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+    // Pyston change:
     // 3.9 is using ceval2 here everywhere.
     // But to avoid duplciating code we keep ceval and ceval2.
     struct _ceval_state * const ceval = &tstate->interp->ceval;
