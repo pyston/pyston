@@ -36,34 +36,17 @@ extern long loadglobal_hits, loadglobal_misses, loadglobal_uncached, loadglobal_
 #endif
 
 extern int _PyObject_GetMethod(PyObject *, PyObject *, PyObject **);
-PyObject * call_function_ceval(
-    PyThreadState *tstate, PyObject ***pp_stack,
-    Py_ssize_t oparg, PyObject *kwnames);
 PyObject * do_call_core(
     PyThreadState *tstate, PyObject *func,
     PyObject *callargs, PyObject *kwdict);
 
-int call_trace(Py_tracefunc, PyObject *,
-                      PyThreadState *, PyFrameObject *,
-                      int, PyObject *);
-int call_trace_protected(Py_tracefunc, PyObject *,
-                                PyThreadState *, PyFrameObject *,
-                                int, PyObject *);
 void call_exc_trace(Py_tracefunc, PyObject *,
                            PyThreadState *, PyFrameObject *);
-int maybe_call_line_trace(Py_tracefunc, PyObject *,
-                                 PyThreadState *, PyFrameObject *,
-                                 int *, int *, int *);
-void maybe_dtrace_line(PyFrameObject *, int *, int *, int *);
-void dtrace_function_entry(PyFrameObject *);
-void dtrace_function_return(PyFrameObject *);
 
 /*static*/ PyObject * cmp_outcome(PyThreadState *, int, PyObject *, PyObject *);
 int import_all_from(PyThreadState *, PyObject *, PyObject *);
 void format_exc_check_arg(PyThreadState *, PyObject *, const char *, PyObject *);
 void format_exc_unbound(PyThreadState *tstate, PyCodeObject *co, int oparg);
-PyObject * unicode_concatenate(PyThreadState *, PyObject *, PyObject *,
-                                      PyFrameObject *, const _Py_CODEUNIT *);
 PyObject * special_lookup(PyThreadState *, PyObject *, _Py_Identifier *);
 int check_args_iterable(PyThreadState *, PyObject *func, PyObject *vararg);
 void format_kwargs_error(PyThreadState *, PyObject *func, PyObject *kwargs);
