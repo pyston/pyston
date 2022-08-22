@@ -1017,11 +1017,14 @@ static void switch_section(Jit* Dst, Section new_section) {
 // branches to false_branch on inequality else continues
 |.macro type_version_check, r_type_idx, type_ver, false_branch
 ||#ifdef PYSTON_LITE
+||#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 || JIT_ASSERT(Py_TPFLAGS_VALID_VERSION_TAG == (1UL << 19), "need to update these offsets");
 @ARM|| emit_load32_mem(Dst, get_tmp_reg(r_type_idx), r_type_idx, offsetof(PyTypeObject, tp_flags));
 @ARM|  tbz Rw(get_tmp_reg(r_type_idx)), #19, false_branch // Test Bit Zero: jump to false_branch if bit 19 is zero
 @X86|| emit_test8_mem_imm(Dst, r_type_idx, offsetof(PyTypeObject, tp_flags) + 2, 0x08);
 @X86|  branch_eq false_branch
+||#endif
+|| _Static_assert(sizeof(((PyTypeObject*)0)->tp_version_tag) == 4,  "change cmp32");
 || emit_cmp32_mem_imm(Dst, r_type_idx, offsetof(PyTypeObject, tp_version_tag), (unsigned int)type_ver);
 ||#else
 || emit_cmp64_mem_imm(Dst, r_type_idx, offsetof(PyTypeObject, tp_version_tag), (unsigned int)type_ver);
