@@ -6459,7 +6459,10 @@ _PyEval_EvalFrameDefault
                 sizeof(_PyCodeObjectExtra) +
                 (to_allocate - 1) * sizeof(void*));
         if (co_extra == NULL) {
-            return NULL;
+            // have to reset tstate frame handling or we will crash.
+            // CPython 3.10 test_reply.py is checking this by simulating running out of memory
+            retval = NULL;
+            goto exit_eval_frame;
         }
         for (; i < to_allocate; i++) {
             co_extra->ce_extras[i] = NULL;
