@@ -5878,3 +5878,20 @@ void jit_finish() {
     if (perf_map_opcode_map)
         fclose(perf_map_opcode_map);
 }
+
+#if JIT_DEBUG
+// debugging aid which dumps up to num_frames of the python function call stack
+void dump_pycallstack(int num_frames) {
+    PyThreadState *tstate = PyThreadState_GET();
+    PyFrameObject* f = tstate->frame;
+    for (int i=0; i<num_frames; ++i) {
+        if (!f)
+            return;
+        PyCodeObject* co = f->f_code;
+        fprintf(stderr, "fn: %s:%d %s\n", PyUnicode_AsUTF8(co->co_filename), co->co_firstlineno, PyUnicode_AsUTF8(co->co_name));
+        int byte_offset = f->f_lasti * (2/INST_IDX_TO_LASTI_FACTOR);
+        fprintf(stderr, "    opcode byte offset: %d -> line number: %d\n", byte_offset, PyCode_Addr2Line(co, byte_offset));
+        f = f->f_back;
+    }
+}
+#endif
