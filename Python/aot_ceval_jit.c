@@ -1698,6 +1698,24 @@ static void emit_load_freevar(Jit* Dst, int r_idx, int num) {
     emit_load64_mem(Dst, r_idx, f_idx, get_fastlocal_offset(Dst->co->co_nlocals + num));
 }
 
+static void emit_call_eval_frame_handle_pending(Jit* Dst, int preserve_res) {
+    if (preserve_res) {
+        // we have to preserve res because it's used by our deferred stack optimizations
+        | mov tmp_preserved_reg, res
+    }
+    | mov arg1, tstate
+    emit_call_ext_func(Dst, eval_breaker_jit_helper);
+    emit_cmp32_imm(Dst, res_idx, 0);
+
+    if (preserve_res) {
+        // on error we have to decref 'res' (which is now in 'tmp_preserved_reg')
+        | branch_ne ->error_decref_tmp_preserved_reg
+        // no error, restore 'res' and continue executing
+        | mov res, tmp_preserved_reg
+    } else {
+        | branch_ne ->error
+    }
+}
 
 // compares ceval->tracing_possible == 0 and eval_breaker == 0 in one (64bit)
 // Always emits instructions using the same number of bytes.
@@ -4980,21 +4998,11 @@ void* jit_func(PyCodeObject* co, PyThreadState* tstate) {
     }
 
     |->handle_signal_res_in_use:
-    // we have to preserve res because it's used by our deferred stack optimizations
-    | mov tmp_preserved_reg, res
-    | mov arg1, tstate
-    emit_call_ext_func(Dst, eval_breaker_jit_helper);
-    emit_cmp32_imm(Dst, res_idx, 0);
-    // on error we have to decref 'res' (which is now in 'tmp_preserved_reg')
-    | branch_ne ->error_decref_tmp_preserved_reg
-    // no error, restore 'res' and continue executing
-    | mov res, tmp_preserved_reg
+    emit_call_eval_frame_handle_pending(Dst, 1 /*= preserve_res */);
     | branch ->handle_signal_jump_to_inst
 
     |->handle_signal_res_not_in_use:
-    | mov arg1, tstate
-    emit_call_ext_func(Dst, eval_breaker_jit_helper);
-    emit_if_res_32b_not_0_error(Dst);
+    emit_call_eval_frame_handle_pending(Dst, 0 /*= don't preserve_res */);
     // fall through
 
     |->handle_signal_jump_to_inst:
