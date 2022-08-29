@@ -9825,6 +9825,11 @@ PyObject* enable_pyston_lite(PyObject* _m) {
         Py_RETURN_NONE;
     }
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+    void init_condattr_pyston_lite(void);
+    init_condattr_pyston_lite();
+#endif
+
     //fprintf(stderr, "jit initialized\n");
     Py_AtExit(aot_exit);
 

@@ -1,5 +1,6 @@
 import glob
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -26,7 +27,9 @@ def bolt_wheel(wheel):
         so, = sos
         os.rename(so, so + ".prebolt")
 
-        check_call([sys.executable, "-m", "venv", envdir])
+        python_version = re.search("-cp(\d{2,3})-", wheel).group(1)
+        python_exe_name = "python{}.{}".format(python_version[0], python_version[1:])
+        check_call([python_exe_name, "-m", "venv", envdir])
 
         env_python = os.path.join(envdir, "bin/python3")
 
@@ -57,4 +60,4 @@ if __name__ == "__main__":
     for a in args:
         if "none-any" in a:
             continue
-        bolt_wheel(args[0])
+        bolt_wheel(a)
