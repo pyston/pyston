@@ -58,6 +58,6 @@ if __name__ == "__main__":
     args = sys.argv[1:]
 
     for a in args:
-        if "none-any" in a:
+        if "none-any" in a or "pyston_lite-" not in a:
             continue
         bolt_wheel(a)

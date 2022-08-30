@@ -26,7 +26,8 @@ do
 done
 
 for whl in wheelhouse/*.whl; do
-    if [[ $whl != *"none-any"* ]]; then
+    # ignore the pyston_lite_autoload packages - auditwheel errors on them
+    if [[ $whl != *"none-any"* ]] && [[ $whl == *"pyston_lite-"* ]]; then
         auditwheel repair $whl --plat $PLAT -w wheelhouse/
         rm $whl
     fi
