@@ -1411,6 +1411,9 @@ fail:
 
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 #define _Py_TracingPossible(ceval) ((ceval)->tracing_possible)
+#else
+// Pyston change: Python 3.10 does not define this macro but it make us reuse more of the shared code
+#define _Py_TracingPossible(ceval) (trace_info->cframe.use_tracing)
 #endif
 
 #if 0
@@ -2397,9 +2400,11 @@ static inline void setJitCode(PyCodeObject* code, void* jit_code) {
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 static PyObject* _Py_HOT_FUNCTION
 _PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObject** stack_pointer, JitFunc jit_code);
+#define EXECUTE_COMPILED_FUNC() _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)code)
 #else
 static PyObject* _Py_HOT_FUNCTION
 _PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObject** stack_pointer, JitFunc jit_code, PyTraceInfo* trace_info);
+#define EXECUTE_COMPILED_FUNC() _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)code, trace_info)
 #endif
 
 #ifdef PYSTON_LITE
@@ -2906,7 +2911,6 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 
 
 // increments the number of times this loop got ececuted and if the threshold is hit JIT func and do OSR.
-#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 #define HANDLE_JUMP_BACKWARD_OSR() \
     do {  \
         ++opcache->oc_opcache_flag;  \
@@ -2923,8 +2927,8 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
                     (it still points to the JUMP_ABSOLUTE - not the destination of the jump)  \
                      update f->f_lasti manually like DISPATCH() would do because  \
                      we can only enter the machine code at jump targets. */ \
-                    f->f_lasti = INSTR_OFFSET() - INST_IDX_TO_LASTI_FACTOR; /* -2 because our JIT entry is always adding a instruction */ \
-                    return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)code); \
+                    f->f_lasti = INSTR_OFFSET() - INST_IDX_TO_LASTI_FACTOR; /* -INST_IDX_TO_LASTI_FACTOR because our JIT entry is always adding a instruction */ \
+                    return EXECUTE_COMPILED_FUNC(); \
                 } else { \
                     /* never try again to JIT compile this python function */ \
                     setJitCode(co, JIT_FUNC_FAILED); \
@@ -2933,34 +2937,6 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
             } \
         } \
     } while (0)
-#else
-#define HANDLE_JUMP_BACKWARD_OSR() \
-    do {  \
-        ++opcache->oc_opcache_flag;  \
-        OPCACHE_INIT_IF_HIT_THRESHOLD();  \
-        /* check if we should switch over to the JIT (OSR) */  \
-        if (opcache->oc_opcache_flag > jit_min_runs && can_use_jit \
-            && !trace_info->cframe.use_tracing) { /* don't OSR if tracing is enabled because we seem to skip a line */ \
-            void* code = getJitCode(co); \
-            if (code == NULL) { \
-                code = jit_func(co, tstate);  \
-                if (code) {  \
-                    setJitCode(co, code); \
-                    /* JUMPTO() did not update f->f_lasti  \
-                    (it still points to the JUMP_ABSOLUTE - not the destination of the jump)  \
-                     update f->f_lasti manually like DISPATCH() would do because  \
-                     we can only enter the machine code at jump targets. */ \
-                    f->f_lasti = INSTR_OFFSET() - INST_IDX_TO_LASTI_FACTOR; /* -1 because our JIT entry is always adding a instruction */ \
-                    return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)code, trace_info); \
-                } else { \
-                    /* never try again to JIT compile this python function */ \
-                    setJitCode(co, JIT_FUNC_FAILED); \
-                    can_use_jit = 0; \
-                } \
-            } \
-        } \
-    } while (0)
-#endif
 
 /* Start of code */
 #if PROFILE_OPCODES
@@ -2993,12 +2969,7 @@ _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState
 #endif
             if (code) {
                 setJitCode(co, code);
-#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
-                return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)code);
-#else
-                return _PyEval_EvalFrame_AOT_JIT(f, tstate, stack_pointer, (JitFunc)code, trace_info);
-#endif
-
+                return EXECUTE_COMPILED_FUNC();
             } else {
                 // never try again to JIT compile this python function
                 setJitCode(co, JIT_FUNC_FAILED);
