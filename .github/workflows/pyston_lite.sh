@@ -28,6 +28,12 @@ else
         # 3.9 does not bundle all files required to run the tests
         export ADDITIONAL_TESTS_TO_SKIP="test_lib2to3 test_peg_generator"
     fi
+
+    if [ $PYTHON_VERSION == "3.10" ]
+    then
+        # this test is also failing without pyston_lite in the CI
+        export ADDITIONAL_TESTS_TO_SKIP="test_sysconfig"
+    fi
 fi
 
 sudo python${PYTHON_VERSION} -m pip install virtualenv

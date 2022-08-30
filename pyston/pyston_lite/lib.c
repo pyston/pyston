@@ -154,11 +154,16 @@ typedef struct {
     PyObject *md_name;  /* for logging purposes after md_dict is cleared */
 } PyModuleObject;
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 static PyObject*
 module_getgetattr(PyModuleObject* mod) {
     _Py_IDENTIFIER(__getattr__);
     return _PyDict_GetItemId(mod->md_dict, &PyId___getattr__);
 }
+#else
+_Py_IDENTIFIER(__name__);
+_Py_IDENTIFIER(__spec__);
+#endif
 
 PyObject* module_getattro_not_found(PyObject *_m, PyObject *name)
 {
@@ -172,12 +177,14 @@ PyObject* module_getattro_not_found(PyObject *_m, PyObject *name)
     }
 
     if (m->md_dict) {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
         getattr = module_getgetattr(m);
         if (getattr) {
             PyObject* stack[1] = {name};
             return _PyObject_FastCall(getattr, stack, 1);
         }
         _Py_IDENTIFIER(__name__);
+
         mod_name = _PyDict_GetItemId(m->md_dict, &PyId___name__);
         if (mod_name && PyUnicode_Check(mod_name)) {
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
@@ -205,6 +212,44 @@ PyObject* module_getattro_not_found(PyObject *_m, PyObject *name)
 #endif
             return NULL;
         }
+#else
+        _Py_IDENTIFIER(__getattr__);
+        getattr = _PyDict_GetItemIdWithError(m->md_dict, &PyId___getattr__);
+        if (getattr) {
+            return PyObject_CallOneArg(getattr, name);
+        }
+        if (PyErr_Occurred()) {
+            return NULL;
+        }
+        mod_name = _PyDict_GetItemIdWithError(m->md_dict, &PyId___name__);
+        if (mod_name && PyUnicode_Check(mod_name)) {
+            Py_INCREF(mod_name);
+            PyObject *spec = _PyDict_GetItemIdWithError(m->md_dict, &PyId___spec__);
+            if (spec == NULL && PyErr_Occurred()) {
+                Py_DECREF(mod_name);
+                return NULL;
+            }
+            Py_XINCREF(spec);
+            if (_PyModuleSpec_IsInitializing(spec)) {
+                PyErr_Format(PyExc_AttributeError,
+                             "partially initialized "
+                             "module '%U' has no attribute '%U' "
+                             "(most likely due to a circular import)",
+                             mod_name, name);
+            }
+            else {
+                PyErr_Format(PyExc_AttributeError,
+                             "module '%U' has no attribute '%U'",
+                             mod_name, name);
+            }
+            Py_XDECREF(spec);
+            Py_DECREF(mod_name);
+            return NULL;
+        }
+        else if (PyErr_Occurred()) {
+            return NULL;
+        }
+#endif
     }
     PyErr_Format(PyExc_AttributeError,
                 "module has no attribute '%U'", name);
@@ -595,7 +640,11 @@ lookup_method(PyObject *self, _Py_Identifier *attrid, int *unbound)
 {
     PyObject *res = lookup_maybe_method(self, attrid, unbound);
     if (res == NULL && !PyErr_Occurred()) {
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
         PyErr_SetObject(PyExc_AttributeError, attrid->object);
+#else
+        PyErr_SetObject(PyExc_AttributeError, _PyUnicode_FromId(attrid));
+#endif
     }
     return res;
 }
@@ -685,7 +734,11 @@ _PyGen_yf(PyGenObject *gen)
     PyObject *yf = NULL;
     PyFrameObject *f = gen->gi_frame;
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     if (f && f->f_stacktop) {
+#else
+    if (f) {
+#endif
         PyObject *bytecode = f->f_code->co_code;
         unsigned char *code = (unsigned char *)PyBytes_AS_STRING(bytecode);
 
@@ -697,9 +750,16 @@ _PyGen_yf(PyGenObject *gen)
             return NULL;
         }
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
         if (code[f->f_lasti + sizeof(_Py_CODEUNIT)] != YIELD_FROM)
             return NULL;
         yf = f->f_stacktop[-1];
+#else
+        if (code[(f->f_lasti+1)*sizeof(_Py_CODEUNIT)] != YIELD_FROM)
+            return NULL;
+        assert(f->f_stackdepth > 0);
+        yf = f->f_valuestack[f->f_stackdepth-1];
+#endif
         Py_INCREF(yf);
     }
 
@@ -785,10 +845,12 @@ _PyCoro_GetAwaitableIter(PyObject *o)
                  ot->tp_name);
     return NULL;
 }
-typedef struct {
+typedef struct _PyAsyncGenWrappedValue {
     PyObject_HEAD
     PyObject *agw_val;
 } _PyAsyncGenWrappedValue;
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 PyObject *
 _PyAsyncGenValueWrapperNew(PyObject *val)
 {
@@ -816,6 +878,43 @@ _PyAsyncGenValueWrapperNew(PyObject *val)
     _PyObject_GC_TRACK((PyObject*)o);
     return (PyObject*)o;
 }
+#else
+static struct _Py_async_gen_state *
+get_async_gen_state(void)
+{
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    return &interp->async_gen;
+}
+PyObject *
+_PyAsyncGenValueWrapperNew(PyObject *val)
+{
+    _PyAsyncGenWrappedValue *o;
+    assert(val);
+
+    struct _Py_async_gen_state *state = get_async_gen_state();
+#ifdef Py_DEBUG
+    // _PyAsyncGenValueWrapperNew() must not be called after _PyAsyncGen_Fini()
+    assert(state->value_numfree != -1);
+#endif
+    if (state->value_numfree) {
+        state->value_numfree--;
+        o = state->value_freelist[state->value_numfree];
+        assert(_PyAsyncGenWrappedValue_CheckExact(o));
+        _Py_NewReference((PyObject*)o);
+    }
+    else {
+        o = PyObject_GC_New(_PyAsyncGenWrappedValue,
+                            &_PyAsyncGenWrappedValue_Type);
+        if (o == NULL) {
+            return NULL;
+        }
+    }
+    o->agw_val = val;
+    Py_INCREF(val);
+    _PyObject_GC_TRACK((PyObject*)o);
+    return (PyObject*)o;
+}
+#endif
 
 #if defined(CONDATTR_MONOTONIC) || defined(HAVE_SEM_CLOCKWAIT)
 static void
@@ -856,4 +955,25 @@ _PyTuple_FromArray(PyObject *const *src, Py_ssize_t n)
     //tuple_gc_track(tuple);
     return (PyObject *)tuple;
 }
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+void
+PyLineTable_InitAddressRange(const char *linetable, Py_ssize_t length, int firstlineno, PyCodeAddressRange *range)
+{
+    range->opaque.lo_next = linetable;
+    range->opaque.limit = range->opaque.lo_next + length;
+    range->ar_start = -1;
+    range->ar_end = 0;
+    range->opaque.computed_line = firstlineno;
+    range->ar_line = -1;
+}
+int
+_PyCode_InitAddressRange(PyCodeObject* co, PyCodeAddressRange *bounds)
+{
+    const char *linetable = PyBytes_AS_STRING(co->co_linetable);
+    Py_ssize_t length = PyBytes_GET_SIZE(co->co_linetable);
+    PyLineTable_InitAddressRange(linetable, length, co->co_firstlineno, bounds);
+    return bounds->ar_line;
+}
+#endif
 #endif

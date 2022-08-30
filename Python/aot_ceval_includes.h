@@ -26,7 +26,11 @@ extern "C" {
 #include "pycore_pyerrors.h"
 #include "pycore_pylifecycle.h"
 #include "pycore_pystate.h"
+#if PY_MAJOR_VERSION == 3 &&  PY_MINOR_VERSION <= 9
 #include "pycore_tupleobject.h"
+#else
+#include "pycore_tuple.h"
+#endif
 #endif
 
 #include "code.h"
@@ -39,6 +43,28 @@ extern "C" {
 #include "pydtrace.h"
 #include "setobject.h"
 #include "structmember.h"
+
+// In Python <= 3.9 f_lasti and all bytecode jump offsets are always incremented by 2 for every instruction. (Because a instruction is 2 bytes long and the describe the byte offset).
+// In newer versions it's instead the index of the instruction.
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
+#define INST_IDX_TO_LASTI_FACTOR 2
+#else
+#define INST_IDX_TO_LASTI_FACTOR 1
+#endif
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+typedef struct {
+    PyCodeObject *code; // The code object for the bounds. May be NULL.
+    PyCodeAddressRange bounds; // Only valid if code != NULL.
+    CFrame cframe;
+} PyTraceInfo;
+
+// Most opcodes support eval breaker checks but for some it's important that we don't generate them
+#define OPCODE_SUPPORTS_EVAL_CHECK(opcode)  ((opcode) != SETUP_FINALLY && \
+                                            (opcode) != SETUP_WITH && \
+                                            (opcode) != BEFORE_ASYNC_WITH && \
+                                            (opcode) != YIELD_FROM)
+#endif
 
 #ifdef __cplusplus
 }

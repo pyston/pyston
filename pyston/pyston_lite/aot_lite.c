@@ -7,14 +7,23 @@
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
-PyObject* call_function_ceval_no_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg);
+
+PyObject* call_function_ceval_no_kw(PyThreadState *tstate,
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+                                    PyTraceInfo* trace_info,
+#endif
+                                    PyObject **stack, Py_ssize_t oparg);
 
 PyObject *
 trace_call_function(PyThreadState *tstate,
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+                    PyTraceInfo* trace_info,
+#endif
                     PyObject *func,
                     PyObject **args, Py_ssize_t nargs,
                     PyObject *kwnames);
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 static PyFrameObject *free_list = NULL;
 static int numfree = 0;         /* number of frames currently in free_list */
 /* max value for numfree */
@@ -262,6 +271,7 @@ function_code_fastcall(PyCodeObject *co, PyObject *const *args, Py_ssize_t nargs
     }
     return result;
 }
+#endif
 
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
 static PyObject *
@@ -320,7 +330,7 @@ __PyFunction_FastCallKeywords(PyObject *func, PyObject *const *stack,
                                     d, (int)nd, kwdefs,
                                     closure, name, qualname);
 }
-#else
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 inline PyObject *
 _PyFunction_Vectorcall(PyObject *func, PyObject* const* stack,
                        size_t nargsf, PyObject *kwnames)
@@ -385,9 +395,15 @@ _PyFunction_Vectorcall(PyObject *func, PyObject* const* stack,
                                     d, (int)nd, kwdefs,
                                     closure, name, qualname);
 }
+#endif
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 8
 static inline vectorcallfunc
 _PyVectorcall_FunctionFunction(PyObject *callable)
 {
+    // Pyston change:
+    // We will use the inlined function definition from here for Python 3.8 to 3.9 and
+    // just call the CPython original one in newer Python versions.
     return _PyFunction_Vectorcall;
 }
 
@@ -420,12 +436,20 @@ _PyObject_VectorcallFunction(PyThreadState *tstate, PyObject *callable, PyObject
 
 //Py_LOCAL_INLINE(PyObject *) _Py_HOT_FUNCTION
 static PyObject *
-call_functionFunction(PyThreadState *tstate, PyObject ** restrict pp_stack, Py_ssize_t oparg)
+call_functionFunction(PyThreadState *tstate,
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+                      PyTraceInfo* trace_info,
+#endif
+                      PyObject ** restrict pp_stack, Py_ssize_t oparg)
 {
     PyObject* f = pp_stack[-oparg - 1];
     if (unlikely(!(f->ob_type == &PyFunction_Type))) {
         SET_JIT_AOT_FUNC(call_function_ceval_no_kw);
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
         PyObject* ret = call_function_ceval_no_kw(tstate, pp_stack, oparg);
+#else
+        PyObject* ret = call_function_ceval_no_kw(tstate, trace_info, pp_stack, oparg);
+#endif
         return ret;
     }
 
@@ -440,9 +464,16 @@ call_functionFunction(PyThreadState *tstate, PyObject ** restrict pp_stack, Py_s
 
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 7
     x = __PyFunction_FastCallKeywords(func, stack, nargs, kwnames);
-#else
+#elif PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     if (tstate->use_tracing) {
         x = trace_call_function(tstate, func, stack, nargs, kwnames);
+    }
+    else {
+        x = _PyObject_VectorcallFunction(tstate, func, stack, nargs | PY_VECTORCALL_ARGUMENTS_OFFSET, kwnames);
+    }
+#else
+    if (trace_info->cframe.use_tracing) {
+        x = trace_call_function(tstate, trace_info, func, stack, nargs, kwnames);
     }
     else {
         x = _PyObject_VectorcallFunction(tstate, func, stack, nargs | PY_VECTORCALL_ARGUMENTS_OFFSET, kwnames);
@@ -467,13 +498,25 @@ call_functionFunction(PyThreadState *tstate, PyObject ** restrict pp_stack, Py_s
     return x;
 }
 
-PyObject* call_function_ceval_no_kwProfile(PyThreadState * tstate, PyObject ** restrict stack, Py_ssize_t oparg) {
+PyObject* call_function_ceval_no_kwProfile(PyThreadState * tstate,
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
+                                           PyTraceInfo* trace_info,
+#endif
+                                           PyObject ** restrict stack, Py_ssize_t oparg) {
     PyObject* f = *(stack - oparg - 1);
     if (f->ob_type == &PyFunction_Type) {
         SET_JIT_AOT_FUNC(call_functionFunction);
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
         return call_functionFunction(tstate, stack, oparg);
+#else
+        return call_functionFunction(tstate, trace_info, stack, oparg);
+#endif
     }
 
     SET_JIT_AOT_FUNC(call_function_ceval_no_kw);
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
     return call_function_ceval_no_kw(tstate, stack, oparg);
+#else
+    return call_function_ceval_no_kw(tstate, trace_info, stack, oparg);
+#endif
 }
