@@ -36,6 +36,14 @@ class install_with_pth(install):
         if suffix.strip() == self._pth_contents.strip():
             self.install_lib = self.install_libbase
 
+# We want to build a platform specific wheel even though it only contains python code
+# From https://stackoverflow.com/questions/45150304/how-to-force-a-python-wheel-to-be-platform-specific-when-building-it
+class BinaryDistribution(Distribution):
+    """Distribution which always forces a binary package with platform name"""
+    def has_ext_modules(foo):
+        return True
+
+
 long_description = """
 pyston-lite-autoload is a small package that simply imports and enables
 [pyston-lite](https://pypi.org/project/pyston-lite/) on python startup. It is possible
@@ -54,4 +62,5 @@ setup(name="pyston_lite_autoload",
       install_requires=["pyston_lite==" + VERSION],
       long_description=long_description,
       long_description_content_type="text/markdown",
+      distclass=BinaryDistribution,
 )

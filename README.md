@@ -127,3 +127,17 @@ python3 setup.py build
 ```
 
 You can set the `NOBOLT=1` environment variable for setup.py if you'd like to skip building bolt. You can also pass `NOPGO=1` and `NOLTO=1` if you'd like the fastest build times, such as for development.
+
+If you like to build pyston-lite with BOLT (currently only used on x86 Linux) for all supported CPython versions you will need to have python3.7 to python3.10 installed and in your path.
+For Ubuntu this can most easily done by adding the deadsnakes PPA:
+
+```
+sudo add-apt-repository ppa:deadsnakes/ppa
+sudo apt update
+sudo apt-get install python3.7-full python3.8-full python3.9-full python3.10-full
+```
+
+To compile wheels for all supported CPython versions and output them into wheelhouse/ run:
+```
+make package
+```

@@ -916,6 +916,43 @@ _PyAsyncGenValueWrapperNew(PyObject *val)
 }
 #endif
 
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 9
+
+#if defined(HAVE_PTHREAD_CONDATTR_SETCLOCK) && defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
+// monotonic is supported statically.  It doesn't mean it works on runtime.
+#define CONDATTR_MONOTONIC
+#endif
+
+#define MICROSECONDS_TO_TIMESPEC(microseconds, ts) \
+do { \
+    struct timeval tv; \
+    gettimeofday(&tv, NULL); \
+    tv.tv_usec += microseconds % 1000000; \
+    tv.tv_sec += microseconds / 1000000; \
+    tv.tv_sec += tv.tv_usec / 1000000; \
+    tv.tv_usec %= 1000000; \
+    ts.tv_sec = tv.tv_sec; \
+    ts.tv_nsec = tv.tv_usec * 1000; \
+} while(0)
+
+#ifdef CONDATTR_MONOTONIC
+// NULL when pthread_condattr_setclock(CLOCK_MONOTONIC) is not supported.
+static pthread_condattr_t *condattr_monotonic = NULL;
+#endif
+
+// Pyston change:
+//static void init_condattr(void)
+void init_condattr_pyston_lite(void)
+{
+#ifdef CONDATTR_MONOTONIC
+    static pthread_condattr_t ca;
+    pthread_condattr_init(&ca);
+    if (pthread_condattr_setclock(&ca, CLOCK_MONOTONIC) == 0) {
+        condattr_monotonic = &ca;  // Use monotonic clock
+    }
+#endif
+}
+
 #if defined(CONDATTR_MONOTONIC) || defined(HAVE_SEM_CLOCKWAIT)
 static void
 monotonic_abs_timeout(long long us, struct timespec *abs)
@@ -926,12 +963,22 @@ monotonic_abs_timeout(long long us, struct timespec *abs)
     abs->tv_sec  += abs->tv_nsec / 1000000000;
     abs->tv_nsec %= 1000000000;
 }
-#else
-#error "this should be defined"
 #endif
 void _PyThread_cond_after(long long us, struct timespec *abs) {
-    monotonic_abs_timeout(us, abs);
+#ifdef CONDATTR_MONOTONIC
+    if (condattr_monotonic) {
+        monotonic_abs_timeout(us, abs);
+        return;
+    }
+#endif
+
+    struct timespec ts;
+    MICROSECONDS_TO_TIMESPEC(us, ts);
+    *abs = ts;
 }
+
+#endif
+
 PyObject *
 _PyTuple_FromArray(PyObject *const *src, Py_ssize_t n)
 {
