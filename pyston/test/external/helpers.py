@@ -224,6 +224,26 @@ def check_log(log, expected_log):
 
     return True
 
+def has_pyston_lite():
+    try:
+        import pyston_lite
+    except:
+        return False
+    return True
+
+def install_pyston_lite_into(py):
+    path_to_pyston_lite_src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "pyston_lite")
+
+    # speedup compilation
+    env = os.environ.copy()
+    env["NOPGO"] = "1"
+    env["NOLTO"] = "1"
+    env["NOBOLT"] = "1"
+
+    subprocess.run([py, "setup.py", "install"], cwd=path_to_pyston_lite_src, env=env, capture_output=True)
+    subprocess.run([py, "setup.py", "install"], cwd=os.path.join(path_to_pyston_lite_src, "autoload"), capture_output=True)
+
+
 if __name__ == "__main__":
     if sys.argv[1] == "process_log":
         for l in sys.stdin:

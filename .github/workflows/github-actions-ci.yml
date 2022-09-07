@@ -96,7 +96,7 @@ jobs:
       - uses: actions/checkout@v2
       - name: checkout submodules
         run: |
-          git submodule update --init pyston/LuaJIT
+          git submodule update --init pyston/LuaJIT pyston/test/external/*
       - name: build pyston and test
         run: |
           # enable core dumps

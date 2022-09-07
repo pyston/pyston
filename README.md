@@ -74,7 +74,7 @@ sudo apt-get install build-essential git cmake clang libssl-dev libsqlite3-dev l
 
 Extra dependencies for running the test suite:
 ```
-sudo apt-get install libwebp-dev libjpeg-dev python3.8-gdbm python3.8-tk python3.8-dev tk-dev libgdbm-dev libgdbm-compat-dev liblzma-dev libbz2-dev nginx rustc time
+sudo apt-get install libwebp-dev libjpeg-dev python3.8-gdbm python3.8-tk python3.8-dev tk-dev libgdbm-dev libgdbm-compat-dev liblzma-dev libbz2-dev nginx rustc time libffi-dev
 ```
 
 Extra dependencies for producing Pyston debian packages and portable directory release:
