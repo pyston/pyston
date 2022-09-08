@@ -80,8 +80,8 @@ class pyston_build_ext(build_ext):
             # (we could also try to clean things up but that seems more difficult)
             self.force = True
 
-            ext.extra_compile_args = extra_args + ["-fprofile-use"]
-            ext.extra_link_args = extra_link_args + ["-fprofile-use"]
+            ext.extra_compile_args = extra_args + ["-fprofile-use", "-fprofile-correction"]
+            ext.extra_link_args = extra_link_args + ["-fprofile-use", "-fprofile-correction"]
             super(pyston_build_ext, self).build_extension(ext)
 
             ext.extra_compile_args = extra_args
