@@ -70,6 +70,34 @@ test: env/lite.stamp
 	./env/bin/python -c 'import test.support; test.support.check_impl_detail = lambda **kw: False; import test.test_code; test.test_code.test_main()'
 	./env/bin/python -m test -j0 -x test_code test_distutils test_ensurepip test_minidom test_site test_xml_etree test_xml_etree_c test_capi $(ADDITIONAL_TESTS_TO_SKIP)
 
+
+
+VIRTUALENV:=../../build/bootstrap_env/bin/virtualenv
+$(VIRTUALENV):
+	virtualenv -p $(PYTHON) ../../build/bootstrap_env
+	../../build/bootstrap_env/bin/pip install virtualenv
+
+# args: test_suffix test_binary
+define make_test_build
+$(eval
+../test/external/test_%.$(1): ../test/external/test_%.py $(2) | $(VIRTUALENV)
+	OPENSSL_CONF=$(abspath ../test/openssl_dev.cnf) bash -c "set -o pipefail; $(2) -u $$< 2>&1 | tee $$@_"
+	mv $$@_ $$@
+)
+endef
+
+$(call make_test_build,liteexpected,$(shell which $(PYTHON)))
+.PRECIOUS: ../test/external/test_%.liteexpected ../test/external/test_%.liteoutput
+$(call make_test_build,liteoutput,env/bin/python)
+
+.PHONY: test_%
+test_%: ../test/external/test_%.liteexpected ../test/external/test_%.liteoutput
+	$(PYTHON) ../test/external/helpers.py compare $< $(patsubst %.liteexpected,%.liteoutput,$<)
+
+EXTERNAL_TESTSUITES:=django urllib3 setuptools six requests sqlalchemy pandas numpy
+testsuites: env/lite.stamp $(patsubst %,test_%,$(EXTERNAL_TESTSUITES))
+
+
 ENV:=
 BENCH:=../macrobenchmarks/benchmarks/bm_flaskblogging/run_benchmark.py --legacy
 

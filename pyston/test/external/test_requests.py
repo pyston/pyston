@@ -1,3 +1,4 @@
+import helpers
 import os
 import subprocess
 import sys
@@ -18,6 +19,9 @@ if __name__ == "__main__":
         subprocess.check_call([rel("../../../build/bootstrap_env/bin/virtualenv"), "-p", sys.executable, env_dir])
 
         subprocess.check_call([os.path.join(env_dir, "bin/pip"), "install", "-r", rel("requests_requirements.txt")])
+
+        if helpers.has_pyston_lite():
+            helpers.install_pyston_lite_into(os.path.join(env_dir, "bin/python3"))
 
         # requests has some nondeterministic output
         r = subprocess.call([os.path.join(env_dir, "bin/python"), "-u", "setup.py", "test"], cwd=rel("requests"))

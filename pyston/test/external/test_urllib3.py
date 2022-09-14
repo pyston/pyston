@@ -1,3 +1,4 @@
+import helpers
 import os
 import subprocess
 import sys
@@ -31,6 +32,9 @@ if __name__ == "__main__":
         # So just make it think we have a second virtualenv setup to ignore:
         print("created virtual environment (step 2)")
         subprocess.check_call([os.path.join(env_dir, "bin/pip"), "install", "-e", rel("urllib3"), "--use-feature=2020-resolver"])
+
+        if helpers.has_pyston_lite():
+            helpers.install_pyston_lite_into(os.path.join(env_dir, "bin/python3"))
 
         # urllib3 testsuite has some flaky tests, which generate nondeterministic
         # log lines and warnings.  Usually this is the right hash and expected results,

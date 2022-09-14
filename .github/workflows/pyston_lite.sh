@@ -21,7 +21,7 @@ else
     sudo apt-get update
     # deadsnakes packages have slightly different name
     sudo --preserve-env=DEBIAN_FRONTEND apt-get install -y python${PYTHON_VERSION}-full python${PYTHON_VERSION}-dev python${PYTHON_VERSION}-venv libpython${PYTHON_VERSION}-testsuite python3-lib2to3 python3-distutils
-    sudo python${PYTHON_VERSION} -m ensurepip
+    sudo python${PYTHON_VERSION} -m ensurepip --upgrade
 
     if [ $PYTHON_VERSION == "3.9" ]
     then
@@ -38,6 +38,8 @@ fi
 
 sudo python${PYTHON_VERSION} -m pip install virtualenv
 
+sudo --preserve-env=DEBIAN_FRONTEND apt-get install -y libssl-dev libsqlite3-dev zlib1g-dev libwebp-dev libjpeg-dev python${PYTHON_VERSION}-gdbm python${PYTHON_VERSION}-tk tk-dev libgdbm-dev libgdbm-compat-dev liblzma-dev libbz2-dev nginx rustc time libffi-dev
+
 sudo chown -R `whoami` /pyston_dir
 
 cd /pyston_dir/pyston/pyston_lite
@@ -47,3 +49,8 @@ if [ -z ${NOBOLT+x} ]; then
 fi
 
 PYTHON=python${PYTHON_VERSION} make test -j$(nproc)
+
+# run external testsuites on amd64
+if [ `uname -m` == x86_64 ]; then
+    PYTHON=python${PYTHON_VERSION} make testsuites -j$(nproc)
+fi

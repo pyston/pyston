@@ -1,3 +1,4 @@
+import helpers
 import os
 import shutil
 import subprocess
@@ -22,6 +23,9 @@ if __name__ == "__main__":
         subprocess.check_call([rel("../../../build/bootstrap_env/bin/virtualenv"), "-p", sys.executable, env_dir])
 
         subprocess.check_call([os.path.join(env_dir, "bin/pip"), "install", "pytest", "tox"])
+
+        if helpers.has_pyston_lite():
+            helpers.install_pyston_lite_into(os.path.join(env_dir, "bin/python3"))
 
         # r = subprocess.call([os.path.join(env_dir, "bin/pytest"), "--db", "sqlite"], cwd=rel("sqlalchemy"))
         env = dict(os.environ)

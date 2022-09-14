@@ -1,3 +1,4 @@
+import helpers
 import os
 import shutil
 import subprocess
@@ -5,8 +6,8 @@ import sys
 import sysconfig
 import tempfile
 
-
-if __name__ == "__main__":
+# test requires Python >= 3.8
+if __name__ == "__main__" and sys.version_info[:2] >= (3, 8):
     with tempfile.TemporaryDirectory() as tempdir:
         # Pandas has some tests that look flaky and are marked xfail
         print("PYSTONTEST: no-log-check")
@@ -32,6 +33,9 @@ if __name__ == "__main__":
         # pip uninstall pandas
         # pip freeze
         subprocess.check_call([os.path.join(env_dir, "bin/pip"), "install", "-r", rel("pandas_requirements.txt")])
+
+        if helpers.has_pyston_lite():
+            helpers.install_pyston_lite_into(os.path.join(env_dir, "bin/python3"))
 
         subprocess.check_call([os.path.join(env_dir, "bin/python"), "setup.py", "develop"], cwd=pandas_dir)
 

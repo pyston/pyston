@@ -1,3 +1,4 @@
+import helpers
 import os
 import shutil
 import subprocess
@@ -34,6 +35,9 @@ if __name__ == "__main__":
             f.write("gitdir: %s" % os.path.abspath(rel("../../../.git/modules/pyston/test/external/numpy")))
 
         subprocess.check_call([os.path.join(env_dir, "bin/pip"), "install", "-r", rel("numpy/test_requirements.txt")])
+
+        if helpers.has_pyston_lite():
+            helpers.install_pyston_lite_into(os.path.join(env_dir, "bin/python3"))
 
         libdir = "python" + sysconfig.get_config_var("VERSION")
 

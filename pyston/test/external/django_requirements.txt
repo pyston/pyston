@@ -3,7 +3,7 @@ argon2-cffi==21.1.0
 asgiref==3.4.1
 async-timeout==3.0.1
 attrs==21.2.0
-backports.zoneinfo==0.2.1
+backports.zoneinfo==0.2.1;python_version<"3.9"
 bcrypt==3.2.0
 certifi==2021.5.30
 cffi==1.14.6

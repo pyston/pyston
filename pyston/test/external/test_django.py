@@ -1,3 +1,4 @@
+import helpers
 import os
 import subprocess
 import sys
@@ -10,7 +11,8 @@ django_requirements.txt:
 - I froze the dependencies with pip freeze
 """
 
-if __name__ == "__main__":
+# test requires Python >= 3.8
+if __name__ == "__main__" and sys.version_info[:2] >= (3, 8):
     with tempfile.TemporaryDirectory() as tempdir:
         print("PYSTONTEST: on-failure-print If you see a WebP failure, you might have to install libwebp-dev, delete the cached pillow wheel, and try again")
 
@@ -27,6 +29,9 @@ if __name__ == "__main__":
         # So just make it think we have a second virtualenv setup to ignore:
         print("created virtual environment (step 2)")
         subprocess.check_call([os.path.join(env_dir, "bin/pip"), "install", "-r", rel("django_requirements.txt")])
+
+        if helpers.has_pyston_lite():
+            helpers.install_pyston_lite_into(os.path.join(env_dir, "bin/python3"))
 
         r = subprocess.call([os.path.join(env_dir, "bin/python3"), "-u", rel("django/tests/runtests.py"), "--parallel", "1"], cwd=tempdir)
         assert r in (0, 1), r
