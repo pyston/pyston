@@ -3,54 +3,44 @@ name: Build pyston_lite wheels
 on: [workflow_dispatch]
 
 jobs:
-  build_pyston_lite_wheels:
-    name: Build wheels on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        # we use 'make package_jit' on linux
-        #os: [ubuntu-20.04, macos-11]
-        os: [macos-11]
-
+  build_pyston_lite_wheels_macos:
+    name: Building wheels on MacOS
+    runs-on: macos-11
     steps:
       - uses: actions/checkout@v2
       - name: checkout submodules
         run: |
           git submodule update --init pyston/LuaJIT
 
-      - name: checkout BOLT
-        if: ${{ startsWith(matrix.os, 'ubuntu') }}
-        run: |
-          git submodule update --init pyston/bolt
-          # we can't build BOLT here because it must be build inside the docker or we will see some shared library error.
-
       - name: install macOS dependencies
-        if: ${{ startsWith(matrix.os, 'macos') }}
         run: |
-          curl https://www.python.org/ftp/python/3.8.10/python-3.8.10-macosx10.9.pkg -o python.pkg
-          sudo installer -pkg python.pkg -target /
-
           brew install luajit-openresty gcc@11
           ln -s /usr/local/opt/luajit-openresty/bin/luajit /usr/local/bin/
           echo "CC=gcc-11" >> $GITHUB_ENV
 
-      - name: create pyston_lite_autoload wheel
-        working-directory: pyston/pyston_lite
-        run: |
-          make build_autoload_sdist
-          mkdir wheelhouse/
-          cp autoload/dist/pyston_lite_autoload* wheelhouse/
+      - name: Build pyston_lite_autoload wheels
+        uses: pypa/cibuildwheel@v2.10.0
+        with:
+          package-dir: pyston/pyston_lite/autoload
+        env:
+          CIBW_BUILD: cp37-* cp38-* cp39-* cp310-*
+          CIBW_SKIP: "*_i686 *musllinux*"
+          CIBW_BUILD_VERBOSITY: 2
+          # pyston does not work on macos before 11 (e.g. 10.15).
+          # If we specify 11 here default pip version says it's not compatible, in order to workaround it
+          # we specify 10.16 which does not really exist because it got renamed to 11.
+          CIBW_ENVIRONMENT: MACOSX_DEPLOYMENT_TARGET=10.16
 
-      - name: Build wheels
-        uses: pypa/cibuildwheel@v2.6.0
+      - name: Build pyston_lite wheels
+        uses: pypa/cibuildwheel@v2.10.0
         with:
           package-dir: pyston/pyston_lite
         env:
-          CIBW_BUILD: cp38-*
+          CIBW_BUILD: cp37-* cp38-* cp39-* cp310-*
           CIBW_SKIP: "*_i686 *musllinux*"
           CIBW_BUILD_VERBOSITY: 2
           CIBW_BEFORE_ALL_LINUX: yum install -y luajit; make bolt -j`nproc`
-          CIBW_TEST_COMMAND: pip install {package}/wheelhouse/pyston_lite_autoload*.tar.gz && python -m test -j0 -x test_code test_distutils test_ensurepip test_minidom test_site test_xml_etree test_xml_etree_c test_capi test_bdb test_c_locale_coercion test_ctypes test_importlib test_ssl test_sysconfig
+          CIBW_TEST_COMMAND: pip install pyston_lite_autoload --no-index --find-links file://${GITHUB_WORKSPACE}/wheelhouse/ && python -m test -j0 -x test_code test_distutils test_ensurepip test_minidom test_site test_xml_etree test_xml_etree_c test_capi test_bdb test_c_locale_coercion test_ctypes test_importlib test_ssl test_sysconfig test_platform test___all__ test_sundry test_sys
           # pyston does not work on macos before 11 (e.g. 10.15).
           # If we specify 11 here default pip version says it's not compatible, in order to workaround it
           # we specify 10.16 which does not really exist because it got renamed to 11.
@@ -59,3 +49,31 @@ jobs:
       - uses: actions/upload-artifact@v2
         with:
           path: ./wheelhouse/
+
+  build_pyston_lite_wheels_linux:
+    name: Building wheels on Linux
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+      - name: checkout submodules
+        run: |
+          git submodule update --init pyston/LuaJIT pyston/bolt
+
+      - name: build BOLT
+        run: |
+          make bolt -j`nproc`
+
+      - name: install Python versions
+        run: |
+          sudo add-apt-repository -y ppa:deadsnakes/ppa
+          sudo apt update
+          sudo apt-get install -y python3.*-full
+
+      - name: Build wheels
+        run: |
+          cd pyston/pyston_lite
+          make package
+
+      - uses: actions/upload-artifact@v2
+        with:
+          path: ./pyston/pyston_lite/wheelhouse/
