@@ -6,6 +6,8 @@ import subprocess
 import sys
 import tempfile
 
+NAME = os.environ.get("PYSTON_LITE_NAME", "pyston_lite")
+
 def check_call(args, **kw):
     print("check_call", " ".join([repr(a) for a in args]), kw)
     return subprocess.check_call(args, **kw)
@@ -35,7 +37,7 @@ def bolt_wheel(wheel):
 
         site_packages = check_output([env_python, "-c", "import site; print(site.getsitepackages()[0])"]).decode("utf8").strip()
 
-        shutil.copy(os.path.join(os.path.dirname(__file__), "autoload/pyston_lite_autoload.pth"), site_packages)
+        shutil.copy(os.path.join(os.path.dirname(__file__), "autoload/%s_autoload.pth" % NAME), site_packages)
 
         # ext_name = self.get_ext_fullpath(ext.name)
         # os.rename(ext_name, ext_name + ".prebolt")
@@ -58,6 +60,6 @@ if __name__ == "__main__":
     args = sys.argv[1:]
 
     for a in args:
-        if "none-any" in a or "pyston_lite-" not in a:
+        if "none-any" in a or "%s-" % NAME not in a:
             continue
         bolt_wheel(a)
