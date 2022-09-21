@@ -18,37 +18,14 @@ jobs:
           ln -s /usr/local/opt/luajit-openresty/bin/luajit /usr/local/bin/
           echo "CC=gcc-11" >> $GITHUB_ENV
 
-      - name: Build pyston_lite_autoload wheels
-        uses: pypa/cibuildwheel@v2.10.0
-        with:
-          package-dir: pyston/pyston_lite/autoload
-        env:
-          CIBW_BUILD: cp37-* cp38-* cp39-* cp310-*
-          CIBW_SKIP: "*_i686 *musllinux*"
-          CIBW_BUILD_VERBOSITY: 2
-          # pyston does not work on macos before 11 (e.g. 10.15).
-          # If we specify 11 here default pip version says it's not compatible, in order to workaround it
-          # we specify 10.16 which does not really exist because it got renamed to 11.
-          CIBW_ENVIRONMENT: MACOSX_DEPLOYMENT_TARGET=10.16
-
-      - name: Build pyston_lite wheels
-        uses: pypa/cibuildwheel@v2.10.0
-        with:
-          package-dir: pyston/pyston_lite
-        env:
-          CIBW_BUILD: cp37-* cp38-* cp39-* cp310-*
-          CIBW_SKIP: "*_i686 *musllinux*"
-          CIBW_BUILD_VERBOSITY: 2
-          CIBW_BEFORE_ALL_LINUX: yum install -y luajit; make bolt -j`nproc`
-          CIBW_TEST_COMMAND: pip install pyston_lite_autoload --no-index --find-links file://${GITHUB_WORKSPACE}/wheelhouse/ && python -m test -j0 -x test_code test_distutils test_ensurepip test_minidom test_site test_xml_etree test_xml_etree_c test_capi test_bdb test_c_locale_coercion test_ctypes test_importlib test_ssl test_sysconfig test_platform test___all__ test_sundry test_sys
-          # pyston does not work on macos before 11 (e.g. 10.15).
-          # If we specify 11 here default pip version says it's not compatible, in order to workaround it
-          # we specify 10.16 which does not really exist because it got renamed to 11.
-          CIBW_ENVIRONMENT: MACOSX_DEPLOYMENT_TARGET=10.16
+      - name: Build wheels
+        run: |
+          cd pyston/pyston_lite
+          make package
 
       - uses: actions/upload-artifact@v2
         with:
-          path: ./wheelhouse/
+          path: ./pyston/pyston_lite/wheelhouse/
 
   build_pyston_lite_wheels_linux:
     name: Building wheels on Linux

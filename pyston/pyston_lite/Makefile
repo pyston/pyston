@@ -11,11 +11,18 @@ ifeq ($(ARCH),x86_64)
 	BOLT_CMD:=python3 bolt_wheel.py wheelhouse/*.whl
 endif
 
+ifeq ($(shell uname), Darwin)
+build_wheels:
+	git clean -x -i -d -f .
+	bash -c 'if [ -d wheelhouse ]; then sudo rm -rf wheelhouse ; fi'
+	./build_wheels_macos.sh
+else
 build_wheels:
 	git clean -x -i -d -f .
 	bash -c 'if [ -d wheelhouse ]; then sudo rm -rf wheelhouse ; fi'
 	docker run -e NOBOLT=1 $(BOLT_DOCKERFLAGS) -e PLAT=manylinux2014_$(ARCH) -v `pwd`/../../:/io quay.io/pypa/manylinux2014_$(ARCH) bash -c "bash /io/pyston/pyston_lite/build_wheels.sh && chown -R $(shell id -u):$(shell id -g) /io/pyston/pyston_lite/"
 	$(BOLT_CMD)
+endif
 
 upload_wheels: env
 	env/bin/pip install twine
