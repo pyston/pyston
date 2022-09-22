@@ -21,7 +21,8 @@ jobs:
       - name: Build wheels
         run: |
           cd pyston/pyston_lite
-          make package
+          PYSTON_LITE_NAME=pyston_lite make build_wheels_noclean
+          PYSTON_LITE_NAME=pyston      make build_wheels_noclean
 
       - uses: actions/upload-artifact@v2
         with:
@@ -49,7 +50,8 @@ jobs:
       - name: Build wheels
         run: |
           cd pyston/pyston_lite
-          make package
+          PYSTON_LITE_NAME=pyston_lite make build_wheels_noclean
+          PYSTON_LITE_NAME=pyston      make build_wheels_noclean
 
       - uses: actions/upload-artifact@v2
         with:

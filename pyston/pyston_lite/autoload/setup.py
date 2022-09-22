@@ -4,6 +4,8 @@ from distutils import sysconfig
 import os
 import sys
 
+NAME = os.environ.get("PYSTON_LITE_NAME", "pyston_lite")
+
 # From https://github.com/pypa/setuptools/blob/780cae233b51aa6b93b25e35538f496480bae537/setup.py
 class install_with_pth(install):
     """
@@ -16,8 +18,8 @@ class install_with_pth(install):
     Please do not replicate this behavior.
     """
 
-    _pth_name = 'pyston_lite_autoload'
-    _pth_contents = '''import os, sys; exec("""("DISABLE_PYSTON" not in os.environ) and __import__("pyston_lite").enable()""")'''
+    _pth_name = '%s_autoload' % NAME
+    _pth_contents = '''import os, sys; exec("""("DISABLE_PYSTON" not in os.environ) and __import__("%s").enable()""")''' % NAME
 
     def initialize_options(self):
         install.initialize_options(self)
@@ -45,21 +47,21 @@ class BinaryDistribution(Distribution):
 
 
 long_description = """
-pyston-lite-autoload is a small package that simply imports and enables
-[pyston-lite](https://pypi.org/project/pyston-lite/) on python startup. It is possible
-to use pyston-lite without this autoload package, but it is generally
+%s_autoload is a small package that simply imports and enables
+[%s](https://pypi.org/project/%s/) on python startup. It is possible
+to use %s without this autoload package, but it is generally
 recommended to install the autoloader to automatically get the performance
 benefits
-""".strip()
+""".strip() % (NAME, NAME, NAME, NAME)
 
 VERSION = "2.3.4.2"
-setup(name="pyston_lite_autoload",
+setup(name="%s_autoload" % NAME,
       cmdclass={"install": install_with_pth},
       version=VERSION,
-      description="Automatically loads and enables pyston_lite",
+      description="Automatically loads and enables %s" % NAME,
       author="The Pyston Team",
       url="https://www.github.com/pyston/pyston",
-      install_requires=["pyston_lite==" + VERSION],
+      install_requires=["%s==%s" % (NAME, VERSION)],
       long_description=long_description,
       long_description_content_type="text/markdown",
       distclass=BinaryDistribution,

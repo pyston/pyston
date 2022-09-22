@@ -9889,6 +9889,16 @@ static PyMethodDef PystonLiteMethods[] = {
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
+static void common_setup() {
+    // We want to get access to the static function slot_tp_getattr_hook
+    // We can find it on any Python class that has a __getattr__ function, so I
+    // picked one from the os module since that should be loaded.
+    PyObject *os = PyImport_ImportModule("os");
+    PyObject *wrap_close = PyDict_GetItemString(PyModule_GetDict(os), "_wrap_close");
+    slot_tp_getattr_hook_value = ((PyTypeObject*)wrap_close)->tp_getattro;
+    Py_DECREF(os);
+}
+
 static struct PyModuleDef pystonlitemodule = {
     PyModuleDef_HEAD_INIT,
     "pyston_lite",
@@ -9900,16 +9910,28 @@ static struct PyModuleDef pystonlitemodule = {
 PyMODINIT_FUNC PyInit_pyston_lite(void) {
     PyObject* m = PyModule_Create(&pystonlitemodule);
     if (!m) return NULL;
-
     module_getattro_value = m->ob_type->tp_getattro;
 
-    // We want to get access to the static function slot_tp_getattr_hook
-    // We can find it on any Python class that has a __getattr__ function, so I
-    // picked one from the os module since that should be loaded.
-    PyObject *os = PyImport_ImportModule("os");
-    PyObject *wrap_close = PyDict_GetItemString(PyModule_GetDict(os), "_wrap_close");
-    slot_tp_getattr_hook_value = ((PyTypeObject*)wrap_close)->tp_getattro;
-    Py_DECREF(os);
+    common_setup();
+
+    return m;
+}
+
+// Compile in support for this module either being called pyston or pyston_lite:
+static struct PyModuleDef pystonmodule = {
+    PyModuleDef_HEAD_INIT,
+    "pyston",
+    NULL,
+    -1,
+    PystonLiteMethods
+};
+
+PyMODINIT_FUNC PyInit_pyston(void) {
+    PyObject* m = PyModule_Create(&pystonmodule);
+    if (!m) return NULL;
+    module_getattro_value = m->ob_type->tp_getattro;
+
+    common_setup();
 
     return m;
 }

@@ -14,8 +14,10 @@ NOLTO = "NOLTO" in os.environ or sys.platform == "darwin"
 NOPGO = "NOPGO" in os.environ
 BOLTFLAGS = "BOLTFLAGS" in os.environ
 
+NAME = os.environ.get("PYSTON_LITE_NAME", "pyston_lite")
+
 if not (3, 7) <= sys.version_info[:2] <= (3, 10):
-    raise Exception("pyston-lite currently only targets Python 3.7, 3.8, 3.9 and 3.10")
+    raise Exception("%s currently only targets Python 3.7, 3.8, 3.9 and 3.10" % NAME)
 
 def check_call(args, **kw):
     print("check_call", " ".join([repr(a) for a in args]), kw)
@@ -64,9 +66,9 @@ class pyston_build_ext(build_ext):
 
                 site_packages = subprocess.check_output([env_python, "-c", "import site; print(site.getsitepackages()[0])"]).decode("utf8").strip()
                 shutil.copy(self.get_ext_fullpath(ext.name), site_packages)
-                shutil.copy(os.path.join(os.path.dirname(__file__), "autoload/pyston_lite_autoload.pth"), site_packages)
+                shutil.copy(os.path.join(os.path.dirname(__file__), "autoload/%s_autoload.pth" % NAME), site_packages)
 
-                check_call([env_python, "-c", "import sys; assert 'pyston_lite' in sys.modules"])
+                check_call([env_python, "-c", "import sys; assert '%s' in sys.modules" % NAME])
 
                 parallel = "-j0"
                 if subprocess.check_output(["uname", "-m"]).decode("utf8").strip() == "aarch64":
@@ -97,7 +99,7 @@ class pyston_build_ext(build_ext):
 
                 site_packages = check_output([env_python, "-c", "import site; print(site.getsitepackages()[0])"]).decode("utf8").strip()
 
-                shutil.copy(os.path.join(os.path.dirname(__file__), "autoload/pyston_lite_autoload.pth"), site_packages)
+                shutil.copy(os.path.join(os.path.dirname(__file__), "autoload/%s_autoload.pth" % NAME), site_packages)
 
                 ext_name = self.get_ext_fullpath(ext.name)
                 os.rename(ext_name, ext_name + ".prebolt")
@@ -139,7 +141,7 @@ def get_ldflags():
     return flags
 
 ext = Extension(
-        "pyston_lite",
+        NAME,
         sources=["aot_ceval.c", "aot_ceval_jit.gen.c", "aot_ceval_jit_helper.c", "lib.c", "aot_lite.c"],
         include_dirs=["../../pyston/LuaJIT", os.path.join(sysconfig.get_python_inc(), "internal")],
         define_macros=[("PYSTON_LITE", None), ("PYSTON_SPEEDUPS", "1"), ("Py_BUILD_CORE", None), ("ENABLE_AOT", None), ("NO_DKVERSION", None)],
@@ -148,14 +150,14 @@ ext = Extension(
 )
 
 long_description = """
-pyston-lite is the JIT part of [Pyston](https://github.com/pyston/pyston),
-a faster implementation of Python. pyston-lite does not contain all of the
+This is the package for Pyston "lite",  the JIT part of [Pyston](https://github.com/pyston/pyston),
+a faster implementation of Python. Pyston lite does not contain all of the
 optimizations of full Pyston, but it is still 10-25% faster on many workloads.
 
-pyston-lite is currently only available for Python 3.8
+Pyston lite is currently only available for Python 3.7-3.10
 """.strip()
 
-setup(name="pyston_lite",
+setup(name=NAME,
       cmdclass={"build_ext":pyston_build_ext},
       version="2.3.4.2",
       description="A JIT for Python",
