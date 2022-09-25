@@ -54,7 +54,7 @@ recommended to install the autoloader to automatically get the performance
 benefits
 """.strip() % (NAME, NAME, NAME, NAME)
 
-VERSION = "2.3.4.2"
+VERSION = "2.3.5"
 setup(name="%s_autoload" % NAME,
       cmdclass={"install": install_with_pth},
       version=VERSION,

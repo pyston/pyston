@@ -1,3 +1,8 @@
+pyston (2.3.5) unstable; urgency=medium
+
+  * Performance improvements and bugfixes
+
+ -- Marius Wachtler <undingen@gmail.com>  Sun, 25 Sep 2022 20:56:33 +0200
 pyston (2.3.4) unstable; urgency=medium
 
   * Performance improvements and bugfixes

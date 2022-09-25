@@ -3,7 +3,7 @@
 # constructor --output-dir release/conda_pkgs pyston/conda/installer
 
 name: PystonConda
-version: 2.3.4
+version: 2.3.5
 
 channels:
   - pyston
