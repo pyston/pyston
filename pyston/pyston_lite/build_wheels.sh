@@ -26,9 +26,13 @@ do
 done
 
 for whl in wheelhouse/*.whl; do
-    # ignore the pyston_lite_autoload packages - auditwheel errors on them
-    if [[ $whl != *"none-any"* ]] && [[ $whl == *"pyston_lite-"* ]]; then
+    # ignore the autoload packages - auditwheel errors on them
+    if [[ $whl != *"autoload"* ]] && [[ $whl == *"-linux_"* ]]; then
         auditwheel repair $whl --plat $PLAT -w wheelhouse/
         rm $whl
+    elif [[ $whl == *"-linux_"* ]]; then
+        # auditwheel refuses to repair the autoload packages since they
+        # don't have any binary files. So just manually rename them.
+        mv $whl $(echo $whl | sed "s/linux/manylinux2014/")
     fi
 done
