@@ -159,7 +159,7 @@ Pyston lite is currently only available for Python 3.7-3.10
 
 setup(name=NAME,
       cmdclass={"build_ext":pyston_build_ext},
-      version="2.3.4.2",
+      version="2.3.5",
       description="A JIT for Python",
       author="The Pyston Team",
       url="https://www.github.com/pyston/pyston",

@@ -1,5 +1,5 @@
-{% set build_num = 3 %} # caution: only reset when python_version changes
-{% set pyston_version = "2.3.4" %}
+{% set build_num = 4 %} # caution: only reset when python_version changes
+{% set pyston_version = "2.3.5" %}
 {% set python_version = "3.8.12" %}
 {% set pyston_version2 = ".".join(pyston_version.split(".")[:2]) %}
 {% set python_version2 = ".".join(python_version.split(".")[:2]) %}

@@ -2,7 +2,7 @@
 
 set -eu
 
-VERSION=2.3.4
+VERSION=2.3.5
 SRC_DIR=`git rev-parse --show-toplevel`
 OUTPUT_DIR=${PWD}/release/${VERSION}
 ARCH=`dpkg --print-architecture`
