@@ -31,6 +31,9 @@ jobs:
   build_pyston_lite_wheels_linux:
     name: Building wheels on Linux
     runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        policy: [musllinux_1_1, manylinux2014]
     steps:
       - uses: actions/checkout@v2
       - name: checkout submodules
@@ -52,6 +55,8 @@ jobs:
           cd pyston/pyston_lite
           PYSTON_LITE_NAME=pyston_lite make build_wheels_noclean
           PYSTON_LITE_NAME=pyston      make build_wheels_noclean
+        env:
+          POLICY=${{ matrix.policy }}
 
       - uses: actions/upload-artifact@v2
         with:
