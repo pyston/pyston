@@ -56,7 +56,7 @@ jobs:
           PYSTON_LITE_NAME=pyston_lite make build_wheels_noclean
           PYSTON_LITE_NAME=pyston      make build_wheels_noclean
         env:
-          POLICY=${{ matrix.policy }}
+          POLICY: ${{ matrix.policy }}
 
       - uses: actions/upload-artifact@v2
         with:
