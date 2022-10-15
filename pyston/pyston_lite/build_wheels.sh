@@ -37,6 +37,6 @@ for whl in wheelhouse/*.whl; do
     elif [[ $whl == *"-linux_"* ]]; then
         # auditwheel refuses to repair the autoload packages since they
         # don't have any binary files. So just manually rename them.
-        mv $whl $(echo $whl | sed "s/linux/${$POLICY}/")
+        mv $whl $(echo $whl | sed "s/linux/${POLICY}/")
     fi
 done
