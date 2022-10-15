@@ -21,7 +21,7 @@ build_wheels_noclean:
 	./build_wheels_macos.sh
 else
 build_wheels_noclean:
-	docker run -e PYSTON_LITE_NAME -e NOBOLT=1 $(BOLT_DOCKERFLAGS) -e PLAT=$(POLICY)_$(ARCH) \
+	docker run -e PYSTON_LITE_NAME -e NOBOLT=1 $(BOLT_DOCKERFLAGS) -e PLAT=$(POLICY)_$(ARCH) -e POLICY \
 		-v `pwd`/../../:/io quay.io/pypa/$(POLICY)_$(ARCH) \
 		bash -c "bash /io/pyston/pyston_lite/build_wheels.sh && chown -R $(shell id -u):$(shell id -g) /io/pyston/pyston_lite/"
 	$(BOLT_CMD)
