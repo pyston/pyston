@@ -1,5 +1,5 @@
 name: GitHub Actions CI
-on: [push, pull_request]
+on: [workflow_dispatch]
 jobs:
   conda-build:
     runs-on: ubuntu-20.04
