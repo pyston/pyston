@@ -150,6 +150,7 @@ fi
 cp $PYSTON ${PREFIX}/bin/python${VER}
 ln -s ${PREFIX}/bin/python${VER} ${PREFIX}/bin/pyston
 ln -s ${PREFIX}/bin/python${VER} ${PREFIX}/bin/pyston3
+ln -s ${PREFIX}/bin/python${VER} ${PREFIX}/bin/pyston${VER}
 
 cp -r ${OUTDIR}/include/* ${PREFIX}/include/
 cp -r ${OUTDIR}/lib/* ${PREFIX}/lib/

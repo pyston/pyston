@@ -1310,9 +1310,13 @@ bininstall: altbininstall
 	-if test -f $(DESTDIR)$(BINDIR)/pyston3$(EXE) -o -h $(DESTDIR)$(BINDIR)/pyston3$(EXE); \
 	then rm -f $(DESTDIR)$(BINDIR)/pyston3$(EXE); \
 	else true; \
+	-if test -f $(DESTDIR)$(BINDIR)/pyston$(VERSION)$(EXE) -o -h $(DESTDIR)$(BINDIR)/pyston$(VERSION)$(EXE); \
+	then rm -f $(DESTDIR)$(BINDIR)/pyston$(VERSION)$(EXE); \
+	else true; \
 	fi
 	(cd $(DESTDIR)$(BINDIR); $(LN) -sf python$(VERSION)$(EXE) python3$(EXE))
 	(cd $(DESTDIR)$(BINDIR); $(LN) -sf python$(VERSION)$(EXE) pyston3$(EXE))
+	(cd $(DESTDIR)$(BINDIR); $(LN) -sf python$(VERSION)$(EXE) pyston$(VERSION)$(EXE))
 	(cd $(DESTDIR)$(BINDIR); $(LN) -sf python$(VERSION)$(EXE) pyston$(EXE))
 	-if test "$(VERSION)" != "$(LDVERSION)"; then \
 		rm -f $(DESTDIR)$(BINDIR)/python$(VERSION)-config; \
