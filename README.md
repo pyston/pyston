@@ -1,14 +1,19 @@
 # Pyston
 
-Pyston is a fork of CPython 3.8.12 with additional optimizations for performance.  It is targeted at large real-world applications such as web serving, delivering up to a 30% speedup with no development work required.
+Pyston is a performance-optimizing JIT for Python, and is drop-in compatible with the standard Python interpreter.
 
-[Blog](https://blog.pyston.org/)
+There are two ways to use the Pyston JIT:
 
-[Website](https://pyston.org/)
+- Pyston "full" is a fork of CPython 3.8.12 which contains the JIT as well as numerous other optimizations. It is roughly 30% faster than CPython on web serving macrobenchmarks.
+- Pyston "lite" is an extension module that contains just the JIT. It is available for Python 3.7, 3.8, 3.9, and 3.10, and is easily pip-installable. It is roughly 10% faster on macrobenchmarks.
 
-[Mailing list](http://eepurl.com/hops6n)
+Pyston-full can be downloaded and installed from our [releases](https://github.com/pyston/pyston/releases) page.
+
+Pyston-lite can be installed using pip: simply run `pip install pyston_lite_autoload` to install the jit as well as an autoloader that enables the jit when Python starts up.
 
 [Discord](https://discord.gg/S7gsqnb)
+
+[Blog](https://blog.pyston.org/)
 
 ## Techniques
 
@@ -17,12 +22,12 @@ We plan on explaining our techniques in more detail in future blog posts, but th
 - A very-low-overhead JIT using DynASM
 - Quickening
 - Aggressive attribute caching
-- General CPython optimizations
-- Build process improvements
+- General CPython optimizations (pyston-full only)
+- Build process improvements (pyston-full only)
 
 ## Docker images
 
-We have some experimental docker images on DockerHub with Pyston pre-installed, you can quickly try out Pyston by doing
+We have some experimental docker images on DockerHub with Pyston-full pre-installed, you can quickly try out Pyston by doing
 
 ```
 docker run -it pyston/pyston
@@ -36,15 +41,19 @@ These have not been heavily tested, so if you run into any issues please report 
 
 ## Checking for Pyston at runtime
 
-Our current recommended way to see if your Python code is running on Pyston is to do `hasattr(sys, "pyston_version_info")`.
+To check for pyston-full, one can run `hasattr(sys, "pyston_version_info")`.
+
+To check whether pyston-lite has been loaded, one can run `"pyston_lite" in sys.modules`.
 
 ## Installing packages
 
-Pyston is *API compatible* but not *ABI compatible* with CPython. This means that C extensions will work, but they need to be recompiled.
+Pyston-full is *API compatible* but not *ABI compatible* with CPython. This means that C extensions will work, but they need to be recompiled.
 
 Typically with Python one will download and install pre-compiled packages, but with Pyston there are currently not pre-compiled packages available (we're working on that) so the compilation step will run when you install them. This means that you may run into problems installing packages on Pyston when they work on CPython: the same issues you would have trying to recompile these packages for CPython.
 
 Many packages have build-time dependencies that you will need to install to get them to work. For example to `pip install cryptography` you need a Rust compiler, such as by doing `sudo apt-get install rustc`.
+
+Pyston-lite sidesteps these issues and is compatible with existing binary packages.
 
 ## History
 
@@ -56,7 +65,9 @@ In 2019 the Pyston developers regrouped without a corporate sponsor and started 
 
 In mid-2021 the Pyston developers joined Anaconda, which since then has provided funding for the project and packaging expertise.
 
-# Building Pyston
+In 2022 the Pyston developers released pyston-lite in response to user feedback that switching to pyston-full can be prohibitive.
+
+# Building Pyston-full
 
 ## Build dependencies
 
@@ -118,7 +129,7 @@ or
 make script_opt
 ```
 
-### Building pyston-lite
+# Building pyston-lite
 
 ```
 make -j`nproc` bolt
