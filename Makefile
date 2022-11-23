@@ -38,9 +38,12 @@ ARCH:=$(shell uname -m)
 -include Makefile.local
 
 .PHONY: all
-all: pyston3
+all: pyston3 pyston$(PYTHON_MAJOR).$(PYTHON_MINOR)
 
 pyston3: build/opt_env/bin/python
+	ln -sf $< $@
+
+pyston$(PYTHON_MAJOR).$(PYTHON_MINOR): build/opt_env/bin/python
 	ln -sf $< $@
 
 .PHONY: clean
