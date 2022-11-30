@@ -88,7 +88,12 @@ _PyRuntime_Initialize(void)
 
 // workaround an incompatibility with setuptools 60 until we have a better solution
 #if PYSTON_SPEEDUPS
+#ifdef _WIN32
+    if (GetEnvironmentVariable("SETUPTOOLS_USE_DISTUTILS", NULL, 0) < 1)
+        SetEnvironmentVariable("SETUPTOOLS_USE_DISTUTILS", "stdlib");
+#else
     setenv("SETUPTOOLS_USE_DISTUTILS", "stdlib", 0 /* don't overwrite existing var */);
+#endif
 #endif
 
     return _PyRuntimeState_Init(&_PyRuntime);

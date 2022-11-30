@@ -300,7 +300,7 @@ bytearray_length(PyByteArrayObject *self)
 {
 #if PYSTON_SPEEDUPS
     if (Py_SIZE(self) < 0)
-        __builtin_unreachable();
+        Py_UNREACHABLE();
 #endif
     return Py_SIZE(self);
 }

@@ -2323,8 +2323,8 @@ _Py_Immortalize(PyObject *op) {
 
     traverseproc traverse = Py_TYPE(op)->tp_traverse;
     if (traverse) {
-        if (traverse == type_traverse)
-            traverse = _alltype_traverse;
+        if (traverse == (traverseproc)type_traverse)
+            traverse = (traverseproc)_alltype_traverse;
         traverse(op, (visitproc)_Py_Immortalize, NULL);
     }
 }

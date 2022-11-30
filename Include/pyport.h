@@ -520,6 +520,16 @@ extern "C" {
 #define Py_DEPRECATED(VERSION_UNUSED)
 #endif
 
+/* _Py_FLATTEN_FUNCTION
+* This flatten attribute on a function is used to inform the compiler that the
+* function should be always forced (flatten attribute on GCC)
+*/
+#if defined(__GNUC__) && defined(__clang__)
+#define Py_FLATTEN_FUNCTION __attribute__((flatten))
+#else
+#define Py_FLATTEN_FUNCTION
+#endif
+
 
 /* _Py_HOT_FUNCTION
  * The hot attribute on a function is used to inform the compiler that the
@@ -541,6 +551,53 @@ extern "C" {
 #define _Py_HOT_FUNCTION __attribute__((hot))
 #else
 #define _Py_HOT_FUNCTION
+#endif
+
+// Ask the compiler to always inline a static inline function. The compiler can
+// ignore it and decides to not inline the function.
+//
+// It can be used to inline performance critical static inline functions when
+// building Python in debug mode with function inlining disabled. For example,
+// MSC disables function inlining when building in debug mode.
+//
+// Marking blindly a static inline function with Py_ALWAYS_INLINE can result in
+// worse performances (due to increased code size for example). The compiler is
+// usually smarter than the developer for the cost/benefit analysis.
+//
+// If Python is built in debug mode (if the Py_DEBUG macro is defined), the
+// Py_ALWAYS_INLINE macro does nothing.
+//
+// It must be specified before the function return type. Usage:
+//
+//     static inline Py_ALWAYS_INLINE int random(void) { return 4; }
+#if defined(Py_DEBUG)
+   // If Python is built in debug mode, usually compiler optimizations are
+   // disabled. In this case, Py_ALWAYS_INLINE can increase a lot the stack
+   // memory usage. For example, forcing inlining using gcc -O0 increases the
+   // stack usage from 6 KB to 15 KB per Python function call.
+#  define Py_ALWAYS_INLINE
+#elif defined(__GNUC__) || defined(__clang__) || defined(__INTEL_COMPILER)
+#  define Py_ALWAYS_INLINE __attribute__((always_inline))
+#elif defined(_MSC_VER)
+#  define Py_ALWAYS_INLINE __forceinline
+#else
+#  define Py_ALWAYS_INLINE
+#endif
+
+/* If we're using GCC, use __builtin_expect() to reduce overhead of
+   the valgrind checks */
+#if defined(__GNUC__) && (__GNUC__ > 2) && defined(PYSTON_SPEEDUPS)
+#  define Py_UNLIKELY(value) __builtin_expect((value), 0)
+#  define Py_LIKELY(value) __builtin_expect((value), 1)
+#else
+#  define Py_UNLIKELY(value) (value)
+#  define Py_LIKELY(value) (value)
+#endif
+
+#if defined(__GNUC__)
+#define Py_FALLTROUGH __attribute__((fallthrough));
+#else
+#define Py_FALLTROUGH
 #endif
 
 /* _Py_NO_INLINE
@@ -644,6 +701,8 @@ extern char * _getpty(int *, int, mode_t, int);
 #if defined(__CYGWIN__)
 #       define HAVE_DECLSPEC_DLL
 #endif
+
+#include "exports.h"
 
 /* only get special linkage if built as shared or platform is Cygwin */
 #if defined(Py_ENABLE_SHARED) || defined(__CYGWIN__)

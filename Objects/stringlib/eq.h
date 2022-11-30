@@ -3,7 +3,7 @@
 /* Return 1 if two unicode objects are equal, 0 if not.
  * unicode_eq() is called when the hash of two unicode objects is equal.
  */
-__attribute__((always_inline)) Py_LOCAL_INLINE(int)
+Py_ALWAYS_INLINE Py_LOCAL_INLINE(int)
 unicode_eq(PyObject *aa, PyObject *bb)
 {
     PyUnicodeObject *a = (PyUnicodeObject *)aa;

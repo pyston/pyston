@@ -397,7 +397,7 @@ int cell_traverse(PyCellObject *op, visitproc visit, void *arg);
 int dict_traverse(PyObject *op, visitproc visit, void *arg);
 int list_traverse(PyListObject *o, visitproc visit, void *arg);
 
-__attribute__((always_inline)) __attribute__((flatten))
+Py_ALWAYS_INLINE Py_FLATTEN_FUNCTION
 static void
 inlined_tp_traverse(PyObject* op, visitproc proc, void* c)
 {

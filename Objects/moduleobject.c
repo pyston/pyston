@@ -273,7 +273,7 @@ _PyModule_CreateInitialized(struct PyModuleDef* module, int module_api_version)
         }
     }
     if (!_PyRuntime.initialized)
-        _PyModule_Immortalize(m);
+        _PyModule_Immortalize((PyObject*)m);
 
     m->md_def = module;
     return (PyObject*)m;

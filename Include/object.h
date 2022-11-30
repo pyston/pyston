@@ -569,7 +569,7 @@ PyAPI_DATA(PyObject) _Py_NoneStruct; /* Don't use this directly */
 #define Py_XDECREF_IMMORTAL(obj) ((void)obj)
 // This number needs to be a positive signed number when shifted left by two bits,
 // as is done by the gc module
-#define IMMORTAL_REFCOUNT (1L<<60)
+#define IMMORTAL_REFCOUNT (1LL<<60)
 #define MAKE_IMMORTAL(obj) (((PyObject*)obj)->ob_refcnt = IMMORTAL_REFCOUNT)
 #define IS_IMMORTAL(obj) (((PyObject*)obj)->ob_refcnt > IMMORTAL_REFCOUNT / 2)
 
