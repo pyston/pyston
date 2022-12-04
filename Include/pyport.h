@@ -46,6 +46,22 @@ Used in:  Py_SAFE_DOWNCAST
 
 **************************************************************************/
 
+
+/* e.g., this produces, after compile-time string catenation,
++ *      ("[MSC v.1200 32 bit (Intel)]")
++ *
++ * _Py_STRINGIZE(_MSC_VER) expands to
++ * _Py_STRINGIZE1((_MSC_VER)) expands to
++ * _Py_STRINGIZE2(_MSC_VER) but as this call is the result of token-pasting
++ *      it's scanned again for macros and so further expands to (under MSVC 6)
++ * _Py_STRINGIZE2(1200) which then expands to
++ * "1200"
++ */
+#define _Py_STRINGIZE(X) _Py_STRINGIZE1((X))
+#define _Py_STRINGIZE1(X) _Py_STRINGIZE2 ## X
+#define _Py_STRINGIZE2(X) #X
+
+
 /* typedefs for some C9X-defined synonyms for integral types.
  *
  * The names in Python are exactly the same as the C9X names, except with a
