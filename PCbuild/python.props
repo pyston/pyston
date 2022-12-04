@@ -2,11 +2,11 @@
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <__Python_Props_Imported>true</__Python_Props_Imported>
-	  <__Pyston>true</__Pyston>
+	<__Pyston>true</__Pyston>
     <Platform Condition="'$(Platform)' == ''">Win32</Platform>
     <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
 
-    <EnableAOT Condition="$(__Pyston) == 'true'">true</EnableAOT>
+    <EnableAOT Condition="$(__Pyston) == 'true'">false</EnableAOT>
     <EnableAOT Condition="$(__Pyston) == 'false'">false</EnableAOT>
     
     <!--

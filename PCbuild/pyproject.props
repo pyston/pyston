@@ -152,8 +152,8 @@ public override bool Execute() {
   </UsingTask>
 
   <Target Name="KillPython" BeforeTargets="PrepareForBuild" Condition="'$(KillPython)' == 'true'">
-    <Message Text="Killing any running python$(PyDebugExt)$(PyTestExt).exe instances..." Importance="high" />
-    <KillPython FileName="$(OutDir)python$(PyDebugExt)$(PyTestExt).exe" />
+    <Message Text="Killing any running $(PyName)$(PyLiteExt)$(PyDebugExt)$(PyTestExt).exe instances..." Importance="high" />
+    <KillPython FileName="$(OutDir)$(PyName)$(PyLiteExt)$(PyDebugExt)$(PyTestExt).exe" />
   </Target>
 
   <!--

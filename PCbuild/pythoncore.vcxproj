@@ -134,21 +134,22 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)' == 'Debug'">
     <ClCompile>
-      <PreprocessorDefinitions>PY_DEBUGGING_FEATURES=1;ENABLE_AOT=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>PY_DEBUGGING_FEATURES=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+	  <PreprocessorDefinitions Condition="$(EnableAOT) == 'true'">ENABLE_AOT=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)' == 'Release'">
     <ClCompile>
-      <PreprocessorDefinitions>ENABLE_AOT=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+	  <PreprocessorDefinitions Condition="$(EnableAOT) == 'true'">ENABLE_AOT=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)' == 'PGInstrument'">
     <ClCompile>
-      <PreprocessorDefinitions>ENABLE_AOT=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+	  <PreprocessorDefinitions Condition="$(EnableAOT) == 'true'">ENABLE_AOT=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <ItemDefinitionGroup Condition="'$(Configuration)' == 'PGUpdate'">
       <ClCompile>
-        <PreprocessorDefinitions>ENABLE_AOT=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+	  <PreprocessorDefinitions Condition="$(EnableAOT) == 'true'">ENABLE_AOT=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       </ClCompile>
     </ItemDefinitionGroup>
   </ItemDefinitionGroup>
@@ -524,7 +525,7 @@
     <ClCompile Include="..\Python\sysmodule.c" />
     <ClCompile Include="..\Python\thread.c" />
     <ClCompile Include="..\Python\traceback.c" />
-    <ClCompile Condition="$(Configuration) != 'SimpleRelease'" Include="..\Python\aot_ceval.c" />
+    <ClCompile Condition="$(Configuration) != 'SimpleRelease' and $(Configuration) != 'SimpleDebug' and '$(EnableAOT)' == 'true'" Include="..\Python\aot_ceval.c" />
   </ItemGroup>
   <ItemGroup Condition="$(IncludeExternals)">
     <ClCompile Include="..\Modules\zlibmodule.c" />
