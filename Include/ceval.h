@@ -110,8 +110,8 @@ static inline void* _stack_pointer(void) {
     return stackpointer;
 }
 #else
-// defined in masm
-extern inline void* _stack_pointer(void);
+#include <intrin.h>
+#define _stack_pointer _AddressOfReturnAddress
 #endif
 
 // This could also be defined as __builtin_frame_address(0) for a

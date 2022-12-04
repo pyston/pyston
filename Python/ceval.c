@@ -775,7 +775,7 @@ PyEval_EvalFrameEx(PyFrameObject *f, int throwflag)
 }
 
 #ifndef ENABLE_AOT
-PyObject* _Py_HOT_FUNCTION
+PyAPI_FUNC(PyObject*) _Py_HOT_FUNCTION
 _PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
 {
 #ifdef DXPAIRS
