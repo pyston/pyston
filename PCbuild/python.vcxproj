@@ -65,6 +65,14 @@
       <Configuration>Release</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
+    <ProjectConfiguration Include="SimpleRelease|x64">
+      <Configuration>SimpleRelease</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="SimpleRelease|x64">
+      <Configuration>SimpleDebug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{B11D750F-CD1F-4A96-85CE-E69A5C5259F9}</ProjectGuid>
@@ -86,6 +94,10 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
     <_ProjectFileVersion>10.0.30319.1</_ProjectFileVersion>
+  </PropertyGroup>
+  <PropertyGroup Label="Vcpkg">
+    <VcpkgEnabled>false</VcpkgEnabled>
+    <VcpkgAutoLink>false</VcpkgAutoLink>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
@@ -135,7 +147,7 @@
 @setlocal
 @set PYTHONHOME=$(PySourcePath)
 $(_PGOPath)
-@"$(OutDir)python$(PyDebugExt).exe" %*
+@"$(OutDir)$(TargetName).exe" %*
 </_Content>
       <_ExistingContent Condition="Exists('$(PySourcePath)python.bat')">$([System.IO.File]::ReadAllText('$(PySourcePath)python.bat'))</_ExistingContent>
     </PropertyGroup>
