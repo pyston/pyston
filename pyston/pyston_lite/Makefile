@@ -1,6 +1,7 @@
 .DEFAULT_GOAL := env/lite.stamp
 
 PYTHON?=python3.8
+POLICY?=manylinux2014
 
 package: build_wheels
 
@@ -20,7 +21,9 @@ build_wheels_noclean:
 	./build_wheels_macos.sh
 else
 build_wheels_noclean:
-	docker run -e PYSTON_LITE_NAME -e NOBOLT=1 $(BOLT_DOCKERFLAGS) -e PLAT=manylinux2014_$(ARCH) -v `pwd`/../../:/io quay.io/pypa/manylinux2014_$(ARCH) bash -c "bash /io/pyston/pyston_lite/build_wheels.sh && chown -R $(shell id -u):$(shell id -g) /io/pyston/pyston_lite/"
+	docker run -e PYSTON_LITE_NAME -e NOBOLT=1 $(BOLT_DOCKERFLAGS) -e PLAT=$(POLICY)_$(ARCH) -e POLICY \
+		-v `pwd`/../../:/io quay.io/pypa/$(POLICY)_$(ARCH) \
+		bash -c "bash /io/pyston/pyston_lite/build_wheels.sh && chown -R $(shell id -u):$(shell id -g) /io/pyston/pyston_lite/"
 	$(BOLT_CMD)
 endif
 
