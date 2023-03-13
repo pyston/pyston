@@ -571,7 +571,7 @@ SRE(match)(SRE_STATE* state, SRE_CODE* pattern, int toplevel)
 
 entrance:
     ;
-    const SRE_CHAR *ptr = (SRE_CHAR *)state->ptr;
+    SRE_CHAR *ptr = (SRE_CHAR *)state->ptr;
 
     if (pattern[0] == SRE_OP_INFO) {
         /* optimization info block */

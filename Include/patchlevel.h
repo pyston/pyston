@@ -29,6 +29,7 @@
 
 /* Version as a string */
 #define PY_VERSION              "3.8.12"
+#define PYSTON_VERSION          "2.3.5"
 /*--end constants--*/
 
 /* Version as a single 4-byte hex number, e.g. 0x010502B2 == 1.5.2b2.

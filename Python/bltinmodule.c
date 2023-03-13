@@ -2816,7 +2816,7 @@ PyMethodDef builtin_method_isinstance[] = { BUILTIN_ISINSTANCE_METHODDEF };
 PyMethodDef builtin_method_len[] = { BUILTIN_LEN_METHODDEF };
 PyMethodDef builtin_method_ord[] = { BUILTIN_ORD_METHODDEF };
 
-PyCFunctionObjectWithGCHeader builtin_isinstance_obj_gc, builtin_len_obj_gc, builtin_ord_obj_gc;
+PyAPI_FUNC(PyCFunctionObjectWithGCHeader) builtin_isinstance_obj_gc, builtin_len_obj_gc, builtin_ord_obj_gc;
 
 #endif
 

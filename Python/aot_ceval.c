@@ -9,7 +9,10 @@
 #include "../../Python/aot_ceval_includes.h"
 
 #include <ctype.h>
+
+#ifndef _WIN32
 #include <sys/mman.h>
+#endif
 
 #ifdef PYSTON_LITE
 
@@ -200,7 +203,7 @@ long loadglobal_hits = 0, loadglobal_misses = 0, loadglobal_uncached = 0, loadgl
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 8
 // In pyston-full we rely on LTO to inline cmp_outcome into the interpreter loop.
 // In pyston-lite we have to make the implementation available
-__attribute__((visibility("hidden"))) inline PyObject* cmp_outcome(PyThreadState *tstate, int, PyObject *v, PyObject *w);
+Py_LOCAL_SYMBOL inline PyObject* cmp_outcome(PyThreadState *tstate, int, PyObject *v, PyObject *w);
 PyObject* cmp_outcomePyCmp_LT(PyObject *v, PyObject *w) {
   return cmp_outcome(NULL, PyCmp_LT, v, w);
 }
@@ -1659,7 +1662,7 @@ int setItemInitSplitDictCache(PyObject** dictptr, PyObject* obj, PyObject* v, Py
     return err;
 }
 
-int __attribute__((always_inline)) __attribute__((visibility("hidden")))
+int Py_ALWAYS_INLINE Py_LOCAL_SYMBOL
 storeAttrCache(PyObject* owner, PyObject* name, PyObject* v, _PyOpcache *co_opcache, int* err) {
     _PyOpcache_StoreAttr *sa = &co_opcache->u.sa;
     PyTypeObject *tp = Py_TYPE(owner);
@@ -1739,7 +1742,7 @@ hit:
     return 0;
 }
 
-int __attribute__((always_inline)) __attribute__((visibility("hidden")))
+int Py_ALWAYS_INLINE Py_LOCAL_SYMBOL
 setupStoreAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache) {
     _PyOpcache_StoreAttr *sa = &co_opcache->u.sa;
     PyTypeObject *tp = Py_TYPE(obj);
@@ -1840,7 +1843,7 @@ int64_t _PyDict_GetItemOffsetSplit(PyDictObject *mp, PyObject *key, Py_ssize_t *
 PyObject* _PyDict_GetItemByOffset(PyDictObject *mp, PyObject *key, Py_ssize_t dk_size, int64_t offset);
 PyObject* _PyDict_GetItemByOffsetSplit(PyDictObject *mp, PyObject *key, Py_ssize_t dk_size, int64_t ix);
 
-int __attribute__((visibility("hidden")))
+int Py_LOCAL_SYMBOL
 loadAttrCache(PyObject* owner, PyObject* name, _PyOpcache *co_opcache, PyObject** res, int *meth_found) {
     _PyOpcache_LoadAttr *la = &co_opcache->u.la;
 
@@ -2009,7 +2012,7 @@ static int createPolymorphicCache(_PyOpcache* co_opcache, _PyOpcache_LoadAttr *l
     return 0;
 }
 
-int __attribute__((visibility("hidden")))
+int Py_LOCAL_SYMBOL
 setupLoadAttrCache(PyObject* obj, PyObject* name, _PyOpcache *co_opcache, PyObject* res, int is_load_method, int inside_interpreter) {
     _PyOpcache_LoadAttr *la = &co_opcache->u.la;
     int meth_found = 0;
@@ -2410,7 +2413,7 @@ _PyEval_EvalFrame_AOT_JIT(PyFrameObject *f, PyThreadState * const tstate, PyObje
 #ifdef PYSTON_LITE
 static
 #endif
-__attribute__((noinline))
+_Py_NO_INLINE
 PyObject* _Py_HOT_FUNCTION
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION <= 9
 _PyEval_EvalFrame_AOT_Interpreter(PyFrameObject *f, int throwflag, PyThreadState * const tstate, PyObject** stack_pointer, int can_use_jit, int jit_first_trace_for_line)
@@ -8719,7 +8722,7 @@ trace_call_function(PyThreadState *tstate,
    to reduce the stack consumption. */
 // already non statically defined inside ceval.c
 #ifdef PYSTON_LITE
-__attribute__((visibility("hidden"))) inline PyObject * _Py_HOT_FUNCTION
+Py_LOCAL_SYMBOL inline PyObject * _Py_HOT_FUNCTION
 call_function_ceval_fast(PyThreadState *tstate,
 #if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 10
                         PyTraceInfo* trace_info,

@@ -81,6 +81,10 @@
     <TargetName Condition="$(Platform) == 'x64'">$(TargetName)-amd64</TargetName>
     <TargetExt>.exe</TargetExt>
   </PropertyGroup>
+  <PropertyGroup Label="Vcpkg">
+    <VcpkgEnabled>false</VcpkgEnabled>
+    <VcpkgAutoLink>false</VcpkgAutoLink>
+  </PropertyGroup>
   <ItemDefinitionGroup>
     <Midl>
       <TypeLibraryName>$(OutDir)wininst.tlb</TypeLibraryName>

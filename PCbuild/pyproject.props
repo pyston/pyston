@@ -11,7 +11,7 @@
     <IntDir>$(Py_IntDir)\$(MajorVersionNumber)$(MinorVersionNumber)$(ArchName)_$(Configuration)\$(ProjectName)\</IntDir>
     <IntDir>$(IntDir.Replace(`\\`, `\`))</IntDir>
     <TargetName Condition="'$(TargetName)' == ''">$(ProjectName)</TargetName>
-    <TargetName>$(TargetName)$(PyDebugExt)</TargetName>
+    <TargetName>$(TargetName)$(PyLiteExt)$(PyDebugExt)</TargetName>
     <GenerateManifest>false</GenerateManifest>
     <EmbedManifest>false</EmbedManifest>
     <SupportPGO Condition="'$(SupportPGO)' == ''">true</SupportPGO>
@@ -32,7 +32,7 @@
     <ClCompile>
       <AdditionalIncludeDirectories>$(PySourcePath)Include;$(PySourcePath)Include\internal;$(PySourcePath)PC;$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;$(_Py3NamePreprocessorDefinition);$(_PlatformPreprocessorDefinition)$(_DebugPreprocessorDefinition)$(_PydPreprocessorDefinition)%(PreprocessorDefinitions)</PreprocessorDefinitions>
-
+      <PreprocessorDefinitions Condition="$(__Pyston) == 'true'">IMPLEMENTATION_NAME="pyston";PYSTON_SPEEDUPS=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <Optimization>MaxSpeed</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <StringPooling>true</StringPooling>
@@ -152,8 +152,8 @@ public override bool Execute() {
   </UsingTask>
 
   <Target Name="KillPython" BeforeTargets="PrepareForBuild" Condition="'$(KillPython)' == 'true'">
-    <Message Text="Killing any running python$(PyDebugExt)$(PyTestExt).exe instances..." Importance="high" />
-    <KillPython FileName="$(OutDir)python$(PyDebugExt)$(PyTestExt).exe" />
+    <Message Text="Killing any running $(PyName)$(PyLiteExt)$(PyDebugExt)$(PyTestExt).exe instances..." Importance="high" />
+    <KillPython FileName="$(OutDir)$(PyName)$(PyLiteExt)$(PyDebugExt)$(PyTestExt).exe" />
   </Target>
 
   <!--

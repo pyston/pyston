@@ -2800,7 +2800,7 @@ _PyArg_UnpackTuple1(PyObject *args, const char *name, Py_ssize_t min, Py_ssize_t
     switch (nargs) {
         case 1:
             *arg0 = stack[0];
-            __attribute__((fallthrough));
+            Py_FALLTROUGH
         default:
             break;
     }
@@ -2829,10 +2829,10 @@ _PyArg_UnpackTuple2(PyObject *args, const char *name, Py_ssize_t min, Py_ssize_t
     switch (nargs) {
         case 2:
             *arg1 = stack[1];
-            __attribute__((fallthrough));
+            Py_FALLTROUGH
         case 1:
             *arg0 = stack[0];
-            __attribute__((fallthrough));
+            Py_FALLTROUGH
         default:
             break;
     }
@@ -2861,13 +2861,13 @@ _PyArg_UnpackTuple3(PyObject *args, const char *name, Py_ssize_t min, Py_ssize_t
     switch (nargs) {
         case 3:
             *arg2 = stack[2];
-            __attribute__((fallthrough));
+            Py_FALLTROUGH
         case 2:
             *arg1 = stack[1];
-            __attribute__((fallthrough));
+            Py_FALLTROUGH
         case 1:
             *arg0 = stack[0];
-            __attribute__((fallthrough));
+            Py_FALLTROUGH
         default:
             break;
     }

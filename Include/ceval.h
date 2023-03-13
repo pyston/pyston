@@ -97,6 +97,7 @@ PyAPI_FUNC(int) _Py_CheckRecursiveCall(const char *where);
 */
 PyAPI_DATA(int) _Py_CheckRecursionLimit;
 
+#ifndef _MSC_VER
 static inline void* _stack_pointer(void) {
     void* stackpointer;
 #ifdef __x86_64__
@@ -108,6 +109,11 @@ static inline void* _stack_pointer(void) {
 #endif
     return stackpointer;
 }
+#else
+#include <intrin.h>
+#define _stack_pointer _AddressOfReturnAddress
+#endif
+
 // This could also be defined as __builtin_frame_address(0) for a
 // bit better portability. But that uses rbp, which means that
 // any code calling EnterRecursiveCall will end up saving rbp,

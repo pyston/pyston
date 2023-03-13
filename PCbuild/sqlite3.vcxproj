@@ -95,6 +95,10 @@
     <SqliteMicroVersion>$(_SqliteVersion.Split(`;`)[4])</SqliteMicroVersion>
     <SqlitePatchVersion>$(_SqliteVersion.Split(`;`)[5])</SqlitePatchVersion>
   </PropertyGroup>
+  <PropertyGroup Label="Vcpkg">
+    <VcpkgEnabled>false</VcpkgEnabled>
+    <VcpkgAutoLink>false</VcpkgAutoLink>
+  </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
       <AdditionalIncludeDirectories>$(sqlite3Dir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>

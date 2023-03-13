@@ -65,6 +65,14 @@
       <Configuration>Release</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
+    <ProjectConfiguration Include="SimpleRelease|x64">
+      <Configuration>SimpleRelease</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="SimpleRelease|x64">
+      <Configuration>SimpleDebug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{B11D750F-CD1F-4A96-85CE-E69A5C5259F9}</ProjectGuid>
@@ -77,8 +85,7 @@
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <ImportGroup Label="ExtensionSettings">
-  </ImportGroup>
+  <ImportGroup Label="ExtensionSettings" />
   <ImportGroup Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
     <Import Project="pyproject.props" />
@@ -87,6 +94,10 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
     <_ProjectFileVersion>10.0.30319.1</_ProjectFileVersion>
+  </PropertyGroup>
+  <PropertyGroup Label="Vcpkg">
+    <VcpkgEnabled>false</VcpkgEnabled>
+    <VcpkgAutoLink>false</VcpkgAutoLink>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
@@ -113,16 +124,13 @@
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <ImportGroup Label="ExtensionTargets">
-  </ImportGroup>
+  <ImportGroup Label="ExtensionTargets" />
   <Target Name="ValidateUcrtbase" AfterTargets="AfterBuild" Condition="$(Configuration) != 'PGInstrument' and $(Platform) != 'ARM' and $(Platform) != 'ARM64'">
     <PropertyGroup>
       <UcrtName>ucrtbase</UcrtName>
       <UcrtName Condition="'$(Configuration)' == 'Debug'">ucrtbased</UcrtName>
     </PropertyGroup>
-    <Exec Command='setlocal
-set PYTHONPATH=$(PySourcePath)Lib
-"$(OutDir)python$(PyDebugExt).exe" "$(PySourcePath)PC\validate_ucrtbase.py" $(UcrtName)' ContinueOnError="true" />
+    <!--<Exec Command="setlocal&#xD;&#xA;set PYTHONPATH=$(PySourcePath)Lib&#xD;&#xA;&quot;$(OutDir)python$(PyDebugExt).exe&quot; &quot;$(PySourcePath)PC\validate_ucrtbase.py&quot; $(UcrtName)" ContinueOnError="true" />-->
   </Target>
   <Target Name="GeneratePythonBat" AfterTargets="AfterBuild">
     <PropertyGroup>
@@ -139,7 +147,7 @@ set PYTHONPATH=$(PySourcePath)Lib
 @setlocal
 @set PYTHONHOME=$(PySourcePath)
 $(_PGOPath)
-@"$(OutDir)python$(PyDebugExt).exe" %*
+@"$(OutDir)$(TargetName).exe" %*
 </_Content>
       <_ExistingContent Condition="Exists('$(PySourcePath)python.bat')">$([System.IO.File]::ReadAllText('$(PySourcePath)python.bat'))</_ExistingContent>
     </PropertyGroup>
@@ -147,21 +155,12 @@ $(_PGOPath)
   </Target>
   <Target Name="GenerateLicense" AfterTargets="AfterBuild">
     <ItemGroup>
-      <LicenseFiles Include="$(PySourcePath)LICENSE;
-                             $(PySourcePath)PC\crtlicense.txt;
-                             $(bz2Dir)LICENSE;
-                             $(opensslOutDir)LICENSE;
-                             $(libffiDir)LICENSE;" />
-      <LicenseFiles Include="$(tcltkDir)tcllicense.terms;
-                             $(tcltkDir)tklicense.terms;
-                             $(tcltkDir)tixlicense.terms" Condition="$(IncludeTkinter)" />
+      <LicenseFiles Include="$(PySourcePath)LICENSE;&#xD;&#xA;                             $(PySourcePath)PC\crtlicense.txt;&#xD;&#xA;                             $(bz2Dir)LICENSE;&#xD;&#xA;                             $(opensslOutDir)LICENSE;&#xD;&#xA;                             $(libffiDir)LICENSE;" />
+      <LicenseFiles Include="$(tcltkDir)tcllicense.terms;&#xD;&#xA;                             $(tcltkDir)tklicense.terms;&#xD;&#xA;                             $(tcltkDir)tixlicense.terms" Condition="$(IncludeTkinter)" />
       <_LicenseFiles Include="@(LicenseFiles)">
         <Content Condition="Exists(%(FullPath))">$([System.IO.File]::ReadAllText(%(FullPath)))</Content>
       </_LicenseFiles>
     </ItemGroup>
-
-    <WriteLinesToFile File="$(OutDir)LICENSE.txt"
-                      Overwrite="true"
-                      Lines="@(_LicenseFiles->'%(Content)')" />
+    <WriteLinesToFile File="$(OutDir)LICENSE.txt" Overwrite="true" Lines="@(_LicenseFiles->'%(Content)')" />
   </Target>
 </Project>

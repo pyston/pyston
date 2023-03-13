@@ -1425,7 +1425,7 @@ bytes_length(PyBytesObject *a)
 {
 #if PYSTON_SPEEDUPS
     if (Py_SIZE(a) < 0)
-        __builtin_unreachable();
+        Py_UNREACHABLE();
 #endif
     return Py_SIZE(a);
 }

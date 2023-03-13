@@ -68,9 +68,9 @@
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{885D4898-D08D-4091-9C40-C700CFE3FC5A}</ProjectGuid>
-    <RootNamespace>python3dll</RootNamespace>
+    <RootNamespace>$(PyName)$(APIMajorVersionNumber)dll</RootNamespace>
     <Keyword>Win32Proj</Keyword>
-    <TargetName>python3</TargetName>
+    <TargetName>pyston$(APIMajorVersionNumber)</TargetName>
     <SupportPGO>false</SupportPGO>
   </PropertyGroup>
   <Import Project="python.props" />
@@ -93,6 +93,10 @@
     <_Machine Condition="$(Platform) == 'ARM'">ARM</_Machine>
     <_Machine Condition="$(Platform) == 'ARM64'">ARM64</_Machine>
     <ExtensionsToDeleteOnClean>$(ExtensionsToDeleteOnClean);$(IntDir)python3_d.def;$(IntDir)python3stub.def</ExtensionsToDeleteOnClean>
+  </PropertyGroup>
+  <PropertyGroup Label="Vcpkg">
+    <VcpkgEnabled>false</VcpkgEnabled>
+    <VcpkgAutoLink>false</VcpkgAutoLink>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
@@ -122,7 +126,6 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
-  
   <Target Name="BuildPython3_dDef" BeforeTargets="BuildStubDef" Condition="$(Configuration) == 'Debug'">
     <ItemGroup>
       <_DefLines Remove="@(_DefLines)" />
@@ -148,10 +151,8 @@
     </ItemGroup>
     <MakeDir Directories="$(IntDir)" />
     <Message Text="Updating python3_d.def" Condition="@(_Lines->'%(New)') != @(_OriginalLines)" Importance="high" />
-    <WriteLinesToFile File="$(IntDir)python3_d.def" Lines="@(_Lines->'%(New)')" Overwrite="true"
-                      Condition="@(_Lines->'%(New)') != @(_OriginalLines)" />
+    <WriteLinesToFile File="$(IntDir)python3_d.def" Lines="@(_Lines->'%(New)')" Overwrite="true" Condition="@(_Lines->'%(New)') != @(_OriginalLines)" />
   </Target>
-  
   <Target Name="BuildStubDef" BeforeTargets="PreLinkEvent">
     <ItemGroup>
       <_DefLines Remove="@(_DefLines)" />
@@ -177,7 +178,6 @@
     </ItemGroup>
     <MakeDir Directories="$(IntDir)" />
     <Message Text="Updating python3stub.def" Condition="@(_Lines) != @(_OriginalLines)" Importance="high" />
-    <WriteLinesToFile File="$(IntDir)python3stub.def" Lines="@(_Lines)" Overwrite="true"
-                      Condition="@(_Lines) != @(_OriginalLines)" />
+    <WriteLinesToFile File="$(IntDir)python3stub.def" Lines="@(_Lines)" Overwrite="true" Condition="@(_Lines) != @(_OriginalLines)" />
   </Target>
 </Project>

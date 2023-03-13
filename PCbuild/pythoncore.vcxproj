@@ -17,6 +17,10 @@
       <Configuration>Debug</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
+    <ProjectConfiguration Include="LiteDebug|x64">
+      <Configuration>LiteDebug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
     <ProjectConfiguration Include="PGInstrument|ARM">
       <Configuration>PGInstrument</Configuration>
       <Platform>ARM</Platform>
@@ -65,6 +69,18 @@
       <Configuration>Release</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
+    <ProjectConfiguration Include="LiteRelease|x64">
+      <Configuration>LiteRelease</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="SimpleRelease|x64">
+      <Configuration>SimpleRelease</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="SimpleRelease|x64">
+      <Configuration>SimpleDebug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{CF7AC3D1-E2DF-41D2-BEA6-1E2556CDEA26}</ProjectGuid>
@@ -78,6 +94,7 @@
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" />
   </ImportGroup>
   <PropertyGroup>
     <KillPython>true</KillPython>
@@ -97,17 +114,59 @@
   <PropertyGroup>
     <CustomBuildBeforeTargets>Link</CustomBuildBeforeTargets>
   </PropertyGroup>
+  <PropertyGroup Label="Vcpkg">
+    <VcpkgEnabled>false</VcpkgEnabled>
+    <VcpkgAutoLink>false</VcpkgAutoLink>
+  </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
       <AdditionalOptions>/Zm200  %(AdditionalOptions)</AdditionalOptions>
-      <AdditionalIncludeDirectories>$(PySourcePath)Python;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(AotInclusions);$(PySourcePath)Python;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalIncludeDirectories Condition="$(IncludeExternals)">$(zlibDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>_USRDLL;Py_BUILD_CORE;Py_BUILD_CORE_BUILTIN;Py_ENABLE_SHARED;MS_DLL_ID="$(SysWinVer)";%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="$(IncludeExternals)">_Py_HAVE_ZLIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="$(__Pyston) == 'false'">IMPLEMENTATION_NAME="python";%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="$(__Pyston) == 'true'">IMPLEMENTATION_NAME="pyston";PYSTON_SPEEDUPS=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <AdditionalDependencies>version.lib;shlwapi.lib;ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)' == 'Debug'">
+    <ClCompile>
+      <PreprocessorDefinitions>PY_DEBUGGING_FEATURES=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+	  <PreprocessorDefinitions Condition="$(EnableAOT) == 'true'">ENABLE_AOT=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)' == 'Release'">
+    <ClCompile>
+	  <PreprocessorDefinitions Condition="$(EnableAOT) == 'true'">ENABLE_AOT=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)' == 'PGInstrument'">
+    <ClCompile>
+	  <PreprocessorDefinitions Condition="$(EnableAOT) == 'true'">ENABLE_AOT=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <ItemDefinitionGroup Condition="'$(Configuration)' == 'PGUpdate'">
+      <ClCompile>
+	  <PreprocessorDefinitions Condition="$(EnableAOT) == 'true'">ENABLE_AOT=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      </ClCompile>
+    </ItemDefinitionGroup>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)' == 'LiteDebug'">
+    <ClCompile>
+      <PreprocessorDefinitions>PY_DEBUGGING_FEATURES=1;PYSTON_LITE=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)' == 'LiteRelease'">
+    <ClCompile>
+      <PreprocessorDefinitions>PYSTON_LITE=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)' == 'SimpleDebug'">
+    <ClCompile>
+      <PreprocessorDefinitions>PY_DEBUGGING_FEATURES=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="..\Include\abstract.h" />
@@ -147,6 +206,7 @@
     <ClInclude Include="..\Include\enumobject.h" />
     <ClInclude Include="..\Include\errcode.h" />
     <ClInclude Include="..\Include\eval.h" />
+    <ClInclude Include="..\Include\exports.h" />
     <ClInclude Include="..\Include\fileobject.h" />
     <ClInclude Include="..\Include\fileutils.h" />
     <ClInclude Include="..\Include\floatobject.h" />
@@ -465,6 +525,7 @@
     <ClCompile Include="..\Python\sysmodule.c" />
     <ClCompile Include="..\Python\thread.c" />
     <ClCompile Include="..\Python\traceback.c" />
+    <ClCompile Condition="$(Configuration) != 'SimpleRelease' and $(Configuration) != 'SimpleDebug' and '$(EnableAOT)' == 'true'" Include="..\Python\aot_ceval.c" />
   </ItemGroup>
   <ItemGroup Condition="$(IncludeExternals)">
     <ClCompile Include="..\Modules\zlibmodule.c" />
@@ -488,6 +549,7 @@
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
   </ImportGroup>
   <Target Name="_GetBuildInfo" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
@@ -518,7 +580,6 @@
   <Target Name="_WarnAboutZlib" BeforeTargets="PrepareForBuild" Condition="!$(IncludeExternals)">
     <Warning Text="Not including zlib is not a supported configuration." />
   </Target>
-
   <Target Name="_CopyVCRuntime" AfterTargets="Build" Inputs="@(VCRuntimeDLL)" Outputs="$(OutDir)%(Filename)%(Extension)" DependsOnTargets="FindVCRuntime">
     <!-- bpo-38597: When we switch to another VCRuntime DLL, include vcruntime140.dll as well -->
     <Warning Text="A copy of vcruntime140.dll is also required" Condition="!$(VCToolsRedistVersion.StartsWith(`14.`))" />

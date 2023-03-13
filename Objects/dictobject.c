@@ -1495,7 +1495,7 @@ PyObject* _PyDict_GetItemByOffset(PyDictObject *mp, PyObject *key, Py_ssize_t dk
 PyObject* _PyDict_GetItemByOffsetSplit(PyDictObject *mp, PyObject *key, Py_ssize_t dk_size, int64_t ix) {
     assert(PyDict_CheckExact((PyObject*)mp));
     assert(PyUnicode_CheckExact(key));
-    assert(offset >= 0);
+    assert(ix >= 0);
 
     if (mp->ma_keys->dk_size != dk_size)
         return NULL;
@@ -2289,7 +2289,7 @@ dict_length(PyDictObject *mp)
 {
 #if PYSTON_SPEEDUPS
     if (mp->ma_used < 0)
-        __builtin_unreachable();
+        Py_UNREACHABLE();
 #endif
     return mp->ma_used;
 }

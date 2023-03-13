@@ -2,8 +2,13 @@
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <__Python_Props_Imported>true</__Python_Props_Imported>
+	<__Pyston>true</__Pyston>
     <Platform Condition="'$(Platform)' == ''">Win32</Platform>
     <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
+
+    <EnableAOT Condition="$(__Pyston) == 'true'">false</EnableAOT>
+    <EnableAOT Condition="$(__Pyston) == 'false'">false</EnableAOT>
+    
     <!--
     Use the latest available version of Visual Studio to build. To override
     this and build with an earlier version, pass "/p:PlatformToolset=v100"
@@ -11,6 +16,8 @@
 
     We set BasePlatformToolset for ICC's benefit, it's otherwise ignored.
     -->
+	<BasePlatformToolset Condition="'$(BasePlatformToolset)' == '' and '$(VisualStudioVersion)' == '17.0'">v143</BasePlatformToolset>
+    <BasePlatformToolset Condition="'$(BasePlatformToolset)' == '' and ('$(MSBuildToolsVersion)' == '16.0' or '$(VisualStudioVersion)' == '16.0')">v142</BasePlatformToolset>
     <BasePlatformToolset Condition="'$(BasePlatformToolset)' == '' and ('$(MSBuildToolsVersion)' == '16.0' or '$(VisualStudioVersion)' == '16.0')">v142</BasePlatformToolset>
     <BasePlatformToolset Condition="'$(BasePlatformToolset)' == '' and ('$(MSBuildToolsVersion)' == '15.0' or '$(VisualStudioVersion)' == '15.0')">v141</BasePlatformToolset>
     <BasePlatformToolset Condition="'$(BasePlatformToolset)' == '' and '$(VCTargetsPath14)' != ''">v140</BasePlatformToolset>
@@ -50,8 +57,7 @@
     <BuildPath Condition="'$(ArchName)' == 'arm64'">$(BuildPathArm64)</BuildPath>
     <BuildPath Condition="'$(BuildPath)' == ''">$(PySourcePath)PCbuild\$(ArchName)\</BuildPath>
     <BuildPath Condition="!HasTrailingSlash($(BuildPath))">$(BuildPath)\</BuildPath>
-    <BuildPath Condition="$(Configuration) == 'PGInstrument'">$(BuildPath)instrumented\</BuildPath>
-    
+
     <!-- Directories of external projects. tcltk is handled in tcltk.props -->
     <ExternalsDir>$(EXTERNALS_DIR)</ExternalsDir>
     <ExternalsDir Condition="$(ExternalsDir) == ''">$([System.IO.Path]::GetFullPath(`$(PySourcePath)externals`))</ExternalsDir>
@@ -67,9 +73,16 @@
     <opensslIncludeDir>$(opensslOutDir)include</opensslIncludeDir>
     <nasmDir>$(ExternalsDir)\nasm-2.11.06\</nasmDir>
     <zlibDir>$(ExternalsDir)\zlib-1.2.11\</zlibDir>
-    
+	
+	<!-- TODO!
+    <AotInclusions Condition="$(AotInclusions) == '' and $(Configuration) != 'SimpleRelease' and $(Configuration) != 'SimpleDebug'">$(SolutionDir)..\pyston\aot\build\aot_pic\;$(SolutionDir)..\pyston\nitrous</AotInclusions>
+    <AotInclusions Condition="$(AotInclusions) == '' and ($(Configuration) == 'SimpleRelease' or $(Configuration) == 'SimpleDebug')"></AotInclusions>
+	-->
+	
     <!-- Suffix for all binaries when building for debug -->
-    <PyDebugExt Condition="'$(PyDebugExt)' == '' and $(Configuration) == 'Debug'">_d</PyDebugExt>
+    <PyDebugExt Condition="'$(PyDebugExt)' == '' and ($(Configuration) == 'Debug' or $(Configuration) == 'LiteDebug')">_d</PyDebugExt>
+    <PyLiteExt Condition="'$(PyLiteExt)' == '' and ($(Configuration) == 'LiteRelease' or $(Configuration) == 'LiteDebug')">-lite</PyLiteExt>
+    <PyLiteExt Condition="'$(PyLiteExt)' == '' and ($(Configuration) == 'SimpleRelease' or $(Configuration) == 'SimpleDebug')">-simple</PyLiteExt>
     
     <!-- Suffix for versions/keys when building with test markers -->
     <PyTestExt Condition="$(UseTestMarker) == 'true'">-test</PyTestExt>
@@ -78,9 +91,12 @@
     <PyArchExt Condition="'$(ArchName)' == 'win32'">-32</PyArchExt>
     <PyArchExt Condition="'$(ArchName)' == 'arm32'">-arm32</PyArchExt>
     <PyArchExt Condition="'$(ArchName)' == 'arm64'">-arm64</PyArchExt>
-    
+
+	<PyName Condition="$(__Pyston) == 'false'">python</PyName>
+    <PyName Condition="$(__Pyston) == 'true'">pyston</PyName>
+	
     <!-- Full path of the resulting python.exe binary -->
-    <PythonExe Condition="'$(PythonExe)' == ''">$(BuildPath)python$(PyDebugExt).exe</PythonExe>
+    <PythonExe Condition="'$(PythonExe)' == ''">$(BuildPath)$(PyName)$(PyLiteExt)$(PyDebugExt).exe</PythonExe>
 
     <!-- Include Tkinter by default -->
     <IncludeTkinter Condition="'$(IncludeTkinter)' == ''">true</IncludeTkinter>
@@ -131,9 +147,13 @@
         Field3Value         -   2101 for '3.5.2a1' (== 1000*2 + 10*10 ('a') + 1)
     -->
     <_PatchLevelContent>$([System.IO.File]::ReadAllText(`$(PySourcePath)Include\patchlevel.h`))</_PatchLevelContent>
-    <MajorVersionNumber>$([System.Text.RegularExpressions.Regex]::Match($(_PatchLevelContent), `define\s+PY_MAJOR_VERSION\s+(\d+)`).Groups[1].Value)</MajorVersionNumber>
-    <MinorVersionNumber>$([System.Text.RegularExpressions.Regex]::Match($(_PatchLevelContent), `define\s+PY_MINOR_VERSION\s+(\d+)`).Groups[1].Value)</MinorVersionNumber>
-    <MicroVersionNumber>$([System.Text.RegularExpressions.Regex]::Match($(_PatchLevelContent), `define\s+PY_MICRO_VERSION\s+(\d+)`).Groups[1].Value)</MicroVersionNumber>
+    <MajorVersionNumber Condition="$(__Pyston) == 'false'">$([System.Text.RegularExpressions.Regex]::Match($(_PatchLevelContent), `define\s+PY_MAJOR_VERSION\s+(\d+)`).Groups[1].Value)</MajorVersionNumber>
+    <MinorVersionNumber Condition="$(__Pyston) == 'false'">$([System.Text.RegularExpressions.Regex]::Match($(_PatchLevelContent), `define\s+PY_MINOR_VERSION\s+(\d+)`).Groups[1].Value)</MinorVersionNumber>
+    <MicroVersionNumber Condition="$(__Pyston) == 'false'">$([System.Text.RegularExpressions.Regex]::Match($(_PatchLevelContent), `define\s+PY_MICRO_VERSION\s+(\d+)`).Groups[1].Value)</MicroVersionNumber>
+    <MajorVersionNumber Condition="$(__Pyston) == 'true'">$([System.Text.RegularExpressions.Regex]::Match($(_PatchLevelContent), `define\s+PYSTON_MAJOR_VERSION\s+(\d+)`).Groups[1].Value)</MajorVersionNumber>
+    <MinorVersionNumber Condition="$(__Pyston) == 'true'">$([System.Text.RegularExpressions.Regex]::Match($(_PatchLevelContent), `define\s+PYSTON_MINOR_VERSION\s+(\d+)`).Groups[1].Value)</MinorVersionNumber>
+    <MicroVersionNumber Condition="$(__Pyston) == 'true'">$([System.Text.RegularExpressions.Regex]::Match($(_PatchLevelContent), `define\s+PYSTON_MICRO_VERSION\s+(\d+)`).Groups[1].Value)</MicroVersionNumber>
+    <APIMajorVersionNumber>$([System.Text.RegularExpressions.Regex]::Match($(_PatchLevelContent), `define\s+PY_MAJOR_VERSION\s+(\d+)`).Groups[1].Value)</APIMajorVersionNumber>
     <_ReleaseLevel>$([System.Text.RegularExpressions.Regex]::Match($(_PatchLevelContent), `define\s+PY_RELEASE_LEVEL\s+PY_RELEASE_LEVEL_(\w+)`).Groups[1].Value)</_ReleaseLevel>
     <ReleaseSerial>$([System.Text.RegularExpressions.Regex]::Match($(_PatchLevelContent), `define\s+PY_RELEASE_SERIAL\s+(\d+)`).Groups[1].Value)</ReleaseSerial>
     <ReleaseLevelNumber>15</ReleaseLevelNumber>
@@ -202,9 +222,9 @@
     <Field3Value Condition="$(UseTestMarker) == 'true'">$([msbuild]::Add($(Field3Value), 9000))</Field3Value>
     
     <!-- The name of the resulting pythonXY.dll (without the extension) -->
-    <PyDllName>python$(MajorVersionNumber)$(MinorVersionNumber)$(PyDebugExt)</PyDllName>
+    <PyDllName>$(PyName)$(MajorVersionNumber)$(MinorVersionNumber)$(PyLiteExt)$(PyDebugExt)</PyDllName>
     <!-- The name of the resulting pythonX.dll (without the extension) -->
-    <Py3DllName>python3$(PyDebugExt)</Py3DllName>
+    <Py3DllName>$(PyName)$(APIMajorVersionNumber)$(PyLiteExt)$(PyDebugExt)</Py3DllName>
 
     <!-- The version and platform tag to include in .pyd filenames -->
     <PydTag Condition="$(ArchName) == 'win32'">.cp$(MajorVersionNumber)$(MinorVersionNumber)-win32</PydTag>

@@ -1093,8 +1093,10 @@ static PyObject *
 sys_setrecursionlimit_impl(PyObject *module, int new_limit)
 /*[clinic end generated code: output=35e1c64754800ace input=b0f7a23393924af3]*/
 {
+#if !PYSTON_SPEEDUPS
     int mark;
     PyThreadState *tstate;
+#endif
 
     if (new_limit < 1) {
         PyErr_SetString(PyExc_ValueError,

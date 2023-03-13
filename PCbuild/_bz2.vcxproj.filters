@@ -45,4 +45,7 @@
       <Filter>bzip2 1.0.6 Header Files</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="..\PC\python_nt.rc" />
+  </ItemGroup>
 </Project>

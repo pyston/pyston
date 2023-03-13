@@ -1395,6 +1395,8 @@ new_arena(void)
     assert(arenaobj->address == 0);
 #if PY_DEBUGGING_FEATURES
     address = _PyObject_Arena.alloc(_PyObject_Arena.ctx, ARENA_SIZE);
+#elif defined(MS_WINDOWS)
+    address = _PyObject_ArenaVirtualAlloc(NULL, ARENA_SIZE);
 #else
     address = _PyObject_ArenaMmap(NULL, ARENA_SIZE);
 #endif
@@ -1917,6 +1919,9 @@ pymalloc_free(void *ctx, void *p)
 #if PY_DEBUGGING_FEATURES
         _PyObject_Arena.free(_PyObject_Arena.ctx,
                              (void *)ao->address, ARENA_SIZE);
+#elif defined(MS_WINDOWS)
+        _PyObject_ArenaVirtualFree(NULL,
+            (void*)ao->address, ARENA_SIZE);
 #else
         _PyObject_ArenaMunmap(NULL,
                              (void *)ao->address, ARENA_SIZE);

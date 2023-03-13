@@ -34,6 +34,10 @@
 #define CHECKEXC 1      /* Double-check exception checking */
 #endif
 
+#ifdef _MSC_VER
+#define inline __inline
+#endif
+
 #if !defined(Py_BUILD_CORE)
 #  error "ceval.c must be build with Py_BUILD_CORE define for best performance"
 #endif
@@ -44,7 +48,7 @@ extern int _PyObject_GetMethod(PyObject *, PyObject *, PyObject **);
 typedef PyObject *(*callproc)(PyObject *, PyObject *, PyObject *);
 
 /* Forward declarations */
-__attribute__((visibility("hidden"))) inline PyObject * call_function_ceval(
+Py_LOCAL_SYMBOL inline PyObject * call_function_ceval(
     PyThreadState *tstate, PyObject ***pp_stack,
     Py_ssize_t oparg, PyObject *kwnames);
 // This line makes sure that this function gets written out even if it
@@ -771,7 +775,7 @@ PyEval_EvalFrameEx(PyFrameObject *f, int throwflag)
 }
 
 #ifndef ENABLE_AOT
-PyObject* _Py_HOT_FUNCTION
+PyAPI_FUNC(PyObject*) _Py_HOT_FUNCTION
 _PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
 {
 #ifdef DXPAIRS
@@ -4981,7 +4985,7 @@ if (tstate->use_tracing && tstate->c_profilefunc) { \
     }
 
 // don't inline this function it should be cold and will increase our traces a lot
-/*static*/ PyObject * __attribute__((noinline))
+/*static*/ _Py_NO_INLINE PyObject*
 trace_call_function(PyThreadState *tstate,
                     PyObject *func,
                     PyObject **args, Py_ssize_t nargs,
@@ -5016,7 +5020,7 @@ trace_call_function(PyThreadState *tstate,
 
 /* Issue #29227: Inline call_function() into _PyEval_EvalFrameDefault()
    to reduce the stack consumption. */
-__attribute__((visibility("hidden"))) inline PyObject * _Py_HOT_FUNCTION
+Py_LOCAL_SYMBOL inline PyObject * _Py_HOT_FUNCTION
 call_function_ceval(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg, PyObject *kwnames)
 {
 #if PYSTON_SPEEDUPS
@@ -5026,7 +5030,10 @@ call_function_ceval(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t opar
     PyObject **pfunc = (*pp_stack) - oparg - 1;
 #endif
     PyObject *func = *pfunc;
-    PyObject *x, *w;
+    PyObject * x;
+#if !PYSTON_SPEEDUPS
+    PyObject * w;
+#endif
     Py_ssize_t nkwargs = (kwnames == NULL) ? 0 : PyTuple_GET_SIZE(kwnames);
     Py_ssize_t nargs = oparg - nkwargs;
 #if PYSTON_SPEEDUPS
@@ -5035,7 +5042,7 @@ call_function_ceval(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t opar
     PyObject **stack = (*pp_stack) - nargs - nkwargs;
 #endif
 
-    if (__builtin_expect(tstate->use_tracing, 0)) {
+    if (Py_UNLIKELY(tstate->use_tracing)) {
         x = trace_call_function(tstate, func, stack, nargs, kwnames);
     }
     else {
@@ -5046,7 +5053,7 @@ call_function_ceval(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t opar
 
     /* Clear the stack of the function object. */
 #if PYSTON_SPEEDUPS && !defined(LLTRACE_DEF)
-    for (int i = oparg; i >= 0; i--) {
+    for (Py_ssize_t i = oparg; i >= 0; i--) {
         Py_DECREF(pfunc[i]);
     }
     *pp_stack = pfunc;
@@ -5067,7 +5074,7 @@ call_function_ceval_no_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t op
 PyObject * _Py_HOT_FUNCTION
 call_function_ceval_kw(PyThreadState *tstate, PyObject **stack, Py_ssize_t oparg, PyObject *kwnames) {
     if (kwnames == NULL)
-        __builtin_unreachable();
+        Py_UNREACHABLE();
     return call_function_ceval(tstate, &stack, oparg, kwnames);
 }
 PyObject* PyNumber_PowerNone(PyObject *v, PyObject *w) {
