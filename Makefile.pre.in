@@ -1796,7 +1796,7 @@ Python/aot_ceval_jit_helper.o: Python/aot_ceval_jit_helper.c
 	$(CC) -c $(filter-out -flto -fuse-linker-plugin -ffat-lto-objects -flto-partition=none,$(PY_CORE_CFLAGS)) -std=gnu99 $(FCF_FLAG) -o $@ $<
 
 aot_optimized.o: $(AOT_DIR)/aot_all.bc
-	@if [ "$(findstring fprofile-generate, $(PY_CORE_CFLAGS))" != "" ]; \
+	@if [ "$(findstring fprofile-generate, $(PY_CORE_CFLAGS))" != "" ] && [ "$(shell lsb_release -sr)" != "22.04" ]; \
 	then \
 		echo "traces are compiled with instrumentation"; \
 		rm -rf $(AOT_DIR)/aot_prof; \

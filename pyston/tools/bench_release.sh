@@ -12,7 +12,7 @@ then
 fi
 mkdir -p $OUTPUT_DIR
 
-for DIST in 18.04 20.04
+for DIST in 18.04 20.04 22.04
 do
     echo "Benchmarking $DIST release"
     # mount input dir readonly to make sure we are not accidently modifying it
@@ -63,7 +63,7 @@ cat ${OUTPUT_DIR}/pyperformance_diff_20.04_${ARCH}.txt
 for f in ${OUTPUT_DIR}/results_pyston_20.04_${ARCH}/*.out
 do
     echo "benchmark: `basename $f`"
-    for DIST in 18.04 20.04
+    for DIST in 18.04 20.04 22.04
     do
         f_pyston=${f/20.04/$DIST}
         f_cpython=${f_pyston/results_pyston/results_cpython}

@@ -550,7 +550,7 @@ ifeq ($(RELEASE),16.04)
 	echo 10 > pyston/debian/compat
 	cd pyston; DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage -b -d
 else
-	cd pyston; DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage --build=binary --no-sign --jobs=auto -d
+	cd pyston; DEB_BUILD_OPTIONS="nocheck optimize=-lto" dpkg-buildpackage --build=binary --no-sign --jobs=auto -d
 endif
 
 bench: $(OPT_BENCH_ENV) $(SYSTEM_BENCH_ENV)
