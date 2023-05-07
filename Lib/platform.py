@@ -1090,9 +1090,10 @@ def python_implementation():
           'IronPython' (.NET implementation of Python),
           'Jython' (Java implementation of Python),
           'PyPy' (Python implementation of Python).
+          'Pyston' (Pyston implementation of Python).
 
     """
-    return _sys_version()[0]
+    return "Pyston"
 
 def python_version():
 
