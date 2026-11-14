@@ -3,7 +3,6 @@ This is Python version 3.10.0 alpha 6
 
 .. image:: https://travis-ci.com/python/cpython.svg?branch=master
    :alt: CPython build status on Travis CI
-   :target: https://travis-ci.com/python/cpython
 
 .. image:: https://github.com/python/cpython/workflows/Tests/badge.svg
    :alt: CPython build status on GitHub Actions
@@ -238,7 +237,6 @@ Python Enhancement Proposal (PEP) may be submitted if your idea gains ground.
 All current PEPs, as well as guidelines for submitting a new PEP, are listed at
 `python.org/dev/peps/ <https://www.python.org/dev/peps/>`_.
 
-.. _python-ideas: https://mail.python.org/mailman/listinfo/python-ideas/
 
 
 Release Schedule
