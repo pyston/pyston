@@ -237,7 +237,6 @@ Python Enhancement Proposal (PEP) may be submitted if your idea gains ground.
 All current PEPs, as well as guidelines for submitting a new PEP, are listed at
 `python.org/dev/peps/ <https://www.python.org/dev/peps/>`_.
 
-.. _python-ideas: https://mail.python.org/mailman/listinfo/python-ideas/
 
 
 Release Schedule
